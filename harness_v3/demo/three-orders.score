@@ -1,0 +1,471 @@
+# "When Fields Changed, Towns Grew" (The Three Orders): written by hand, as the score model should, for the
+# narration in three-orders.txt (word numbers are the narration's own, so the cues hold on any machine).
+look editorial
+
+# ---- 1 cold: a field in a cold, forested Europe -------------------------------------------------------------------
+shot cold at 0,0
+ent head1   label "europe · 5th to 10th centuries" size 0.2 at -3.3,3.2
+ent forest  photo "a dense dark pine forest in a cold medieval European winter with snow on the ground" size 6.2 at -2.2,0.2
+ent field   pic "a small muddy ploughed field strip with furrows, seen from above" size 1.9 at -3.7,-1.25 layer 2
+ent therm   icon thermometer-snowflake badge navy size 1.25 at 4.6,2.3
+ent coldt   tag "intensely cold" size 0.32 at 4.6,1.15
+ent snow    icon snowflake badge sky size 0.85 at 3.4,-0.2
+ent glass   icon hourglass badge sand size 0.85 at 4.6,-0.2
+ent crop    icon wheat badge gold size 0.85 at 5.8,-0.2
+ent peas1   pic "a poor medieval peasant in a ragged brown tunic walking, full figure" size 2.1 at 4.9,-2.35
+
+t0          cam cold
+w3          in field pop
+w5-w7       in forest rise
+w9          in head1 fade
+w20-w22     scale forest 1.06
+w24-w27     shake field
+w32         in therm pop
+w33         in coldt pop
+w34         in snow pop
+w40         in glass pop
+w42         in crop pop
+w43         dim crop 0.3
+w44         pulse forest
+w50         in peas1 slide-left
+w51-w53     move peas1 to -0.6,-1.2 arc .4
+w53         dim peas1 0.55
+
+# ---- 2 warm: temperatures rose, forests receded, more land was farmed --------------------------------------------
+shot warm at 18,0
+ent head2   label "from the 11th century" size 0.2 at -4.2,3.2
+ent therm2  icon thermometer-sun badge coral size 1.3 at -4.9,1.6
+ent tbar    bar 2 max 10 w 3.4 h 0.42 color coral at -4.9,0.25
+ent tlab    label "temperature" size 0.12 at -4.9,-0.35
+ent forl    label "forest" size 0.14 at -0.6,2.25
+ent fbar    bar 7 max 10 w 6.2 h 0.5 color green at 2.3,1.75
+ent farl    label "farmland" size 0.14 at -0.3,0.95
+ent lbar    bar 3 max 10 w 6.2 h 0.5 color gold at 2.3,0.45
+ent soil    photo "wide green ploughed farmland with long furrows in spring sunshine" size 4.0 at 2.6,-2.0
+
+w54-w55     cam warm
+w56         in head2 fade
+w58         in therm2 pop
+w58         in tbar,tlab fade
+w59-w60     grow tbar 7.5
+w62         pulse therm2
+w70         in soil rise
+w74         in forl,fbar,farl,lbar fade
+w75-w76     grow fbar 4
+w77-w83     grow lbar 6.5
+
+# ---- 3 oldway: the wooden plough and the two-field system ---------------------------------------------------------
+shot oldway at 36,0
+ent head3   label "the old way · two fields" size 0.2 at -3.9,3.2
+ent ard     pic "a simple medieval wooden scratch plough (ard) without wheels, side view" size 3.0 at -4.3,1.1
+ent labour  tag "enormous labour" size 0.3 at -4.3,-0.8
+ent fa      rect w 3.0 h 2.3 fill gold at 1.6,0.3
+ent fb      rect w 3.0 h 2.3 fill sand at 4.9,0.3
+ent fal     label "winter wheat" size 0.14 color ink at 1.6,0.3
+ent fbl     label "fallow" size 0.14 color ink at 4.9,0.3
+ent half    tag "half the land in use" size 0.3 at 3.25,2.3
+ent rye     label "rye" size 0.14 color ink at 4.9,0.3
+ent fal2    label "fallow" size 0.14 color ink at 1.6,0.3
+ent famine  tag "famine was common" size 0.36 fill coral color white at 3.25,-2.2
+
+w84-w85     cam oldway
+w86         in head3 fade
+w97         in ard pop
+w100        shake ard
+w108        in labour pop
+w112        in fa,fb unfold stagger .2
+w117        in half pop
+w123-w127   in fal fade
+w129-w132   in fbl fade
+w136        out fal,fbl fade
+w136-w137   color fb gold
+w136-w137   color fa sand
+w137        in rye,fal2 fade
+w145        shake fa,fb
+w148        dim fa,fb 0.45
+w150        in famine pop
+
+# ---- 4 pressure: lords push, peasants resist; shared land becomes private ---------------------------------------
+shot pressure at 54,0
+ent lord    card "lords" img "a medieval lord in a fur-trimmed cloak with a sword at his belt, full figure" at -3.6,0.9
+ent folk    card "peasants" img "a small group of medieval peasants holding hoes and sickles" at 3.6,0.9
+ent push    arrow lord folk curve -0.45 color coral
+ent more1   tag "more land, more work" size 0.3 at 0,2.75
+ent q4      tag "did peasants simply accept this?" size 0.38 at 0,-3.05
+ent no      tag "no." size 0.7 fill coral color white at 0,-3.05
+ent kept    icon wheat badge gold size 0.75 at 2.4,-1.45
+ent avoid   icon ban badge navy size 0.75 at 3.6,-1.45
+ent fight   icon swords badge coral size 0.75 at 4.8,-1.45
+ent commons icon trees badge green size 1.15 at 0,-0.3
+ent shared  label "shared by all" size 0.13 at 0,-1.15
+ent priv    icon lock badge ink size 0.55 at 0.55,0.2 layer 3
+ent privl   label "the lord's property" size 0.13 at 0,-1.15
+
+w153-w154   cam pressure
+w153        in lord drop
+w158        in folk drop
+w160        in push draw
+w163-w165   in more1 pop
+w171        in q4 pop
+w177        out q4 fade
+w177        in no pop
+w180        in kept pop
+w189        in avoid pop
+w194        in fight pop
+w196        in commons pop
+w201-w202   in shared fade
+w210        pulse lord
+w214        out shared fade
+w215        in priv pop
+w215        in privl fade
+
+# ---- 5 tools: new tools and methods ------------------------------------------------------------------------------
+shot tools at 0,-11
+ent head5   label "new tools · from the 11th century" size 0.2 at -3.3,3.2
+ent c1      card "iron plough" img "a heavy medieval iron-tipped plough with a curved wooden mouldboard, side view" size 1.25 at -4.65,0.5
+ent c2      card "shoulder harness" img "a draught horse wearing a padded shoulder collar harness, side view" size 1.25 at -1.55,0.5
+ent c3      card "iron shoes" img "a single iron horseshoe with nail holes" size 1.25 at 1.55,0.5
+ent c4      card "mills" img "a medieval stone watermill with a large wooden water wheel" size 1.25 at 4.65,0.5
+ent bal     icon scale badge accent size 0.95 at 0,-2.9
+
+w217-w218   cam tools
+w219        in head5 fade
+w230-w231   in bal pop
+w231        shake bal
+w233        in c1 drop
+w239-w240   pulse c1
+w246        in c2 drop
+w256        in c3 drop
+w262        in c4 drop
+w264        pulse c4
+
+# ---- 6 three: two fields become three, and the jobs rotate ------------------------------------------------------
+shot three at 18,-11
+ent head6   label "two fields become three" size 0.2 at -4.3,3.2
+ent s1      rect w 3.6 h 2.2 fill gold at -4.0,0.6
+ent s2      rect w 3.6 h 2.2 fill green at 0,0.6
+ent s3      rect w 3.6 h 2.2 fill sand at 4.0,0.6
+ent i1      icon wheat size 1.0 color ink at -4.0,0.6 layer 2
+ent i2      icon bean size 1.0 color ink at 0,0.6 layer 2
+ent i3      icon sprout size 1.0 color ink at 4.0,0.6 layer 2
+ent lb1     label "autumn: wheat, rye" size 0.13 at -4.0,-0.95
+ent lb2     label "spring: peas, beans, oats" size 0.13 at 0,-0.95
+ent lb3     label "resting" size 0.13 at 4.0,-0.95
+ent x2      num 1 prefix "×" size 0.8 at 0,-2.35
+ent x2l     label "food from each unit of land" size 0.13 at 0,-3.3
+
+w271-w272   cam three
+w273        in head6 fade
+w285-w289   in s1,s2,s3 unfold stagger .25
+w291        in i1 pop
+w292        in lb1 fade
+w300        in i2 pop
+w301        in lb2 fade
+w316        in i3 pop
+w317        in lb3 fade
+w321-w327   move i1 to 0,0.6 arc .5
+w321-w327   move lb1 to 0,-0.95
+w321-w327   move i2 to 4.0,0.6 arc .5
+w321-w327   move lb2 to 4.0,-0.95
+w321-w327   move i3 to -4.0,0.6 arc -.5
+w321-w327   move lb3 to -4.0,-0.95
+w321-w327   color s1 sand
+w321-w327   color s2 gold
+w321-w327   color s3 green
+w338        in x2,x2l pop
+w343-w345   count x2 2
+
+# ---- 7 farms: a better diet, smaller farms, mills and smithies -------------------------------------------------
+shot farms at 36,-11
+ent stew    pic "a wooden bowl of thick pea and bean stew" size 1.9 at -5.1,1.9
+ent cow     pic "a brown cow eating a pile of hay" size 2.1 at -5.1,-0.6
+ent fhead   label "the average farm" size 0.16 at -0.9,2.35
+ent farm    bar 100 max 100 w 7.0 h 0.6 color green at 2.3,1.75
+ent acres   num 100 suffix " acres" size 0.42 at 4.6,0.85
+ent when    label "by the 13th century" size 0.13 at -0.6,0.85
+ent time    icon hourglass badge gold size 0.85 at -0.9,-0.45
+ent mill    pic "a medieval wooden windmill with four sails" size 2.3 at 1.2,-2.2
+ent anvil   pic "a blacksmith's anvil with a hammer and an iron horseshoe on it" size 2.0 at 4.4,-2.3
+
+w346-w347   cam farms
+w349        in stew pop
+w354        in cow pop
+w366        in fhead,farm,acres fade
+w368-w377   grow farm 25
+w368-w377   count acres 25
+w380        in when fade
+w389-w390   in time pop
+w390        spin time 180
+w397-w398   in mill drop
+w409-w410   in anvil drop
+
+# ---- 8 money: cash rent, traders, prices -------------------------------------------------------------------------
+shot money at 54,-11
+ent head8   label "money began to matter" size 0.2 at -3.9,3.2
+ent coins   pic "a small pile of medieval silver coins" size 2.0 at -5.0,1.5
+ent lab     card "labour" sub "days of work for the lord" w 2.8 h 1.7 at -1.2,1.5
+ent cash    card "cash rent" sub "paid in coin" w 2.8 h 1.7 at -1.2,1.5
+ent grain   icon wheat badge gold size 0.95 at 2.1,1.5
+ent shop    icon store badge navy size 0.95 at 5.0,1.5
+ent sell    arrow grain shop color soft
+ent gb      flag gb size 1.1 at -5.3,-1.5
+ent plab    label "agricultural prices · england" size 0.13 at -2.3,-0.75
+ent pbar    bar 1 max 2.2 w 6.0 h 0.55 color coral at -0.7,-1.5
+ent px      num 1 prefix "×" size 0.5 at 3.6,-1.5
+ent y1      label "1270s" size 0.12 at -3.4,-2.2
+ent y2      label "1320s" size 0.12 at 2.0,-2.2
+
+w416-w417   cam money
+w418        in head8 fade
+w420        in coins pop
+w426        in lab drop
+w431-w432   morph lab cash
+w437        in grain pop
+w440        in shop pop
+w440-w441   in sell draw
+w449        pulse coins
+w455        in gb drop
+w456        in plab,pbar,px,y1 fade
+w458-w459   grow pbar 2
+w458-w459   count px 2
+w464        in y2 fade
+
+# ---- 9 people: more food, more people ----------------------------------------------------------------------------
+shot people at 0,-22
+ent head9   label "europe's population" size 0.2 at -4.2,3.2
+ent yr1     text "1000" size 0.32 bold at -5.4,1.8
+ent pb1     bar 0 max 80 w 7.6 h 0.55 color grey at -0.4,1.8
+ent pn1     num 0 suffix " m" size 0.42 at 4.9,1.8
+ent yr2     text "1200" size 0.32 bold at -5.4,0.6
+ent pb2     bar 0 max 80 w 7.6 h 0.55 color grey at -0.4,0.6
+ent pn2     num 0 suffix " m" size 0.42 at 4.9,0.6
+ent yr3     text "1300" size 0.32 bold at -5.4,-0.6
+ent pb3     bar 0 max 80 w 7.6 h 0.55 color accent at -0.4,-0.6
+ent pn3     num 0 suffix " m" size 0.42 at 4.9,-0.6
+ent life1   label "lived longer than in the 8th century" size 0.13 at 0,-2.1
+ent life2   label "women and girls: shorter lives than men" size 0.13 at 0,-2.7
+
+w465-w466   cam people
+w467        in head9 fade
+w476        in yr1,pb1,pn1 fade
+w476-w477   grow pb1 42
+w476-w477   count pn1 42
+w481        in yr2,pb2,pn2 fade
+w481-w482   grow pb2 62
+w481-w482   count pn2 62
+w486        in yr3,pb3,pn3 fade
+w486-w487   grow pb3 73
+w486-w487   count pn3 73
+w491        in life1 fade
+w499        in life2 fade
+
+# ---- 10 towns: markets become towns ------------------------------------------------------------------------------
+shot towns at 18,-22
+ent market  pic "a medieval market stall with bread, cloth and baskets of vegetables" size 2.6 at -4.4,1.4
+ent town    photo "a medieval walled town with a church spire and red tiled rooftops" size 5.2 at 2.3,0.9
+ent castle  icon castle badge navy size 0.95 at -5.0,-1.4
+ent bish    icon church badge navy size 0.95 at -3.6,-1.4
+ent taxes   tag "taxes, not labour" size 0.34 at 2.3,-2.6
+
+w507-w508   cam towns
+w518        in market pop
+w523-w525   in town rise
+w529        pulse town
+w540        in castle pop
+w544        in bish pop
+w549-w550   in taxes pop
+
+# ---- 11 air: town air makes free -----------------------------------------------------------------------------------
+shot air at 36,-22
+ent youth   pic "a young medieval peasant carrying a bundle on a stick over his shoulder, walking, full figure" size 2.4 at -4.8,0.4
+ent gate    pic "a medieval town gate in a stone wall" size 2.6 at 4.4,0.6
+ent quote   tag "“town air makes free”" size 0.46 at 0,2.6
+ent days    num 0 suffix " days" size 0.5 at 0,-1.6
+ent dayl    label "hidden in a town for a year and a day" size 0.13 at 0,-2.4
+ent free    icon lock-open badge green size 0.85 at 2.0,-1.6
+
+w559-w560   cam air
+w561        in youth pop
+w568        in gate pop
+w571-w577   move youth to 1.8,0.4
+w581-w584   in quote pop
+w590-w591   in days,dayl fade
+w594-w600   count days 366
+w607-w608   in free pop
+w608        pulse free
+
+# ---- 12 folk: who lived in towns ---------------------------------------------------------------------------------
+shot folk2 at 54,-22
+ent t1      card "escaped serfs" img "a medieval serf in torn clothes, full figure" size 0.9 at -4.6,1.1
+ent t2      card "free peasants" img "a medieval free peasant farmer holding a pitchfork, full figure" size 0.9 at -2.3,1.1
+ent t3      card "labourers" img "a medieval labourer carrying a heavy sack, full figure" size 0.9 at 0,1.1
+ent t4      card "shopkeepers" img "a medieval shopkeeper standing at a wooden counter" size 0.9 at 2.3,1.1
+ent t5      card "merchants" img "a rich medieval merchant in a fine red robe, full figure" size 0.9 at 4.6,1.1
+ent bank    icon landmark badge navy size 0.85 at -1.0,-1.35
+ent law     icon scale badge navy size 0.85 at 1.0,-1.35
+ent big     num 0 size 0.6 at 0,-2.55
+ent bigl    label "people in the largest towns" size 0.13 at 0,-3.35
+
+w609-w610   cam folk2
+w611-w612   in t1 drop
+w613-w614   in t2 drop
+w615        in t3 drop
+w616        in t4 drop
+w618        in t5 drop
+w628        in bank pop
+w630        in law pop
+w632        in big,bigl fade
+w633-w636   count big 30000
+
+# ---- 13 orders: a fourth order; guilds, merchants and trade -----------------------------------------------------
+shot orders at 0,-33
+ent o1      card "clergy" sub "those who pray" w 2.7 h 1.6 at -4.65,2.0
+ent o2      card "nobles" sub "those who fight" w 2.7 h 1.6 at -1.55,2.0
+ent o3      card "peasants" sub "those who work" w 2.7 h 1.6 at 1.55,2.0
+ent o4      card "townspeople" sub "a fourth order?" w 2.7 h 1.6 fill accent at 4.65,2.0
+ent guild   photo "a medieval guild hall building on a town square" size 3.3 at -4.1,-1.5
+ent gl      label "guilds: quality, price, sale" size 0.12 at -4.1,-3.35
+ent merch   pic "a rich medieval merchant counting gold coins at a table" size 2.2 at 0.2,-1.4
+ent rival   icon crown badge accent size 0.7 at 1.4,-0.3 layer 3
+ent furs    pic "a bundle of brown animal furs tied with rope" size 1.2 at 3.0,-1.6
+ent hawk    pic "a hunting hawk perched on a leather falconry glove" size 1.2 at 4.3,-1.6
+ent tin     pic "a rough bar of grey tin metal" size 1.1 at 5.6,-1.6
+ent tradel  label "furs, hawks from the north sea · tin from england" size 0.11 at 4.3,-2.75
+
+w637-w638   cam orders
+w637        in o1,o2,o3 drop stagger .15
+w645-w646   in o4 drop
+w648        pulse o4
+w650        in guild rise
+w656        in gl fade
+w672        in merch pop
+w681        in furs pop
+w683        in hawk pop
+w693        in tin pop
+w693        in tradel fade
+w713-w714   in rival pop
+w714        pulse rival
+
+# ---- 14 cathedral: cathedrals help towns grow --------------------------------------------------------------------
+shot cath at 18,-33
+ent cathp   photo "a tall gothic stone cathedral in medieval France with wooden scaffolding" size 5.4 at -2.8,0.4
+ent work    icon hammer badge navy size 0.75 at 3.0,2.5
+ent stone   icon mountain-snow badge navy size 0.75 at 4.2,2.5
+ent money   icon coins badge gold size 0.75 at 5.4,2.5
+ent years   icon hourglass badge sand size 0.75 at 4.2,1.3
+ent pilg    icon users x3 row gap 0.25 size 0.7 color ink at 4.2,0.2
+ent glassw  pic "a colourful medieval stained glass window showing a Bible scene" size 2.4 at 4.2,-2.0
+ent bell    icon bell badge gold size 0.95 at -5.6,-2.9
+
+w718-w719   cam cath
+w718        in cathp rise
+w729        in work pop
+w730        in stone pop
+w732        in money pop
+w741        in years pop
+w741-w742   spin years 180
+w757        in pilg pop stagger .12
+w759-w760   in glassw pop
+w768        pulse glassw
+w792        in bell pop
+w792-w793   shake bell
+
+# ---- 15 strain: cold again, storms, too many people for the land ------------------------------------------------
+shot strain at 36,-33
+ent head15  label "new pressures · late 13th century" size 0.2 at -3.3,3.2
+ent therm3  icon thermometer-snowflake badge navy size 1.2 at -4.9,1.6
+ent tbar3   bar 7.5 max 10 w 3.4 h 0.42 color coral at -4.9,0.3
+ent storm   icon cloud-lightning badge navy size 0.9 at -1.6,1.6
+ent flood   icon waves badge sky size 0.9 at -0.3,1.6
+ent thin    pic "a thin brown cow standing in a bare muddy field" size 2.2 at 3.6,1.6
+ent popl    label "people" size 0.13 at -2.6,-0.4
+ent popb    bar 5 max 10 w 6.0 h 0.45 color coral at 1.3,-0.4
+ent foodl   label "food" size 0.13 at -2.6,-1.2
+ent foodb   bar 5 max 10 w 6.0 h 0.45 color green at 1.3,-1.2
+ent fam     tag "famine · 1315 to 1317" size 0.36 fill coral color white at 0,-2.6
+ent skull   icon skull badge ink size 0.65 at 4.9,0.75 layer 3
+
+w802-w803   cam strain
+w804        in head15 fade
+w818        in therm3 pop
+w818        in tbar3 fade
+w818-w819   grow tbar3 3
+w823        in storm pop
+w825        in flood pop
+w832        dim tbar3 0.5
+w836-w837   in thin pop
+w836        scale thin 0.85
+w839        in popl,popb,foodl,foodb fade
+w840-w842   grow popb 9
+w843-w844   grow foodb 6
+w845-w847   in fam pop
+w854-w855   in skull pop
+
+# ---- 16 plague: debased coin, the Black Death -----------------------------------------------------------------
+shot plague at 54,-33
+ent coin    pic "a single medieval silver coin" size 1.5 at -5.2,2.2
+ent bd      tag "the black death" size 0.6 fill ink color white at 0.4,2.55
+ent ship    pic "a medieval wooden merchant ship with a single square sail" size 3.0 at -3.8,-0.2
+ent rat     pic "a black rat" size 1.1 at -2.6,-1.5 layer 3
+ent dates   label "1347 to 1350" size 0.13 at 2.9,1.55
+ent pop100  dots 100 grid 10 size 0.12 color ink at 2.9,-0.35
+ent cities  icon building-2 badge navy size 0.8 at -5.3,-2.7
+
+w856        in coin pop
+w859        pulse coin
+w864-w866   scale coin 0.6
+w871-w872   cam plague
+w874-w875   in bd pop
+w876        in ship slide-right
+w884        in rat pop
+w885-w888   move rat by 1.6,0.2 arc .3
+w890        in dates,pop100 fade
+w894-w898   color pop100[0:20] red stagger .02
+w902-w906   color pop100[20:40] coral stagger .02
+w907        in cities pop
+w912-w913   shake cities
+
+# ---- 17 after: fewer people, higher wages, revolts ---------------------------------------------------------------
+shot after at 0,-44
+ent ph17    label "europe's population" size 0.18 at -4.3,3.2
+ent fallb   bar 73 max 80 w 7.4 h 0.55 color accent at -0.6,2.3
+ent falln   num 73 suffix " m" size 0.45 at 4.6,2.3
+ent fyr     label "1300 to 1400" size 0.12 at -3.4,1.65
+ent wage    icon arrow-up badge green size 0.9 at -4.2,0.3
+ent wagel   label "wages" size 0.13 at -4.2,-0.6
+ent price   icon arrow-down badge coral size 0.9 at -1.4,0.3
+ent pricel  label "farm prices" size 0.13 at -1.4,-0.6
+ent revive  card "labour services" sub "the lords try again" w 2.8 h 1.5 at 3.6,0.1
+ent r1      tag "flanders" size 0.28 at -3.8,-1.9
+ent r2      tag "france" size 0.28 at -1.2,-1.9
+ent r3      tag "england" size 0.28 at 1.3,-1.9
+ent ties    tag "the old ties could not be restored" size 0.32 fill ink color white at 0,-3.0
+
+w914-w915   cam after
+w914        in ph17,fallb,falln,fyr fade
+w922-w924   grow fallb 45
+w922-w924   count falln 45
+w930        in wage pop
+w931        in wagel fade
+w936        in price pop
+w937        in pricel fade
+w942-w944   in revive drop
+w955-w956   in r1 pop
+w959        pulse r1
+w960        in r2 pop
+w962        in r3 pop
+w966        shake r1,r2,r3
+w966        dim r1,r2,r3 0.5
+w971-w976   in ties pop
+w973        dim revive 0.4
+
+# ---- 18 close: what kind of power would take its place? ----------------------------------------------------------
+shot close at 18,-44
+ent qend    tag "what kind of power would take its place?" size 0.52 at 0,0.8
+ent crown   icon crown badge accent size 1.3 at 0,-1.3
+
+w977-w978   cam close
+w987-w988   in qend pop
+w990        in crown pop
+w990-w991   float crown 0.08
+t470.4-t473 cam wide

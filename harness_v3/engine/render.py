@@ -227,7 +227,7 @@ class ScoreScene(MovingCameraScene):
     def _spread(self) -> None:
         """Things of one shot up at the same time that partly overlap are pushed apart (the later one moves, along
         the shorter way out, kept on its shot's screen). One inside the other (a label on a box, an icon on its
-        badge) is left: that is meant."""
+        badge) is left: that is meant, as is one given another `layer` (a rat over the ship)."""
         sc = self.SCORE
         times = self._up_times()
         for shot in sc.shots.values():
@@ -252,6 +252,8 @@ class ScoreScene(MovingCameraScene):
                         continue
                     for a in ents[:j]:
                         if a.name in ridden or a in riders[b.name] or b in riders[a.name]:
+                            continue
+                        if a.mods.get("layer") != b.mods.get("layer"):     # one put over the other on purpose
                             continue
                         (a0, a1), (b0, b1) = times.get(a.name, (0, 1e9)), times.get(b.name, (0, 1e9))
                         if a1 <= b0 or b1 <= a0:

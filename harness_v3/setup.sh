@@ -61,6 +61,7 @@ fi
 step "python packages (manim, piper, faster-whisper: a few hundred MB; pycairo is compiled on macOS)"
 ../.venv3/bin/python -m pip install --progress-bar on -r requirements.txt 2>&1 | grep --line-buffered -E "^(Collecting|Building|Successfully|ERROR|error)|Downloading .*MB" || true
 ../.venv3/bin/python -c "import manim, piper, faster_whisper" || { echo "the Python packages did not install: run ../.venv3/bin/python -m pip install -r requirements.txt to see why"; exit 1; }
+cp requirements.txt ../.venv3/requirements.installed   # start.sh sets up again when requirements.txt changes
 
 # ---- icons and voices
 step "icons and voices"

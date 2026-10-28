@@ -64,13 +64,31 @@ def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -
     return spans
 
 
+def _samples16k(wav: Path):
+    """The take as Whisper hears it (mono float32 at 16 kHz), read here: Whisper's own reader goes through PyAV,
+    whose API changes between versions (av 19 dropped an argument it passes)."""
+    import numpy as np
+
+    with wave.open(str(wav), "rb") as wf:
+        rate, width, chans = wf.getframerate(), wf.getsampwidth(), wf.getnchannels()
+        raw = wf.readframes(wf.getnframes())
+    x = np.frombuffer(raw, dtype={1: np.uint8, 2: np.int16, 4: np.int32}[width]).astype(np.float32)
+    x = (x - 128) / 128 if width == 1 else x / float(2 ** (8 * width - 1))
+    if chans > 1:
+        x = x.reshape(-1, chans).mean(axis=1)
+    if rate != 16000:
+        n = int(round(len(x) * 16000 / rate))
+        x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+    return x
+
+
 def timed_words(wav: Path, lines: list[str], spans: list[tuple[float, float]]) -> list[dict]:
     """Each written word with when it is said: Whisper's words matched to the script's in order; a word it did not
     hear takes its neighbours' times (spread evenly between them)."""
     from faster_whisper import WhisperModel
 
     model = WhisperModel("base.en", device="cpu", compute_type="int8", download_root=str(HERE.parent / ".cache" / "whisper"))
-    segments, _ = model.transcribe(str(wav), word_timestamps=True, language="en")
+    segments, _ = model.transcribe(_samples16k(wav), word_timestamps=True, language="en")
     heard = [(w.word.strip(), float(w.start), float(w.end)) for s in segments for w in (s.words or [])]
     script = [(li, w) for li, line in enumerate(lines) for w in words_of(line)]
     a = [_plain(w) for _, w in script]

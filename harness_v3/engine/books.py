@@ -200,7 +200,7 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
         sid = uuid.uuid4().hex[:6]
         sec = next((s["title"] for s in book["sections"] if s["from"] == a and s["to"] == b), "")
         book["scripts"].append({"id": sid, "from": a, "to": b, "title": sec or f"Pages {a}-{b}",
-                                "settings": {"model": settings.get("model") or runs.DEFAULT_MODEL,
+                                "settings": {"model": settings.get("model") or os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL,
                                              "videos": int(settings.get("videos") or 3),
                                              "seconds": int(settings.get("seconds") or 40),
                                              "notes": str(settings.get("notes") or "")},

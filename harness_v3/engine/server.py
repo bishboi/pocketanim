@@ -25,6 +25,7 @@ The API (JSON):
     POST /api/books/<id>/build             {script, video?, model, voice, quality, critic, speed, pause}: one video
                                            (or every one not built yet) made as runs
     GET  /books/<id>/source.pdf            the PDF
+    GET  /assets/<file>.png                a made picture (the image model's, kept in .cache/assets)
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import env  # noqa: E402,F401 -- the keys from .env files, before anything reads them
+import assets  # noqa: E402
 import books  # noqa: E402
 import runs  # noqa: E402
 from urllib.parse import parse_qs, unquote  # noqa: E402
@@ -82,7 +84,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/config":
                 extra = [m.strip() for m in os.environ.get("V3_MODELS", "").split(",") if m.strip()]
                 models = list(dict.fromkeys([runs.DEFAULT_MODEL, *extra, *MODELS]))
-                self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "problems": problems(), "voices": VOICES,
+                self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "problems": problems(),
+                            "steps": runs.STEPS, "step_models": runs.step_models(),
+                            "script_model": os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL, "voices": VOICES,
                             "key": bool(os.environ.get("OPENROUTER_API_KEY")),
                             "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})
             elif path == "/api/runs":
@@ -96,6 +100,8 @@ class Handler(BaseHTTPRequestHandler):
                 a, b = int(q.get("from", ["1"])[0]), int(q.get("to", ["1"])[0])
                 texts = books.pages(m.group(1))
                 self._json([{"page": k, "text": texts[k - 1]} for k in range(max(1, a), min(len(texts), b) + 1)])
+            elif m := re.fullmatch(r"/assets/((?:pic|photo|flag)-[\w-]+\.png)", path):
+                self._file(assets.CACHE / m.group(1))
             elif m := re.fullmatch(r"/books/([\w-]+)/source\.pdf", path):
                 self._file(books.book_dir(m.group(1)) / "source.pdf")
             elif m := re.fullmatch(r"/api/runs/([\w-]+)", path):
@@ -107,7 +113,13 @@ class Handler(BaseHTTPRequestHandler):
                     p = d / name
                     return p.read_text() if p.exists() else None
                 words = json.loads(read("words.json") or "null")
-                self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"),
+                score_text = read("video.score") or ""
+                image_model = (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL
+                pictures = []
+                for kind, prompt, lk in assets.wants(score_text):
+                    p = assets.path_for(kind, prompt, lk if lk in ("editorial", "paper") else "paper", image_model)
+                    pictures.append({"kind": kind, "prompt": prompt, "file": p.name if p.exists() else None})
+                self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"), "pictures": pictures,
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
                             "score": read("video.score"), "video": (d / "video.mp4").exists()})
             elif m := re.fullmatch(r"/files/([\w-]+)/([\w.]+)", path):
@@ -228,6 +240,10 @@ def problems() -> list[str]:
         out.append("no voices in .cache/voices: run ./setup.sh")
     if not (HERE.parent / ".cache" / "package" / "icons").is_dir():
         out.append("no icons in .cache/package: run ./setup.sh")
+    if not (HERE.parent / ".cache" / "flagpkg" / "package" / "flags").is_dir() or not list((HERE.parent / ".cache" / "fonts").glob("*.ttf")):
+        out.append("the kit's fonts or flags are missing: run ./setup.sh")
+    if importlib.util.find_spec("cairosvg") is None:
+        out.append("cairosvg is missing (flags): run ./setup.sh")
     if not shutil.which("ffmpeg"):
         out.append("ffmpeg is not on the PATH (macOS: brew install ffmpeg)")
     return out

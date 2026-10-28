@@ -28,7 +28,12 @@
   .chip.failed { background:#3a1414; color:#ff9a9a; } .chip.waiting { background:#1b1f25; color:var(--soft); }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .soft { color:var(--soft); }
-  .steps { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:12px 0; }
+  .steps { display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; margin:12px 0; }
+  .pics { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
+  .pic { background:#EFE4C8; border-radius:8px; padding:8px; color:#1D1C1A; font-size:11px; }
+  .pic img { width:100%; height:140px; object-fit:contain; display:block; }
+  .pic .none { height:140px; display:flex; align-items:center; justify-content:center; color:#9C9381; }
+  details.models { grid-column: 1 / -1; } details.models summary { cursor:pointer; color:var(--soft); }
   .step { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
   .step h4 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
   .step .notes { color:var(--soft); font-size:11px; max-height:90px; overflow:auto; margin-top:6px; white-space:pre-wrap; }
@@ -148,10 +153,10 @@ function render() {
       · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
       ${r.words ? ` · ${r.words.count} words, ${r.words.seconds.toFixed(1)} s` : ""}</div>
     ${!config.key && !st.given_score ? `<div class="banner">No OPENROUTER_API_KEY on the server: the storyboard and score steps need it. Set it and run the storyboard step again, or edit the score by hand below.</div>` : ""}
-    <div class="steps">${["voice", "storyboard", "score", "render", "critic"].map(stepCard).join("")}</div>
+    <div class="steps">${(config.steps || ["voice", "storyboard", "score", "assets", "render", "critic"]).map(stepCard).join("")}</div>
     <div class="row soft">cost by step: ${Object.entries(byStep).map(([k, v]) => `${k} <span class="money">${usd(v)}</span>`).join(" · ") || "none yet"}</div>
-    <div class="tabs">${["video", "words", "storyboard", "calls"].map((t) =>
-      `<button class="${tab === t ? "on" : ""}" onclick="tab='${t}';render()">${{video: "Video & score", words: "Narration & words", storyboard: "Storyboard", calls: `Calls (${calls.length})`}[t]}</button>`).join("")}</div>
+    <div class="tabs">${["video", "words", "storyboard", "pictures", "calls"].map((t) =>
+      `<button class="${tab === t ? "on" : ""}" onclick="tab='${t}';render()">${{video: "Video & score", words: "Narration & words", storyboard: "Storyboard", pictures: `Pictures (${(data.pictures || []).length})`, calls: `Calls (${calls.length})`}[t]}</button>`).join("")}</div>
     <div class="pane" id="pane"></div>`;
   pane();
 }
@@ -170,6 +175,12 @@ function pane() {
     p.innerHTML = w ? `${w.lines.map((l, i) => `<p><b>${secs(l.start)}–${secs(l.end)}</b> ${esc(l.text)}<br>${
         w.words.filter((x) => x.line === i).map((x) => `<span class="word">w${x.i} ${esc(x.w)}<i>${x.start.toFixed(2)}</i></span>`).join("")}</p>`).join("")}
       <audio controls src="/files/${sel}/voice.wav"></audio>` : `<pre>${esc(data.narration)}</pre><p class="soft">Not spoken yet.</p>`;
+  } else if (tab === "pictures") {
+    const ps = data.pictures || [];
+    p.innerHTML = ps.length ? `<p class="soft">The pictures the score asks for (\`pic\` and \`photo\` lines), made by the image model in the assets step and kept: the same words cost nothing next time.</p>
+      <div class="pics">${ps.map((x) => `<div class="pic">${x.file ? `<img src="/assets/${x.file}">` : `<div class="none">not made yet</div>`}
+        <div><b>${x.kind}</b> ${esc(x.prompt)}</div></div>`).join("")}</div>`
+      : `<p class="soft">This score asks for no pictures.</p>`;
   } else if (tab === "storyboard") {
     p.innerHTML = data.storyboard ? `<table><tr><th>#</th><th>shot</th><th>words</th><th>plan</th><th></th></tr>${data.storyboard.map((s, k) =>
       `<tr><td>${k + 1}</td><td>${esc(s.name)}</td><td>w${s.a}–w${s.b}</td><td>${esc(s.plan)}</td>
@@ -222,8 +233,10 @@ function showNew() {
         <textarea id="n-text" rows="8" placeholder="In 1853, four American warships sailed into Tokyo Bay."></textarea></div>
       <div><label>Model (storyboard, score, critic)</label><input id="n-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
       <div><label>Voice</label><select id="n-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
+      <div><label>Look</label><select id="n-look"><option value="editorial" selected>editorial (paper, cards, pictures)</option><option value="paper">paper (line icons)</option></select></div>
       <div><label>Quality</label><select id="n-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
       <div><label>Voice speed (length scale) / pause</label><div class="row" style="flex-wrap:nowrap"><input id="n-speed" value="1.22"><input id="n-pause" value="0.85"></div></div>
+      ${modelFields("n")}
       <div class="full"><label><input type="checkbox" id="n-critic" style="width:auto"> Critic: frames judged by the model after the render</label></div>
       <div class="full"><label>Score by hand (optional: skips the storyboard and score calls)</label>
         <textarea id="n-score" class="mono" rows="6" placeholder="shot one at 0,0&#10;ent title text &quot;Hello&quot; size 1 at 0,0&#10;w0 in title write"></textarea></div>
@@ -232,9 +245,25 @@ function showNew() {
     <p><button class="primary" onclick="create()">Make it</button></p>`;
 }
 
+// A model for each kind of call (blank: the run's model; the image model makes the pictures).
+function modelFields(p) {
+  const sm = config.step_models || {};
+  const one = (k, label) => `<div><label>${label}</label><input id="${p}-m-${k}" list="models" value="${esc(sm[k] || "")}" placeholder="(the model above)"></div>`;
+  return `<details class="models"><summary>Models per step (the score step gains most from a stronger model)</summary>
+    <div class="form" style="margin-top:6px">${one("storyboard", "Storyboard")}${one("score", "Score")}${one("critic", "Critic (vision)")}
+    <div><label>Image model (pictures)</label><input id="${p}-m-image" list="models" value="${esc(sm.image || "")}"></div></div></details>`;
+}
+
+function readModels(p) {
+  const out = {};
+  for (const k of ["storyboard", "score", "critic", "image"]) { const el = $(`#${p}-m-${k}`); if (el && el.value.trim()) out[k] = el.value.trim(); }
+  return out;
+}
+
 async function create() {
   const body = {title: $("#n-title").value, narration: $("#n-text").value, model: $("#n-model").value, voice: $("#n-voice").value,
     quality: $("#n-q").value, speed: $("#n-speed").value, pause: $("#n-pause").value, critic: $("#n-critic").checked,
+    models: readModels("n"), look: $("#n-look").value,
     score: $("#n-score").value.trim() || undefined};
   try { const r = await api("/api/runs", {method: "POST", body: JSON.stringify(body)}); tab = "video"; pick(r.id); }
   catch (e) { alert(e.message); }
@@ -322,7 +351,7 @@ function renderBook() {
           <span class="soft">to</span><input id="b-to" type="number" min="1" max="${b.pages}" value="${range.to}" style="width:80px" onchange="range.to=+this.value;renderBook()"></div></div>
       <div class="card"><b>2. Write the script</b> <span class="soft">(one model call: the pages as a few short videos)</span>
         <div class="form" style="margin-top:6px">
-          <div><label>Model</label><input id="s-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
+          <div><label>Model</label><input id="s-model" list="models" value="${esc(config.script_model || config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Videos (at most)</label><input id="s-videos" type="number" min="1" max="12" value="3"></div>
           <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="120" value="40"></div>
           <div></div>
@@ -335,6 +364,7 @@ function renderBook() {
           <div><label>Voice</label><select id="v-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
           <div><label>Quality</label><select id="v-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
           <div><label><input type="checkbox" id="v-critic" style="width:auto"> Critic</label></div>
+          ${modelFields("v")}
         </div></div>
       ${scripts.map(scriptCard).join("") || `<p class="soft">No script yet.</p>`}
     </div></div>`;
@@ -383,7 +413,8 @@ async function saveVideo(sid, k) {
 
 async function buildVideos(sid, k) {
   if (k != null) await saveVideo(sid, k);
-  const body = {script: sid, video: k, model: $("#v-model").value, voice: $("#v-voice").value, quality: $("#v-q").value, critic: $("#v-critic").checked};
+  const body = {script: sid, video: k, model: $("#v-model").value, voice: $("#v-voice").value, quality: $("#v-q").value, critic: $("#v-critic").checked,
+    models: readModels("v")};
   try { await api(`/api/books/${bsel}/build`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }
   catch (e) { alert(e.message); }
 }

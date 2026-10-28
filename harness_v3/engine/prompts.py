@@ -19,6 +19,11 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
   KINDS: text "WORDS" | icon NAME (Lucide names: ship, train-front, factory, wheat, users, landmark, castle, lock,
          coins, flag, scroll, crown, mountain-snow, globe, school, anchor, swords, book-open...) | circle | rect | blob
          | ring | waves N | land japan | dots N | num V | bar V | arrow A B | path P P P...
+         | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out, e.g. pic "a stack of
+           gold coins"; no words in it; 1-3 a shot) | photo "A SCENE" (a framed print of a place or scene)
+         | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
+         | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
+           capitals: a heading over something, a caption, a source)
   MODS: at X,Y | at LAND.PLACE | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
@@ -41,6 +46,8 @@ RULES
   it); a new thing gets a new name.
 - Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
   to put one on another on purpose (a label on its card, an icon on its badge).
+- Show real things: a pic, a photo, a flag or a card says more than a line icon. One big picture per idea.
+- Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences."""
 
@@ -50,8 +57,8 @@ SHOT name | words wA-wB | metaphor: what we SEE that makes the idea clear | thin
 for example:
 SHOT bay | words w0-w14 | metaphor: four dark ships slide into a quiet bay | things: sea, ships, map of Japan, 1853
 The shots cover every word, in order, without gaps.
-Prefer things that can move, transform or count (dots for people, a bar for a gap, a map, icons that turn into
-other icons) over text. Keep continuity: a thing may carry on into the next shot."""
+Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
+transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""
 
 SCORE = """You write one SHOT of an animated explainer's score, in the grammar below. You get the shot's plan, its
 narration with every word numbered and timed, and what the shot before left up. Answer with only the shot's

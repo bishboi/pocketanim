@@ -67,6 +67,15 @@ cp requirements.txt ../.venv3/requirements.installed   # start.sh sets up again 
 step "icons and voices"
 mkdir -p .cache/voices
 [ -d .cache/package ] || (cd .cache && npm pack --silent lucide-static@0.454.0 >/dev/null 2>&1 && tar xzf lucide-static-0.454.0.tgz)
+# The kit: its fonts (headlines, labels, body) and the world's flags (exact, never made by a model).
+mkdir -p .cache/fonts
+GF=https://raw.githubusercontent.com/google/fonts/main/ofl
+for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono-Medium.ttf:IBMPlexMono-Medium.ttf" \
+         "ibmplexmono/IBMPlexMono-Regular.ttf:IBMPlexMono-Regular.ttf" "inter/Inter%5Bopsz,wght%5D.ttf:Inter.ttf"; do
+  [ -f ".cache/fonts/${f#*:}" ] || curl -sfL -o ".cache/fonts/${f#*:}" "$GF/${f%%:*}" || echo "could not fetch the font ${f#*:}"
+done
+[ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \
+  && tar xzf flag-icons-7.2.3.tgz -C flagpkg)
 for v in en_US-ryan-high en_US-lessac-high; do
   [ -f ".cache/voices/$v.onnx" ] || (cd .cache/voices && ../../../.venv3/bin/python -m piper.download_voices "$v")
 done

@@ -28,15 +28,38 @@ from pathlib import Path
 import numpy as np
 from manim import (BOLD, DOWN, LEFT, ORIGIN, RIGHT, UP, Arc, Circle, CubicBezier, DashedVMobject, Dot, Group,
                    Line, Rectangle, RoundedRectangle, SVGMobject, Text, VGroup, VMobject, CurvedArrow, Arrow,
-                   ParametricFunction, NORMAL, ITALIC)
+                   ParametricFunction, NORMAL, ITALIC, ImageMobject, MarkupText)
+
+import assets
 
 ICONS = Path(__file__).resolve().parent.parent / ".cache" / "package" / "icons"
+FONTS = Path(__file__).resolve().parent.parent / ".cache" / "fonts"
+
+
+def _fonts() -> None:
+    """The style's fonts (setup.sh puts them in .cache/fonts), known to Pango whatever the machine has."""
+    try:
+        import manimpango
+        for f in sorted(FONTS.glob("*.ttf")):
+            manimpango.register_font(str(f))
+    except Exception:  # noqa: BLE001 -- no fonts: the system's are used
+        pass
+
+
+_fonts()
 
 LOOKS = {
     # A warm paper explainer: ink, two strong accents and two soft ones.
     "paper": {"bg": "#F4EEE3", "ink": "#22303C", "soft": "#B9B2A6", "coral": "#E4572E", "teal": "#1B998B",
               "gold": "#F2A541", "navy": "#2E4057", "red": "#C0392B", "white": "#FFFFFF", "sky": "#9FC5E8",
-              "green": "#6A994E", "paper": "#F4EEE3", "sand": "#E9DCC4", "font": "Inter Display", "body": "Inter"},
+              "green": "#6A994E", "paper": "#F4EEE3", "sand": "#E9DCC4", "font": "Inter Display", "body": "Inter",
+              "mono": "IBM Plex Mono", "accent": "#F2A541", "card": "#FFFFFF"},
+    # A printed editorial explainer (Video1's look): cream paper, near-black ink, one yellow accent, greys; tall
+    # condensed capitals for headlines, small spaced monospace for labels, real objects laid on the paper.
+    "editorial": {"bg": "#EFE4C8", "ink": "#1D1C1A", "soft": "#9C9381", "accent": "#F7C514", "gold": "#F7C514",
+                  "coral": "#D35836", "teal": "#2E7D74", "navy": "#2F3B4C", "red": "#B83227", "white": "#FBF8F0",
+                  "sky": "#8DB3C7", "green": "#5B8C3A", "sand": "#E2D3B0", "grey": "#9A9182", "paper": "#EFE4C8",
+                  "card": "#FBF8F0", "font": "Oswald", "body": "Inter", "mono": "IBM Plex Mono"},
 }
 L = dict(LOOKS["paper"])
 
@@ -44,6 +67,7 @@ L = dict(LOOKS["paper"])
 def use(look: str) -> None:
     L.clear()
     L.update(LOOKS.get(look, LOOKS["paper"]))
+    L["_name"] = look if look in LOOKS else "paper"
 
 
 def col(name) -> str:
@@ -69,8 +93,8 @@ def shadow(mob, k: float = 1.0):
 
 
 def text(words: str, size: float = 0.6, bold: bool = False, serif: bool = False, color=None, width: float | None = None,
-         italic: bool = False):
-    font = "DejaVu Serif" if serif else L["font"]
+         italic: bool = False, font: str | None = None):
+    font = font or ("DejaVu Serif" if serif else L["font"])
     t = Text(str(words), font=font, weight=BOLD if bold else NORMAL, slant=ITALIC if italic else NORMAL,
              color=col(color), font_size=48)
     # `size`: a capital's height in screen units (Text's height includes descenders: about 1.35 of a capital).
@@ -319,6 +343,16 @@ def build(kind: str, args: list[str], mods: dict, locate=None):
         a = locate(args[0]) if locate else (0, 0, 0)
         b = locate(args[1]) if locate else (1, 0, 0)
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
+    elif kind in ("pic", "photo"):
+        m = picture(kind, args[0] if args else "", size or (2.6 if kind == "pic" else 3.6), mods)
+    elif kind == "flag":
+        m = flag(args[0] if args else "", size or 1.6)
+    elif kind == "card":
+        m = card(args[0] if args else "", mods, size or 1.0)
+    elif kind == "tag":
+        m = tag(args[0] if args else "", size or 0.55, mods.get("fill") or "accent", c)
+    elif kind == "label":
+        m = label(args[0] if args else "", size or 0.2, c or "soft")
     elif kind == "path":
         # Its points in its shot's frame (X,Y) or places (`japan.tokyo`), where they are: a path is never moved.
         pts = [tuple(locate(a)[:2]) if locate else tuple(float(v) for v in a.split(",")) for a in args]
@@ -330,9 +364,111 @@ def build(kind: str, args: list[str], mods: dict, locate=None):
     return m
 
 
+# ---------------------------------------------------------------- the kit's pieces -----------------------------------
+
+def image(path, size: float):
+    """A picture whose longest side is `size` (a tall object and a wide one take the same room)."""
+    m = ImageMobject(str(path))
+    if m.height > m.width:
+        m.height = size
+    else:
+        m.width = size
+    return m
+
+
+def picture(kind: str, prompt: str, width: float, mods: dict):
+    """A made picture (assets.py): a cut-out object (`pic`) or a print (`photo`); a placeholder card naming it while
+    it is not made."""
+    p = assets.path_for(kind, prompt, L.get("_name", "paper"))
+    if p.exists():
+        return image(p, width)
+    words = " ".join(prompt.split()[:4]).upper()
+    box = RoundedRectangle(width=width, height=width * (0.75 if kind == "photo" else 0.8), corner_radius=0.12,
+                           fill_color=col("sand"), fill_opacity=1, stroke_color=col("soft"), stroke_width=2)
+    words_m = text(words, 0.16, color="soft", font=L.get("mono"), width=width * 0.85)
+    return VGroup(box, words_m.move_to(box))
+
+
+def flag(code: str, width: float = 1.6):
+    """A country's flag, exact (flag-icons), with a thin edge."""
+    try:
+        return image(assets.flag(code), width)
+    except Exception:  # noqa: BLE001 -- an unknown code: a plain card naming it
+        box = Rectangle(width=width, height=width * 0.75, fill_color=col("card"), fill_opacity=1,
+                        stroke_color=col("soft"), stroke_width=2)
+        return VGroup(box, text(code.upper(), width * 0.18, bold=True).move_to(box))
+
+
+def card(title: str, mods: dict, k: float = 1.0):
+    """A paper card laid on the page (Video1's flag cards, the IOU note): optional flag or picture on top, a title in
+    the headline face, an optional mono line under it; a soft shadow. `w`/`h` its size."""
+    from manim import Group
+    has_top = bool(mods.get("flag") or mods.get("img"))
+    w = float(mods.get("w", 1.9 if has_top else 3.2)) * k
+    h = float(mods.get("h", 2.5 if has_top else 2.0)) * k
+    face = Rectangle(width=w, height=h, fill_color=col(mods.get("fill") or "card"), fill_opacity=1,
+                     stroke_color=col("sand"), stroke_width=1.5)
+    parts = [soft_shadow(face), face]
+    top = face.get_top()[1]
+    if mods.get("flag"):
+        f = flag(str(mods["flag"]), w * 0.72)
+        f.move_to([face.get_center()[0], top - 0.12 * h - f.height / 2, 0])
+        parts.append(f)
+    elif mods.get("img"):
+        f = picture("pic", str(mods["img"]), w * 0.8, {})
+        f.move_to([face.get_center()[0], top - 0.08 * h - f.height / 2, 0])
+        parts.append(f)
+    if title:
+        t = text(title.upper() if has_top else title, (0.2 if has_top else 0.55) * k, bold=True, color="ink",
+                 width=w * 0.86)
+        t.move_to([face.get_center()[0], (face.get_bottom()[1] + 0.3 * h) if has_top else face.get_center()[1], 0])
+        parts.append(t)
+        if not has_top:
+            line = Line(LEFT * w * 0.16, RIGHT * w * 0.16, color=col("accent"), stroke_width=STROKE * 0.9)
+            parts.append(line.next_to(t, DOWN, buff=0.14 * k))
+    if mods.get("sub"):
+        sub = label(str(mods["sub"]), 0.11 * k, "soft")
+        sub.move_to([face.get_center()[0], face.get_bottom()[1] + 0.12 * h, 0])
+        parts.append(sub)
+    return Group(*parts) if any(isinstance(p, ImageMobject) for p in parts) else VGroup(*parts)
+
+
+def soft_shadow(mob, k: float = 1.0):
+    """A soft shadow (three blurred-looking layers) under a flat card."""
+    g = VGroup()
+    for i, (o, d) in enumerate(((0.06, 0.16), (0.07, 0.1), (0.08, 0.05))):
+        s = mob.copy().set_fill(L["ink"], opacity=o).set_stroke(width=0)
+        s.scale(1 + d * 0.12).shift(np.array([0.04, -0.07, 0]) * k)
+        g.add(s)
+    return g
+
+
+def tag(words: str, size: float = 0.55, fill="accent", color=None):
+    """Words set on a block of the accent colour (Video1's 204%, $2 TRILLION A YEAR): a headline number or claim."""
+    t = text(words.upper(), size, bold=True, color=color or "ink")
+    pad = size * 0.32
+    box = Rectangle(width=t.width + pad * 2, height=t.height + pad * 1.5, fill_color=col(fill), fill_opacity=1,
+                    stroke_width=0)
+    return VGroup(box, t.move_to(box))
+
+
+def label(words: str, size: float = 0.2, color="soft"):
+    """Small spaced capitals in the mono face (DEBT · % OF THE ECONOMY): a heading over a chart, a caption."""
+    font = L.get("mono") or L["body"]
+    t = MarkupText(f'<span letter_spacing="{int(size * 9000)}">{_esc(words.upper())}</span>', font=font,
+                   color=col(color), font_size=48)
+    t.scale(size * 1.35 / max(t.height, 0.01))
+    return t
+
+
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def copies(make, n: int, mods: dict):
     """`x N`: N of the entity laid out (`row`, default; `col`; `grid C`), `gap` apart."""
-    g = VGroup(*[make() for _ in range(n)])
+    made = [make() for _ in range(n)]
+    g = Group(*made) if any(not isinstance(m, VMobject) for m in made) else VGroup(*made)
     gap = float(mods.get("gap", 0.4))
     if mods.get("col"):
         g.arrange(DOWN, buff=gap)

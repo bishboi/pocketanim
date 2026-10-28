@@ -5,7 +5,8 @@ words.json, storyboard.json, video.score, video.mp4, and the critic's frames. Th
 
     voice       the narration spoken and every word timed (voice.py; no model call, no cost)
     storyboard  one model call: the narration cut into shots
-    score       one model call a shot, in order (or a score given by hand: no call)
+    score       one model call a shot, all at once (or a score given by hand: no call)
+    assets      the pictures the score asks for, made by the image model (assets.py) and kept
     render      the score played on one clock (render.py)
     critic      frames judged by a vision model (optional)
 
@@ -37,9 +38,25 @@ ROOT = HERE.parent
 RUNS = ROOT / "runs"
 sys.path.insert(0, str(HERE))
 
+import assets  # noqa: E402
 import prompts  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "render", "critic"]
+STEPS = ["voice", "storyboard", "score", "assets", "render", "critic"]
+# The model each kind of call uses, unless a run says otherwise: V3_MODEL_<STEP>, else V3_MODEL. The score step is
+# where a stronger model shows most (it places and moves everything); the image model makes the pictures.
+MODEL_STEPS = ("storyboard", "score", "critic", "image")
+
+
+def step_models(given: dict | None = None) -> dict:
+    """{step: model} for a new run: what the run was given, else the env's per-step choice, else the default."""
+    given = given or {}
+    out = {}
+    for st in MODEL_STEPS:
+        env = os.environ.get("V3_IMAGE_MODEL" if st == "image" else f"V3_MODEL_{st.upper()}", "").strip()
+        if st == "critic":
+            env = env or os.environ.get("V3_MODEL_VISION", "").strip()
+        out[st] = (given.get(st) or "").strip() or env or (assets.DEFAULT_MODEL if st == "image" else "")
+    return out
 DEFAULT_MODEL = os.environ.get("V3_MODEL", "anthropic/claude-haiku-4.5")
 SHOT_STEP = 18.0
 # Room for a reasoning model's thinking on top of each call's answer (only the tokens used are paid for), and how
@@ -63,10 +80,11 @@ def _check(rid: str | None) -> None:
         raise Stopped("stopped by hand")
 
 
-def _proc(rid: str, cmd: list[str]) -> subprocess.CompletedProcess:
+def _proc(rid: str, cmd: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
     """A step's program, killed when its run is stopped (as subprocess.run, output captured)."""
     # Its own process group: a stop kills it and what it started (a render's chunks).
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+                         env={**os.environ, **(env or {})})
     _procs[rid] = p
     try:
         while True:
@@ -128,7 +146,9 @@ def create(title: str, narration: str, settings: dict) -> dict:
            "status": "new",
            "settings": {"model": settings.get("model") or DEFAULT_MODEL, "voice": settings.get("voice") or "en_US-ryan-high",
                         "quality": settings.get("quality") or "m", "critic": bool(settings.get("critic")),
-                        "speed": float(settings.get("speed") or 1.22), "pause": float(settings.get("pause") or 0.85)},
+                        "speed": float(settings.get("speed") or 1.22), "pause": float(settings.get("pause") or 0.85),
+                        "models": step_models(settings.get("models")),
+                        "look": settings.get("look") or os.environ.get("V3_LOOK") or "editorial"},
            "steps": {s: {"status": "waiting"} for s in STEPS}, "calls": [], "cost": 0.0, "tokens": 0}
     d = run_dir(rid)
     d.mkdir(parents=True, exist_ok=True)
@@ -150,7 +170,8 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
     the book (`saver` writes it)."""
     save = saver or globals()["save"]
     _check(run.get("id"))
-    model = run["settings"]["model"]
+    st = run["settings"]
+    model = (st.get("models") or {}).get(step) or st["model"]
     call = {"id": uuid.uuid4().hex[:8], "step": step, "label": label, "model": model, "system": system, "user": user,
             "images": len(images or []), "started": time.time(), "status": "running"}
     with _mut:
@@ -275,15 +296,65 @@ def _score(run: dict, only: int | None = None) -> None:
         for k, f in made.items():
             parts[k] = f.result()
     (d / "shots.json").write_text(json.dumps(parts, indent=1))
-    (d / "video.score").write_text("look paper\n\n" + "\n\n".join(p for p in parts if p) + "\n")
+    look = run["settings"].get("look") or "editorial"
+    (d / "video.score").write_text(f"look {look}\n\n" + "\n\n".join(p for p in parts if p) + "\n")
     run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"]
+
+
+def _assets(run: dict) -> None:
+    """The pictures the score asks for (assets.py), made at once (V3_IMAGE_JOBS) and kept; each call recorded with
+    its cost. One that cannot be made is drawn as a placeholder and said here; the render goes on."""
+    import look
+    d = run_dir(run["id"])
+    text = (d / "video.score").read_text()
+    model = (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL
+    wants = [(k, p, lk if lk in look.LOOKS else "paper") for k, p, lk in assets.wants(text)]
+    todo = [w for w in wants if not assets.path_for(w[0], w[1], w[2], model).exists()]
+    notes = [f"{len(wants)} picture(s) asked for, {len(wants) - len(todo)} kept from before"]
+    if not todo:
+        run["steps"]["assets"]["notes"] = notes
+        return
+
+    def make(item):
+        kind, prompt, lk = item
+        _check(run["id"])
+        call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": f"{kind}: {prompt[:60]}", "model": model,
+                "system": "(image)", "user": assets.prompt_for(kind, prompt, lk), "images": 0, "started": time.time(),
+                "status": "running"}
+        with _mut:
+            run["calls"].append(call)
+            save(run)
+        try:
+            path, usage = assets.generate(kind, prompt, lk, model)
+            with _mut:
+                call.update({"status": "done", "output": path.name, "cost": usage.get("cost"),
+                             "tokens_in": usage.get("prompt_tokens"), "tokens_out": usage.get("completion_tokens")})
+            return None
+        except Exception as e:  # noqa: BLE001 -- a picture that cannot be made: a placeholder, said
+            with _mut:
+                call.update({"status": "failed", "error": str(e)[:500]})
+            return f"{kind} \"{prompt[:50]}\": {str(e)[:160]}"
+        finally:
+            with _mut:
+                call["ended"] = time.time()
+                call["seconds"] = round(call["ended"] - call["started"], 2)
+                save(run)
+
+    jobs = max(1, int(os.environ.get("V3_IMAGE_JOBS", "4")))
+    with ThreadPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
+        failed = [f for f in pool.map(make, todo) if f]
+    notes.append(f"{len(todo) - len(failed)} made with {model}")
+    notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
+    run["steps"]["assets"]["notes"] = notes
 
 
 def _render(run: dict) -> None:
     d = run_dir(run["id"])
     started = time.time()
     p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(d / "video.score"), str(d), str(d / "video.mp4"),
-                          "--quality", run["settings"]["quality"]])
+                          "--quality", run["settings"]["quality"]],
+              # the pictures are found by the image model they were made with
+              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
     if p.returncode != 0:
         raise RuntimeError((p.stderr or p.stdout)[-1500:])
     notes = [l[6:] for l in p.stdout.splitlines() if l.startswith("note: ")]
@@ -314,7 +385,8 @@ def _critic(run: dict) -> None:
     run["steps"]["critic"]["notes"] = [l for l in verdict.splitlines() if l.strip()][:20]
 
 
-RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "render": _render, "critic": _critic}
+RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "assets": _assets, "render": _render,
+           "critic": _critic}
 
 
 def go(rid: str, start: str = "voice", shot: int | None = None) -> None:

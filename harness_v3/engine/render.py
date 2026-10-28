@@ -57,7 +57,12 @@ TAIL = 3.2              # seconds held after the last word
 # ---------------------------------------------------------------- helpers ----------------------------------------------
 
 def leaves(m):
-    return [x for x in m.get_family() if isinstance(x, VMobject) and len(x.points)] or [m]
+    """The drawn pieces of a mobject: its shapes with points, and its pictures."""
+    return [x for x in m.get_family() if (isinstance(x, VMobject) and len(x.points)) or isinstance(x, ImageMobject)] or [m]
+
+
+def has_picture(m) -> bool:
+    return any(isinstance(x, ImageMobject) for x in m.get_family())
 
 
 class Alpha:
@@ -76,6 +81,9 @@ class Alpha:
     def set(self, a: float) -> None:
         self.now = a
         for x, f, s in self.base:
+            if isinstance(x, ImageMobject):
+                x.set_opacity(max(0.0, min(1.0, a)))      # from the picture's own alpha
+                continue
             x.set_fill(opacity=f * a, family=False)
             x.set_stroke(opacity=s * a, family=False)
 
@@ -201,8 +209,9 @@ class ScoreScene(MovingCameraScene):
 
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
-    SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots"}
-    HOLDERS = {"rect", "circle", "blob"}
+    SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots", "pic", "photo", "flag", "card", "tag",
+              "label"}
+    HOLDERS = {"rect", "circle", "blob", "card", "photo"}
 
     def _holder(self, e: S.Ent) -> bool:
         """A shape that things are put on: a box, a disc, a region, an icon on its badge."""
@@ -298,7 +307,8 @@ class ScoreScene(MovingCameraScene):
     def _on_screen(self, m, shot) -> None:
         if m.width > S.SCREEN_W / shot.zoom - 0.8:
             m.scale_to_fit_width(S.SCREEN_W / shot.zoom - 0.8)
-        o, hw, hh = np.array([shot.x, shot.y, 0.0]), S.SCREEN_W / shot.zoom / 2 - 0.3, S.SCREEN_H / shot.zoom / 2 - 0.3
+        # (a margin that also allows for the camera's slow push in over a long shot)
+        o, hw, hh = np.array([shot.x, shot.y, 0.0]), S.SCREEN_W / shot.zoom / 2 - 0.55, S.SCREEN_H / shot.zoom / 2 - 0.45
         dx = max(0.0, (o[0] - hw) - m.get_left()[0]) - max(0.0, m.get_right()[0] - (o[0] + hw))
         dy = max(0.0, (o[1] - hh) - m.get_bottom()[1]) - max(0.0, m.get_top()[1] - (o[1] + hh))
         m.shift([dx, dy, 0.0])
@@ -523,7 +533,7 @@ class ScoreScene(MovingCameraScene):
         def start():
             self._show(name, m)
             c = m.get_center()
-            if how in ("draw", "write"):
+            if how in ("draw", "write") and not has_picture(m):
                 al.set(1.0)
                 anim = (Write(m) if how == "write" else Create(m, lag_ratio=0.05))
                 anim.begin()
@@ -675,7 +685,7 @@ class ScoreScene(MovingCameraScene):
 
         def start():
             state["from"] = [(x, x.get_fill_color(), x.get_stroke_color(), x.get_fill_opacity() > 0.01,
-                              x.get_stroke_width() > 0) for x in leaves(m)]
+                              x.get_stroke_width() > 0) for x in leaves(m) if isinstance(x, VMobject)]
 
         def step(a):
             for x, f, s, filled, stroked in state["from"]:

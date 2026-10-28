@@ -214,8 +214,9 @@ def event(tl: Timeline, year: str, words: str, mods: dict, c=None) -> VGroup:
     p = tl.point(y)
     card = node(words, float(mods.get("size") or 0.8), fill=mods.get("fill"), sub=year_words(y), min_w=1.2)
     w = card.width
-    want = [1, -1] if mods.get("side") != "down" else [-1, 1]
-    row = next(r for r in [s * lvl for lvl in (1, 2, 3, 4) for s in want]
+    # Above the axis first (two rows), then below: a timeline low on the screen keeps its cards on it.
+    order = [1, 2, -1, -2, 3, -3, 4, -4] if mods.get("side") != "down" else [-1, -2, 1, 2, -3, 3, -4, 4]
+    row = next(r for r in order
                if all(r != u[2] or p[0] + w / 2 + 0.12 < u[0] or u[1] < p[0] - w / 2 - 0.12 for u in tl.used))
     tl.used.append((p[0] - w / 2, p[0] + w / 2, row))
     sign = 1 if row > 0 else -1
@@ -519,6 +520,7 @@ def flow(args: list[str], mods: dict, c=None) -> VGroup:
     g = VGroup()
     for n in shown:
         part = VGroup(*(ar for (a, b), ar in arrows.items() if max(rank[a], rank[b]) == rank[n]), boxes[n])
+        part.core = boxes[n]
         g.add(part)
     g.move_to(ORIGIN)
     w, h = float(mods.get("w", 12)), float(mods.get("h", 5.6))
@@ -641,29 +643,35 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
 
 def compare(args: list[str], mods: dict, c=None) -> VGroup:
     """Two sides and their rows: `compare "manor" "town" "labour:wages" "lord:guild"`. Parts: the heads, then a row
-    each (left, an arrow, right)."""
+    each (left, an arrow, right). The left words end and the right words start either side of a gap the arrows
+    cross, so long words never run into them."""
     heads = [a for a in args if ":" not in a][:2] or ["before", "after"]
     rows = [a.split(":", 1) for a in args if ":" in a]
-    w = float(mods.get("w", 8))
-    xl, xr = -w / 4, w / 4
+    size = float(mods.get("size") or 0.24)
+    lefts = [even(a.replace("_", " "), size) for a, _ in rows]
+    rights = [even(b.replace("_", " "), size, bold=True) for _, b in rows]
+    hl = even(heads[0].replace("_", " ").upper(), size * 1.45, bold=True)
+    hr = even(heads[-1].replace("_", " ").upper(), size * 1.45, bold=True)
+    gap = 0.6 + size * 4                                  # the arrows' room in the middle
     head = VGroup()
-    for x, words, colour in ((xl, heads[0], "soft"), (xr, heads[-1], c or "accent")):
-        t = text(words.replace("_", " ").upper(), 0.36, bold=True, color="ink").move_to([x, 0, 0])
+    for t, colour, side in ((hl, "soft", -1), (hr, c or "accent", 1)):
+        t.move_to([side * (gap / 2 + t.width / 2), 0, 0])
         bar = Rectangle(width=t.width + 0.3, height=0.12, fill_color=col(colour), fill_opacity=1, stroke_width=0)
         head.add(VGroup(t, bar.next_to(t, DOWN, buff=0.1)))
     g = VGroup(head)
     g.places = Keys()
     y = -0.85
-    for i, (a, b) in enumerate(rows):
-        la = even(a.replace("_", " "), 0.24).move_to([xl, y, 0])
-        lb = even(b.replace("_", " "), 0.24, bold=True).move_to([xr, y, 0])
-        ar = tipped([[xl + w / 8, y, 0], [xr - w / 8, y, 0]], col("soft"), STROKE * 0.4, smooth=False)
+    for (a, b), la, lb in zip(rows, lefts, rights):
+        la.move_to([-gap / 2 - la.width / 2, y, 0])
+        lb.move_to([gap / 2 + lb.width / 2, y, 0])
+        ar = tipped([[-gap / 2 + 0.2, y, 0], [gap / 2 - 0.2, y, 0]], col("soft"), STROKE * 0.4, smooth=False)
         row = VGroup(la, ar, lb)
+        row.core = VGroup(la, lb)
         g.add(row)
-        g.places[f"r{i + 1}"] = row
+        g.places[f"r{len(g) - 1}"] = row
         g.places[key(a)] = la
         g.places[key(b)] = lb
-        y -= 0.75
+        y -= size * 3.1
     return g.move_to(ORIGIN)
 
 
@@ -730,6 +738,7 @@ def steps(args: list[str], mods: dict, c=None) -> VGroup:
         if words.width > w / n - 0.2:
             words.scale_to_fit_width(w / n - 0.2)
         part = VGroup(disc.move_to([x, 0, 0]), num.move_to([x, 0, 0]), words.move_to([x, -0.75, 0]))
+        part.core = VGroup(*part.submobjects)   # a mark goes round the step, not the line into it
         if i:
             part.add(Line([xs[i - 1] + 0.42, 0, 0], [x - 0.42, 0, 0], stroke_color=col("ink"), stroke_width=STROKE * 0.4))
         g.add(part)

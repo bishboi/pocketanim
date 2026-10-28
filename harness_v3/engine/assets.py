@@ -213,7 +213,7 @@ def commons_candidates(query: str, n: int = 8) -> list[dict]:
     """Pictures on Commons for the words, in its order of relevance: freely licensed bitmaps big enough to show."""
     d = json.loads(_get(COMMONS, {"action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
                                   "gsrsearch": f"{query} filetype:bitmap", "gsrlimit": n * 2, "prop": "imageinfo",
-                                  "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 1400}))
+                                  "iiprop": "url|size|mime|extmetadata"}))
     out = []
     for p in sorted((d.get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 0)):
         ii = (p.get("imageinfo") or [{}])[0]
@@ -221,9 +221,10 @@ def commons_candidates(query: str, n: int = 8) -> list[dict]:
         lic = _plain((meta.get("LicenseShortName") or {}).get("value", ""))
         if ii.get("mime") not in ("image/jpeg", "image/png", "image/tiff", "image/webp") or "fair" in lic.lower():
             continue
-        if min(ii.get("width", 0), ii.get("height", 0)) < 400 or not ii.get("thumburl"):
+        if min(ii.get("width", 0), ii.get("height", 0)) < 400 or not ii.get("url"):
             continue
-        out.append({"title": p.get("title", ""), "url": ii["thumburl"], "page": ii.get("descriptionurl", ""),
+        out.append({"title": p.get("title", ""), "url": thumb(ii["url"], ii.get("width", 0), 1280),
+                    "original": ii["url"], "width": ii.get("width", 0), "page": ii.get("descriptionurl", ""),
                     "license": lic or "see the file's page", "artist": _plain((meta.get("Artist") or {}).get("value", ""))[:120],
                     "needs_credit": not re.search(r"public domain|^pd|cc0", lic, re.I)})
         if len(out) >= n:
@@ -231,9 +232,24 @@ def commons_candidates(query: str, n: int = 8) -> list[dict]:
     return out
 
 
-def small(url: str, width: int = 360) -> str:
-    """A Commons thumbnail's URL at another width."""
-    return re.sub(r"/\d+px-", f"/{width}px-", url)
+# The thumbnail widths Wikimedia serves to anyone (others, and the original files, are rate-limited for programs).
+WIDTHS = (330, 500, 960, 1280, 1920)
+
+
+def thumb(original: str, width: int, want: int) -> str:
+    """A Commons file's thumbnail URL at the largest standard width up to `want` that the file has."""
+    url = original.split("?", 1)[0]
+    w = max([x for x in WIDTHS if x <= min(want, width)] or [WIDTHS[0]])
+    m = re.match(r"^(https://upload\.wikimedia\.org/wikipedia/commons)/(.+?)/([^/]+)$", url)
+    if not m or "/thumb/" in url:
+        return re.sub(r"/\d+px-", f"/{w}px-", url)
+    name = m.group(3)
+    return f"{m.group(1)}/thumb/{m.group(2)}/{name}/{w}px-{name}" + (".png" if name.lower().endswith((".tif", ".tiff")) else "")
+
+
+def small(url: str, width: int = 330) -> str:
+    """A Commons thumbnail's URL at a small standard width (to show a model the candidates)."""
+    return re.sub(r"/\d+px-", f"/{max([x for x in WIDTHS if x <= width] or [WIDTHS[0]])}px-", url)
 
 
 def from_commons(kind: str, prompt: str, chosen: dict) -> Path:

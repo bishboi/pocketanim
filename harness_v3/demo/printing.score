@@ -1,0 +1,442 @@
+# How the printing press changed Europe: about 6.5 minutes, written by hand against the word times of
+# demo/printing.txt (the Piper voice), as the score model should write it. Real pictures from Wikimedia Commons.
+look editorial
+
+# ---- 1 scribe: a monk copies a Bible by hand; how long did it take? -----------------------------------------------
+shot scribe at 0,0
+ent head1   label "a monastery · 1400" size 0.2 at -4.6,3.4
+ent monk    photo commons "Jean Mielot scribe at his desk miniature" size 6.0 at -3.3,0.1
+ent ask     tag "how long for one bible?" size 0.42 at 3.6,2.6
+ent cal     calendar 365 at 3.6,0.3
+ent calw    label "days at the desk" size 0.13 at 3.6,-1.45
+ent rare    tag "rare · costly" size 0.4 fill coral color white at 3.6,-2.3
+ent ch      icon church badge navy size 0.75 at 2.4,-3.35
+ent uni     icon graduation-cap badge navy size 0.75 at 3.6,-3.35
+ent pal     icon castle badge navy size 0.75 at 4.8,-3.35
+
+t0          cam scribe
+w0          in head1 fade
+w1-w3       in monk rise
+w4-w20      pan monk zoom 1.08
+w21-w23     in ask pop
+w26         in cal fade
+w26         in calw fade
+w30         count cal 7
+w31         count cal 30
+w32-w36     count cal 365
+w36         pulse calw
+w38         in rare pop
+w44         in ch pop
+w45         in uni pop
+w49         in pal pop
+
+# ---- 2 mainz: a goldsmith from Mainz, Johannes Gutenberg, about 1440 ----------------------------------------------
+shot mainz at 18,0
+ent gut     photo commons "Johannes Gutenberg portrait engraving" size 4.6 at -4.2,0.1
+ent gutn    label "johannes gutenberg" size 0.16 at -4.2,-2.7
+ent de      map "2,46,15,54.5" names rivers w 7.4 h 5.6 at 2.9,0.1
+ent mz      pin Mainz on de
+ent yr      tag "about 1440" size 0.42 at 2.9,3.35
+ent typ     tag "metal type" size 0.36 fill ink color white at 2.9,-3.3
+
+w50-w51     cam mainz
+w52         in de fade
+w58-w59     in mz pop
+w59         ring mz
+w62-w63     in gut rise
+w65-w66     in gutn fade
+w68         in yr pop
+w78-w80     in typ pop
+
+# ---- 3 asia: movable type was not new: China (clay, about 1040), Korea (metal, 1377) ------------------------------
+shot asia at 36,0
+ent ea      map "east asia" w 6.2 h 4.0 at -3.3,1.6
+ent cn      region China on ea color accent opacity 0.45
+ent kr      region "South Korea" on ea color coral opacity 0.6
+ent jik     photo commons "Jikji Korean book printed 1377" size 4.0 at 3.8,1.6
+ent tl      timeline 1000 1500 w 12.4 at 0,-2.9
+ent ev1     event 1040 "clay type · china" on tl
+ent ev2     event 1377 "metal type · korea" on tl
+ent ev3     event 1440 "gutenberg" on tl
+
+w81-w82     cam asia
+w82         in tl draw
+w87         in ea fade
+w88-w89     in cn fade
+w92         in ev1 drop
+w100        in kr fade
+w104-w105   in jik rise
+w111        in ev2 drop
+w114        in ev3 drop
+w116        pulse ev3
+
+# ---- 4 type: three things together; first the type: cast letters of lead, tin and antimony -----------------------
+shot type at 54,0
+ent three   steps "type" "ink" "press" w 7.2 at 0,2.9
+ent sorts   photo commons "movable metal type sorts letters" size 4.2 at -3.8,-0.6
+ent alloy   flow "lead>type metal*" "tin>type metal" "antimony>type metal" w 6.2 h 3.0 at 3.0,-0.2
+ent many    dots 60 grid 15 shape type color ink at 3.0,-2.75
+
+w119-w120   cam type
+w120-w123   in three[0] pop
+w124        pulse three[0]
+w127-w129   in sorts rise
+w141        callout sorts "a sort" up
+w144        in alloy[0] fade
+w146        in alloy[1] fade
+w148        in alloy[2] fade
+w149-w150   in alloy[3] pop
+w155        highlight alloy.type_metal
+w160-w165   in many fade stagger .02
+w169        pulse many
+
+# ---- 5 ink and press: an oily ink; a screw press from the vineyards ------------------------------------------------
+shot press at 0,-11
+ent three2  steps "type" "ink" "press" w 7.2 at 0,2.9
+ent water   icon droplet badge sky size 1.1 at -4.6,0.6
+ent waterl  label "water ink" size 0.13 at -4.6,-0.45
+ent oil     icon droplets badge ink size 1.1 at -2.2,0.6
+ent oill    label "oily ink" size 0.13 at -2.2,-0.45
+ent grapes  icon grape badge navy size 1.0 at 1.6,0.6
+ent olive   icon leaf badge green size 1.0 at 3.0,0.6
+ent screw   card "screw press" sub "from the vineyards" w 3.0 h 1.6 at 2.3,-1.9
+
+w172-w173   cam press
+w172        in three2 fade
+w173        ring three2[1] coral
+w176        in water pop
+w177        in waterl fade
+w180        cross water
+w186        in oil pop
+w186        in oill fade
+w187        tick oil
+w191        ring three2[2] coral
+w199        in grapes pop
+w203        in olive pop
+w204-w205   in screw drop
+w205        connect grapes screw
+w206        connect olive screw
+
+# ---- 6 page: how a page was made, in a print shop of the 1560s --------------------------------------------------
+shot page at 18,-11
+ent shop    photo commons "Jost Amman Buchdrucker woodcut 1568" size 5.8 at -3.2,0.0
+ent parts   labels "compositor@0.54,0.34" "inking balls@0.57,0.47" "the press@0.78,0.3" "printed sheets@0.42,0.66" on shop
+ent how     flow "set type>ink it>lay paper>press>page*" down w 3.4 h 6.4 at 4.6,0.0
+
+w207-w208   cam page
+w208-w209   in shop rise
+w214        in parts[0] fade
+w214        in how[0] pop
+w231        in parts[1] fade
+w231        in how[1] fade
+w238        in how[2] fade
+w248        in parts[2] fade
+w248        in how[3] fade
+w253        in how[4] pop
+w254        pulse how[4]
+w267        in parts[3] fade
+w270        pan shop zoom 1.06
+
+# ---- 7 bible: the Gutenberg Bible, about 1455; 180 copies, under fifty survive -----------------------------------
+shot bible at 36,-11
+ent bpage   photo commons "Gutenberg Bible page" size 6.4 at -3.6,0.0
+ent copies  stat 0 "copies printed" size 0.9 at 3.6,2.4
+ent left    dots 180 grid 20 size 0.07 color ink at 3.6,-0.4
+ent survive label "fewer than fifty survive" size 0.13 at 3.6,-1.6
+ent same    tag "every copy the same" size 0.38 at 3.6,-2.8
+
+w277-w278   cam bible
+w277-w279   in bpage rise
+w280-w296   pan bpage zoom 1.07
+w284        in copies fade
+w284-w286   count copies 180
+w287        in left fade
+w295-w296   dim left[49:180] 0.15
+w296        in survive fade
+w309-w312   in same pop
+
+# ---- 8 paper: vellum took about 170 calves a Bible; rag paper came from Spain and Italy ---------------------------
+shot paper at 54,-11
+ent calves  dots 170 grid 17 shape beef color soft at -4.0,1.6
+ent calvl   stat 170 "calf skins for one bible" size 0.6 at -4.0,-1.0
+ent cmp1    compare "parchment" "paper" "animal skins:linen rags" "costly:far cheaper" w 5.6 at -3.4,-2.6
+ent pm      map "-10,35,16,53" w 6.0 h 5.2 at 3.6,0.2
+ent xat     pin Xativa on pm label "xàtiva" side left
+ent fab     pin Fabriano on pm side right
+ent mz2     pin Mainz on pm side right
+ent spread1 path pm.xativa pm.lyon pm.mainz dashed color accent
+ent spread2 path pm.fabriano pm.milan pm.mainz dashed color accent
+
+w313-w314   cam paper
+w324        in calves fade stagger .004
+w338-w340   in calvl fade
+w342        out calves fade
+w342        out calvl fade
+w342-w345   in cmp1 stagger .25
+w351        in pm fade
+w354        in xat pop
+w356        in fab pop
+w358-w362   in spread1 draw
+w358-w362   in spread2 draw
+w364        in mz2 pop
+
+# ---- 9 fust: Gutenberg made little money; he lost his workshop to his lender ------------------------------------
+shot fust at 0,-22
+ent g2      card "gutenberg" sub "the printer" w 2.8 h 1.7 at -4.2,1.4
+ent f2      card "johann fust" sub "the lender" w 2.8 h 1.7 at 4.2,1.4
+ent coins   icon coins badge gold size 0.9 at 0,1.4
+ent suit    doc "Lawsuit at Mainz" sub "1455" seal w 2.8 h 3.4 at 0,-1.6
+ent shop2   icon printer badge navy size 0.9 at -4.2,-1.4
+
+w366-w367   cam fust
+w366        in g2 drop
+w373        in f2 drop
+w374        in coins pop
+w374-w376   move coins to 1.5,1.4 arc .3
+w376        connect f2 g2 "loans"
+w385-w386   in suit drop
+w386        in shop2 pop
+w387-w388   move shop2 to 4.2,-1.0 arc .4
+w388        stamp suit "lost" red
+
+# ---- 10 spread: printers carried the craft along the rivers to Cologne, Rome, Venice, Paris, Westminster ----------
+shot spread at 18,-22
+ent eu      map "-6,40,18,54.5" year 1500 w 12.6 h 6.8 at 0,-0.2
+ent m3      pin Mainz on eu
+ent col     pin Cologne on eu side left
+ent rom     pin Rome on eu
+ent ven     pin Venice on eu
+ent par     pin Paris on eu side left
+ent wes     pin London on eu label "westminster" side left
+ent r1      path eu.mainz eu.cologne dashed color accent
+ent r2      path eu.mainz eu.munich eu.venice dashed color accent
+ent r3      path eu.venice eu.florence eu.rome dashed color accent
+ent r4      path eu.mainz eu.reims eu.paris dashed color accent
+ent r5      path eu.cologne eu.bruges eu.london dashed color accent
+ent cx      tag "1476" size 0.3 at -3.6,2.9
+
+w389-w390   cam spread
+w389        in eu fade
+w391        in m3 pop
+w391        ring m3
+w403-w405   in r1 draw
+w411        in col pop
+w413-w414   in r3 draw
+w412-w413   in r2 draw
+w414        in rom pop
+w416        in ven pop
+w417-w418   in r4 draw
+w419        in par pop
+w421-w427   in r5 draw
+w428        in wes pop
+w429        in cx pop
+
+# ---- 11 world: a press in Mexico City by 1539; 250 towns and 20 million books by 1500 ----------------------------
+shot world at 36,-22
+ent wm      map world w 8.4 h 4.3 at -2.6,1.0
+ent wmz     pin Mainz on wm label "" color coral
+ent mex     pin "Mexico City" on wm side down
+ent sea     path wm.mainz wm.lisbon wm.havana wm.mexico_city dashed color accent
+ent towns   stat 0 "towns with presses" size 0.7 at 5.0,1.7
+ent books   stat 0 "million books" size 0.7 at 5.0,-1.0
+ent bookd   dots 40 grid 20 shape book color ink at -2.6,-2.6
+
+w431-w432   cam world
+w431        in wm fade
+w432        in wmz pop
+w437-w441   in sea draw
+w442        in mex pop
+w443        ring mex
+w447        in towns fade
+w447-w458   count towns 250
+w460        in books fade
+w460-w468   count books 20
+w462-w468   in bookd fade stagger .05
+
+# ---- 12 venice: the busiest printing city; Aldus Manutius and his pocket books -----------------------------------
+shot venice at 54,-22
+ent vview   photo commons "Jacopo de Barbari view of Venice 1500" size 8.0 at -2.2,0.6
+ent ald     photo commons "Aldus Manutius portrait" size 2.8 at 4.8,1.3
+ent aldn    label "aldus manutius" size 0.14 at 4.8,-0.6
+ent pocket  card "the classics" sub "in a pocket" w 2.4 h 1.5 at 4.8,-2.3
+ent top     tag "the busiest printing city" size 0.36 at -2.2,-3.1
+
+w469-w470   cam venice
+w469-w471   in vview rise
+w471-w490   pan vview zoom 1.08
+w474-w475   in top pop
+w479-w481   in ald fade
+w481        in aldn fade
+w487-w488   in pocket drop
+w492        pulse pocket
+
+# ---- 13 readers: prices fell; merchants, lawyers, craftsmen read; everyday languages; schools --------------------
+shot readers at 0,-33
+ent folk    dots 40 grid 10 shape user color soft at -3.8,1.4
+ent who     list "merchants" "lawyers" "craftsmen" size 0.3 at -3.8,-1.7
+ent price   meter 9 "price of a book" max 10 h 2.6 at 0.4,0.6
+ent lat     tag "latin" size 0.4 fill ink color white at 4.2,2.6
+ent langs   list "german" "french" "english" "italian" size 0.28 at 4.2,0.4
+ent school  icon school badge navy size 1.0 at 3.5,-2.4
+ent gram    icon book-open badge gold size 1.0 at 5.0,-2.4
+
+w493-w494   cam readers
+w493        in folk fade
+w497        in price fade
+w498-w502   grow price 2.5
+w503        in who[0] fade
+w504        in who[1] fade
+w506        in who[2] fade
+w512-w515   color folk[0:24] ink stagger .03
+w519        in lat pop
+w525-w528   in langs stagger .2
+w526        strike lat
+w529        in school pop
+w539        in gram pop
+w540        connect school gram
+
+# ---- 14 luther: 1517, Wittenberg; printed within days, read across Germany within weeks ------------------------
+shot luther at 18,-33
+ent lut     photo commons "Martin Luther Lucas Cranach 1528 portrait" size 4.0 at -4.6,0.3
+ent lutn    label "martin luther" size 0.14 at -4.6,-2.4
+ent ninety  doc "Ninety-five theses" sub "wittenberg, 1517" w 2.4 h 3.0 at -0.9,0.6
+ent gm      map "5,46.5,16,55" year 1500 w 5.4 h 5.6 at 4.2,0.0
+ent wit     pin Wittenberg on gm side down
+ent hre     region "Holy Roman Empire" on gm color coral opacity 0.35
+ent fast    tag "within weeks" size 0.34 at 4.2,3.3
+
+w551-w552   cam luther
+w551        in lut rise
+w556-w557   in lutn fade
+w558        in ninety drop
+w563        in gm fade
+w564        in wit pop
+w571        stamp ninety "printed" ink
+w573-w577   in hre fade
+w574        in fast pop
+w581-w583   pulse wit
+
+# ---- 15 woodcuts: pictures for those who could not read; the church could not stop it ----------------------------
+shot woodcut at 36,-33
+ent wood    photo commons "Passional Christi und Antichristi woodcut" size 5.4 at -3.4,0.2
+ent most    tag "the most printed author of his age" size 0.34 at 3.2,2.6
+ent banned  doc "a banned book" w 2.2 h 2.8 at 1.4,-1.0
+ent copy1   doc "a copy" w 1.5 h 1.9 at 4.3,0.6
+ent copy2   doc "a copy" w 1.5 h 1.9 at 6.0,-1.3
+ent copy3   doc "a copy" w 1.5 h 1.9 at 4.3,-2.8
+
+w593-w594   cam woodcut
+w593-w595   in wood rise
+w600-w607   pan wood zoom 1.06
+w608-w610   in most pop
+w617        in banned drop
+w620        stamp banned "banned" red
+w624-w626   in copy1,copy2,copy3 pop stagger .2
+w627        connect banned copy1
+w628        connect banned copy2
+w629        connect banned copy3
+
+# ---- 16 science: copies with the same mistakes no more; Copernicus, 1543 -----------------------------------------
+shot science at 54,-33
+ent cmp2    compare "a hand copy" "a printed copy" "new mistakes:the same page" "own diagrams:the same diagrams" w 6.6 at -3.4,1.6
+ent sm      map "8,36,26,55" w 4.4 h 4.4 at -4.4,-1.9
+ent it      region Italy on sm color accent opacity 0.6
+ent pl      region Poland on sm color teal opacity 0.6
+ent helio   photo commons "De revolutionibus heliocentric diagram 1543" size 4.4 at 3.6,0.4
+ent cop     tag "copernicus · 1543" size 0.32 at 3.6,-2.6
+ent fix     tag "corrected in the next edition" size 0.28 fill teal color white at 0.4,-3.3
+
+w631-w632   cam science
+w634        in cmp2[0] fade
+w636-w638   in cmp2[1] fade
+w645        in sm fade
+w649        in it fade
+w654        in pl fade
+w657-w660   in cmp2[2] fade
+w666-w668   in helio rise
+w670        in cop pop
+w676        highlight cop
+w681        connect it helio "checked"
+w683        connect pl helio
+w695-w698   in fix pop
+
+# ---- 17 atlas: Ortelius, Antwerp, 1570: one picture of the world for all ------------------------------------------
+shot atlas at 0,-44
+ent orb     photo commons "Ortelius Typus Orbis Terrarum 1570" size 7.6 at -1.8,0.5
+ent ortn    tag "ortelius · antwerp · 1570" size 0.32 at -1.8,-2.9
+ent sail    icon sailboat badge navy size 0.9 at 4.9,2.0
+ent merc    icon coins badge gold size 0.9 at 4.9,0.3
+ent king    icon crown badge accent size 0.9 at 4.9,-1.4
+
+w706-w707   cam atlas
+w706-w708   in orb rise
+w709-w729   pan orb zoom 1.07
+w712-w713   in ortn pop
+w733        in sail pop
+w734        connect sail orb
+w735        in merc pop
+w736        connect merc orb
+w737        in king pop
+w738        connect king orb
+
+# ---- 18 news: pamphlets, posters, prices; a weekly paper in Strasbourg, 1605; the story so far -------------------
+shot news at 18,-44
+ent rel     photo commons "Relation aller Fuernemmen und gedenckwuerdigen Historien 1609" size 3.4 at -4.6,2.0
+ent sheets  list "pamphlets" "posters" "price lists" size 0.26 at -0.6,2.2
+ent strb    tag "strasbourg · 1605" size 0.34 at 4.4,2.6
+ent first   label "often called the first newspaper" size 0.13 at 4.4,1.7
+ent story   timeline 1440 1620 w 12.6 at 0,-2.7
+ent n1      event 1455 "gutenberg bible" on story
+ent n2      event 1476 "caxton" on story
+ent n3      event 1517 "luther" on story
+ent n4      event 1543 "copernicus" on story
+ent n5      event 1570 "first atlas" on story
+ent n6      event 1605 "weekly news" on story
+
+w743-w744   cam news
+w743        in story draw
+w745        in n1 drop
+w746        in n2 drop
+w749        in sheets[0] fade
+w750        in sheets[1] fade
+w752        in sheets[2] fade
+w752        in n3 drop
+w753        in n4 drop
+w756        in n5 drop
+w757-w759   in rel rise
+w762-w764   in strb pop
+w766        in n6 drop
+w770        in first fade
+
+# ---- 19 compare: the two worlds; knowledge for anyone who could read -------------------------------------------
+shot worlds at 36,-44
+ent both    compare "before the press" "after it" "copied by hand:printed by the hundred" "one at a time:many at once" "new mistakes:every copy the same" "costly:a fraction of the cost" w 9.4 at 0,1.2
+ent all     dots 30 grid 15 shape user color soft at 0,-2.8
+
+w774-w775   cam worlds
+w775        in both[0] fade
+w782-w784   in both[1] fade
+w789        in both[2] fade
+w793-w796   in both[3] fade
+w812-w815   in both[4] fade
+w818        in all fade
+w821        color all[0:3] ink
+w831-w836   color all ink stagger .04
+
+# ---- 20 close: thought, prayed, argued; what is our printing press today? ----------------------------------------
+shot close at 54,-44
+ent three3  steps "thought" "prayed" "argued" w 8.4 at 0,2.2
+ent q       tag "what is our printing press today?" size 0.5 at 0,-0.4
+ent phone   icon smartphone badge navy size 1.1 at -1.6,-2.4
+ent globe   icon globe badge teal size 1.1 at 0,-2.4
+ent spark   icon sparkles badge accent size 1.1 at 1.6,-2.4
+
+w837-w838   cam close
+w842        in three3[0] pop
+w844        in three3[1] fade
+w846        in three3[2] fade
+w860-w862   in q pop
+w866        in phone pop
+w868        in globe pop
+w870        in spark pop
+t388.6-t391 cam wide

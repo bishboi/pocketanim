@@ -218,6 +218,10 @@ def waves(n: int = 3, w: float = 12.0, color=None):
     return g
 
 
+# Icons that read as silhouettes when filled (people in a crowd); others are drawn as lines.
+SOLID = {"user", "user-round", "person-standing", "circle", "square", "heart", "star", "house", "home"}
+
+
 def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color=None, shape=None):
     # A dot is small whatever `size` a model writes (it means 1 for an icon); the group stays a compact block.
     # `shape NAME`: each one a small icon (`shape user`: people) instead of a dot.
@@ -225,7 +229,8 @@ def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color
     size = 0.16 if size > 0.5 else min(max(size, 0.05), 0.22)
     if shape:
         one = icon(str(shape), size * 2.8, color or "ink")
-        one.set_fill(col(color or "ink"), opacity=1)
+        if str(shape) in SOLID:                     # a silhouette reads filled; an outline icon stays a line
+            one.set_fill(col(color or "ink"), opacity=1)
         g = VGroup(*[one.copy() for _ in range(n)])
     else:
         g = VGroup(*[Dot(radius=size, color=col(color or "coral")) for _ in range(n)])
@@ -828,5 +833,9 @@ def pin(m: GeoMap, where: str, mods: dict, c=None):
     if words:
         side = {"left": LEFT, "up": UP, "down": DOWN}.get(str(mods.get("side", "")), RIGHT)
         t = label(str(words), float(mods.get("size", 0.15)), "ink").next_to(dot, side, buff=0.12)
+        sea = m[0]                                  # a name that would run off the map goes on the other side
+        if t.get_right()[0] > sea.get_right()[0] - 0.05 or t.get_left()[0] < sea.get_left()[0] + 0.05:
+            other = LEFT if t.get_center()[0] > dot.get_center()[0] else RIGHT
+            t.next_to(dot, other, buff=0.12)
         g.add(t.set_stroke(col("bg"), width=5, background=True))       # a paper halo: it reads over any shading
     return g

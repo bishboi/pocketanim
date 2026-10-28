@@ -380,6 +380,9 @@ class ScoreScene(MovingCameraScene):
             m.move_to(where)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
+        if e.kind == "map" and e.shot in self.SCORE.shots:
+            # Kept on its screen as it is placed, before anything is drawn on it (its regions and pins follow).
+            self._on_screen(m, self.SCORE.shots[e.shot])
         # A region sits under what is on it; a map under its regions, a pin over them.
         layer = int(e.mods.get("layer", -5 if e.kind == "backdrop" else -2 if e.kind == "map"
                                else -1 if e.kind in ("blob", "islands", "region", "river")
@@ -878,7 +881,8 @@ class ScoreScene(MovingCameraScene):
         state = {}
 
         def start():
-            ul, dr = m.get_corner(UP + LEFT), m.get_corner(DOWN + RIGHT)
+            core = getattr(m, "core", m)        # a piece's part marked at its heart (a step, a node), not its lines
+            ul, dr = core.get_corner(UP + LEFT), core.get_corner(DOWN + RIGHT)
             w, h = dr[0] - ul[0], ul[1] - dr[1]
             c0 = (ul + dr) / 2
             zs = [x.z_index for x in m.get_family()] or [0]

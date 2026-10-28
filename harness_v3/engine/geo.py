@@ -85,6 +85,9 @@ OLD_PLACES = {
     "novgorod": (31.27, 58.52), "aachen": (6.08, 50.78), "cluny": (4.66, 46.43), "chartres": (1.49, 48.45),
     "bruges": (3.22, 51.21), "ghent": (3.72, 51.05), "genoa": (8.93, 44.41), "messina": (15.55, 38.19),
     "marseille": (5.37, 43.30), "york": (-1.08, 53.96), "winchester": (-1.31, 51.06), "salisbury": (-1.79, 51.07),
+    "xativa": (-0.52, 38.99), "jativa": (-0.52, 38.99), "fabriano": (12.90, 43.34), "subiaco": (13.09, 41.92),
+    "wittenberg": (12.65, 51.87), "westminster": (-0.13, 51.50), "strasbourg": (7.75, 48.58),
+    "antwerp": (4.40, 51.22), "mainz": (8.27, 50.00),
 }
 
 

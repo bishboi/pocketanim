@@ -7,8 +7,8 @@ words.json, storyboard.json, video.score, video.mp4, and the critic's frames. Th
     storyboard  one model call: the narration cut into shots
     score       one model call a shot, all at once (or a score given by hand: no call)
     assets      the pictures the score asks for, made by the image model (assets.py) and kept
-    render      the MP4 (render.py)
-    timeline    the same video as a timeline the player draws (timeline.py; player/): no MP4 needed to watch it
+    timeline    the video as a timeline the player draws (timeline.py; player/): watched with no MP4
+    render      the MP4 (render.py): only when the run asks for one (slow), or run by hand
     render      the score played on one clock (render.py)
     critic      frames judged by a vision model (optional)
 
@@ -43,7 +43,10 @@ sys.path.insert(0, str(HERE))
 import assets  # noqa: E402
 import prompts  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "assets", "render", "timeline", "critic"]
+STEPS = ["voice", "storyboard", "score", "assets", "timeline", "render", "critic"]
+# The MP4 (Manim) is slow and the Player needs none: it is made only when a run asks for it (`mp4`, V3_RENDER_MP4),
+# or when its render step is run by hand.
+RENDER_MP4 = os.environ.get("V3_RENDER_MP4", "0").strip().lower() in ("1", "true", "yes", "on")
 # The model each kind of call uses, unless a run says otherwise: V3_MODEL_<STEP>, else V3_MODEL. The score step is
 # where a stronger model shows most (it places and moves everything); the image model makes the pictures.
 MODEL_STEPS = ("storyboard", "score", "critic", "image")
@@ -150,7 +153,8 @@ def create(title: str, narration: str, settings: dict) -> dict:
                         "quality": settings.get("quality") or "m", "critic": bool(settings.get("critic")),
                         "speed": float(settings.get("speed") or 1.22), "pause": float(settings.get("pause") or 0.85),
                         "models": step_models(settings.get("models")),
-                        "look": settings.get("look") or os.environ.get("V3_LOOK") or "editorial"},
+                        "look": settings.get("look") or os.environ.get("V3_LOOK") or "editorial",
+                        "mp4": bool(settings["mp4"]) if settings.get("mp4") is not None else RENDER_MP4},
            "steps": {s: {"status": "waiting"} for s in STEPS}, "calls": [], "cost": 0.0, "tokens": 0}
     d = run_dir(rid)
     d.mkdir(parents=True, exist_ok=True)
@@ -433,10 +437,15 @@ def _critic(run: dict) -> None:
     times = sorted({float(words[int(m)]["start"]) + 0.5 for m in re.findall(r"^w(\d+)", text, re.M)
                     if int(m) < len(words)})[::3][:12]
     images, said = [], []
+    shots = {t: d / f"critic-{t:.1f}.jpg" for t in times}
+    if not (d / "video.mp4").exists():                  # no MP4: the frames from the player
+        import export
+        export.stills(d / "player", shots, width=640)
     for t in times:
-        f = d / f"critic-{t:.1f}.jpg"
-        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", str(d / "video.mp4"),
-                        "-frames:v", "1", "-vf", "scale=640:-1", str(f)], check=True)
+        f = shots[t]
+        if (d / "video.mp4").exists():
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", str(d / "video.mp4"),
+                            "-frames:v", "1", "-vf", "scale=640:-1", str(f)], check=True)
         images.append("data:image/jpeg;base64," + base64.b64encode(f.read_bytes()).decode())
         near = [w["w"] for w in words if abs(float(w["start"]) - t) < 1.5]
         said.append(f"t{t:.1f}: \"{' '.join(near)}\"")
@@ -482,6 +491,10 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
                 try:
                     if s == "score" and shot is not None and s == start:
                         _score(run, only=shot)
+                    elif s == "render" and start != "render" and not run["settings"].get("mp4"):
+                        step["notes"] = ["no MP4 for this run: the Player plays the timeline (run this step to make "
+                                         "one with Manim)"]
+                        step["skipped"] = True
                     else:
                         RUNNERS[s](run)
                     step["status"] = "done"
@@ -568,10 +581,10 @@ def start(rid: str, step: str = "voice", shot: int | None = None) -> None:
 
 
 def set_score(rid: str, text: str) -> None:
-    """A score changed by hand: kept, and the run rendered again from it (running the score step again writes a
-    new one over it)."""
+    """A score changed by hand: kept, and played again from it: its new pictures, the timeline (the Player), the MP4
+    when the run makes one (running the score step again writes a new one over it)."""
     (run_dir(rid) / "video.score").write_text(text)
     run = load(rid)
     run["edited"] = time.time()
     save(run)
-    start(rid, "render")
+    start(rid, "assets")

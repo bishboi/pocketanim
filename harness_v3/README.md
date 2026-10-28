@@ -75,7 +75,8 @@ of yen banknotes"` (a made cut-out object), `photo "a mountain valley at dawn"` 
 and actions stay free. The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
 call with its cost; a model can be set per step (`V3_MODEL_SCRIPT`, `_STORYBOARD`, `_SCORE`, `_VISION`).
 
-The player: every run gets a timeline step after the render; the Player tab plays the video from it with no MP4
+The player: every run gets a timeline step (before the render, which is now optional: `V3_RENDER_MP4=1`, the new
+run's checkbox, or its render step run by hand); the Player tab plays the video from it with no MP4
 (a few hundred KB to a few MB, gzipped). **Export MP4 from the player** (Compare tab) makes `player.mp4` from the
 player and compares it with the render frame by frame, so any difference between the two is shown and can be
 fixed; on the demo they agree to 42 dB on average (encoding noise), every frame above 35 dB.

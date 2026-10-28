@@ -91,6 +91,28 @@ def chunk(data: Path, out: Path, f0: int, f1: int, quality: str) -> None:
         raise RuntimeError("ffmpeg could not encode the player's frames")
 
 
+def stills(data: Path, shots: dict, width: int = 640) -> None:
+    """Frames of the player at given seconds, as JPEGs ({seconds: path}): what the critic looks at when there is no
+    MP4."""
+    from playwright.sync_api import sync_playwright
+    tl = json.loads((data / "timeline.json").read_text())
+    w, h = width, round(width * tl["size"][1] / tl["size"][0])
+    srv, port = serve(data)
+    try:
+        with sync_playwright() as p:
+            b = chromium(p)
+            page = b.new_page(viewport={"width": w, "height": h})
+            page.goto(f"http://127.0.0.1:{port}/player.html?export=1&src=/&w={w}&h={h}")
+            page.wait_for_function("window.__ready !== undefined")
+            page.evaluate("window.__ready")
+            for t, path in shots.items():
+                page.evaluate(f"drawFrame({t * tl['fps']})")
+                Path(path).write_bytes(base64.b64decode(page.evaluate("grab(0.9)").split(",", 1)[1]))
+            b.close()
+    finally:
+        srv.shutdown()
+
+
 def export(data: Path, out: Path, quality: str = "m", jobs: int | None = None) -> None:
     tl = json.loads((data / "timeline.json").read_text())
     w, h, fps = RES[quality]

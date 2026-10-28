@@ -88,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
                 extra = [m.strip() for m in os.environ.get("V3_MODELS", "").split(",") if m.strip()]
                 models = list(dict.fromkeys([runs.DEFAULT_MODEL, *extra, *MODELS]))
                 self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "problems": problems(),
-                            "steps": runs.STEPS, "step_models": runs.step_models(),
+                            "steps": runs.STEPS, "step_models": runs.step_models(), "render_mp4": runs.RENDER_MP4,
                             "script_model": os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL, "voices": VOICES,
                             "key": bool(os.environ.get("OPENROUTER_API_KEY")),
                             "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})

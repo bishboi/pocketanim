@@ -167,10 +167,12 @@ function pane() {
   const p = $("#pane");
   if (tab === "video") {
     p.innerHTML = `<div class="two">
-      <div>${data.video ? `<video controls src="/files/${sel}/video.mp4?v=${data.run.steps.render?.ended || 0}"></video>` : `<p class="soft">No video yet.</p>`}
-        <p class="soft">The score on the right is what the video plays. Change it and save: only the render runs again.</p></div>
+      <div>${data.player ? `<iframe class="player" src="/play/${sel}?v=${data.run.steps.timeline?.ended || 0}"></iframe>`
+          : data.video ? `<video controls src="/files/${sel}/video.mp4?v=${data.run.steps.render?.ended || 0}"></video>` : `<p class="soft">No video yet.</p>`}
+        <p class="soft">The score on the right is what the video plays. Change it and save: its pictures and timeline are made
+          again (seconds), and the MP4 only if this run makes one.</p></div>
       <div><textarea id="score" class="mono" style="height:62vh" oninput="dirty=true">${esc(data.score || "")}</textarea>
-        <div class="row" style="margin-top:6px"><button class="primary" onclick="saveScore()" ${data.busy ? "disabled" : ""}>Save score and re-render</button>
+        <div class="row" style="margin-top:6px"><button class="primary" onclick="saveScore()" ${data.busy ? "disabled" : ""}>Save score and play again</button>
         <span class="soft">${data.run.edited ? "edited by hand " + new Date(data.run.edited * 1000).toLocaleTimeString() : ""}</span></div></div></div>`;
   } else if (tab === "words") {
     const w = data.words;
@@ -185,7 +187,9 @@ function pane() {
   } else if (tab === "compare") {
     const ex = data.run.export || {}, rep = ex.report;
     const v = ex.ended || 0;
-    p.innerHTML = `<div class="row"><button class="primary" onclick="exportPlayer()" ${data.busy || !data.player ? "disabled" : ""}>Export MP4 from the player</button>
+    p.innerHTML = `${!data.video ? `<div class="banner">No MP4 from the renderer for this run yet: render one with Manim (slow) to compare with the player.
+        <button onclick="again('render')" ${data.busy ? "disabled" : ""}>Render the MP4 with Manim</button></div>` : ""}
+      <div class="row"><button class="primary" onclick="exportPlayer()" ${data.busy || !data.player ? "disabled" : ""}>Export MP4 from the player</button>
         ${ex.status ? `<span class="chip ${ex.status}">${ex.status}</span>` : ""}${ex.seconds ? `<span class="soft">${secs(ex.seconds)}</span>` : ""}
         <span class="soft">Made in headless Chromium from the player, then compared frame by frame with the render's MP4.</span></div>
       ${ex.error ? `<pre style="color:#ff9a9a">${esc(ex.error)}</pre>` : ""}
@@ -268,6 +272,7 @@ function showNew() {
       <div><label>Quality</label><select id="n-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
       <div><label>Voice speed (length scale) / pause</label><div class="row" style="flex-wrap:nowrap"><input id="n-speed" value="1.22"><input id="n-pause" value="0.85"></div></div>
       ${modelFields("n")}
+      <div class="full"><label><input type="checkbox" id="n-mp4" style="width:auto" ${config.render_mp4 ? "checked" : ""}> Also render the MP4 with Manim (slow; the Player needs none, and the MP4 can be made later)</label></div>
       <div class="full"><label><input type="checkbox" id="n-critic" style="width:auto"> Critic: frames judged by the model after the render</label></div>
       <div class="full"><label>Score by hand (optional: skips the storyboard and score calls)</label>
         <textarea id="n-score" class="mono" rows="6" placeholder="shot one at 0,0&#10;ent title text &quot;Hello&quot; size 1 at 0,0&#10;w0 in title write"></textarea></div>
@@ -294,7 +299,7 @@ function readModels(p) {
 async function create() {
   const body = {title: $("#n-title").value, narration: $("#n-text").value, model: $("#n-model").value, voice: $("#n-voice").value,
     quality: $("#n-q").value, speed: $("#n-speed").value, pause: $("#n-pause").value, critic: $("#n-critic").checked,
-    models: readModels("n"), look: $("#n-look").value,
+    models: readModels("n"), look: $("#n-look").value, mp4: $("#n-mp4").checked,
     score: $("#n-score").value.trim() || undefined};
   try { const r = await api("/api/runs", {method: "POST", body: JSON.stringify(body)}); tab = "video"; pick(r.id); }
   catch (e) { alert(e.message); }

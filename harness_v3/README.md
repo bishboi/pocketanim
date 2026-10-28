@@ -43,12 +43,11 @@ w58-w62     morph fields works stagger .14
 ## The app
 
 ```
-./start.sh        # sets up what is missing (./setup.sh: cairo, pango, ffmpeg, node and Python 3.12 from Homebrew on
-                  # macOS, apt on Linux; ../.venv3; icons; voices), then serves http://localhost:8300
-cp .env.example .env.local           # then fill in OPENROUTER_API_KEY (script, storyboard, score, critic) and
-                                     # DATALAB_API_KEY (PDFs); v2's app/.env.local is read too, and exported
-                                     # variables win over both
-../.venv3/bin/python engine/server.py --port 8300                          # then open http://localhost:8300
+cp .env.example .env.local    # once: fill in OPENROUTER_API_KEY (script, storyboard, score, critic) and DATALAB_API_KEY
+                              # (PDFs); v2's app/.env.local is read too, and exported variables win over both
+./start.sh                    # sets up what is missing (./setup.sh: cairo, pango, ffmpeg, node and Python 3.12 from
+                              # Homebrew on macOS, apt on Linux; ../.venv3; icons; voices), then serves
+                              # http://localhost:8300
 ```
 
 From a book: **Upload PDF**, Datalab reads it (in the background: a minute or a few; a PDF read before comes from the cache, at no cost),

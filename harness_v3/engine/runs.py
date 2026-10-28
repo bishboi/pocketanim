@@ -219,18 +219,19 @@ def _storyboard(run: dict) -> None:
         run["steps"]["storyboard"]["notes"] = ["a score was given by hand: no storyboard"]
         return
     words = _words(run)
-    system, user = prompts.storyboard_prompt(words)
-    text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=900)
-    shots = []
-    for line in text.splitlines():
-        m = re.search(r"SHOT\s+(\S+)\s*\|\s*words\s*w(\d+)\s*-\s*w(\d+)\s*\|(.*)", line, re.I)
-        if m:
-            shots.append({"name": re.sub(r"\W", "", m.group(1)) or f"s{len(shots)}", "a": int(m.group(2)),
-                          "b": int(m.group(3)), "plan": m.group(4).strip()})
+    # A storyboard that was answered but could not be read before (and so never kept) is read again: no new call.
+    last = next((c for c in reversed(run["calls"]) if c["step"] == "storyboard" and c.get("output")), None)
+    if last and not (d / "storyboard.json").exists() and prompts.parse_storyboard(last["output"], len(words)):
+        text = last["output"]
+        run["steps"]["storyboard"]["notes"] = ["the last answer read again (no new call)"]
+    else:
+        system, user = prompts.storyboard_prompt(words)
+        text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=900)
+    shots = prompts.parse_storyboard(text, len(words))
     if not shots:
-        raise RuntimeError(f"the storyboard had no SHOT lines: {text[:300]}")
+        raise RuntimeError(f"the storyboard had no shot lines (name | words wA-wB | plan): {text[:300]}")
     (d / "storyboard.json").write_text(json.dumps(shots, indent=1))
-    run["steps"]["storyboard"]["notes"] = [f"{len(shots)} shots"]
+    run["steps"]["storyboard"]["notes"] = run["steps"]["storyboard"].get("notes", []) + [f"{len(shots)} shots"]
 
 
 def _score_shot(run: dict, shots: list[dict], k: int, words: list[dict], before: str) -> str:

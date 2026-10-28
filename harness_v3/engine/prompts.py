@@ -11,6 +11,8 @@ from a few plain pieces and the actions, not from a catalogue.
 
 from __future__ import annotations
 
+import re
+
 GRAMMAR = """SCORE GRAMMAR (one item per line; # starts a comment)
 shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `ent` lines follow.
 ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wide, 8 tall, centred on the shot.
@@ -45,6 +47,9 @@ RULES
 STORYBOARD = """You are planning a short animated explainer. Read the narration (its words are numbered) and cut it into
 SHOTS: one idea each (usually 1-2 sentences, 5-10 seconds). For each shot give one line:
 SHOT name | words wA-wB | metaphor: what we SEE that makes the idea clear | things: 3-6 plain things on screen
+for example:
+SHOT bay | words w0-w14 | metaphor: four dark ships slide into a quiet bay | things: sea, ships, map of Japan, 1853
+The shots cover every word, in order, without gaps.
 Prefer things that can move, transform or count (dots for people, a bar for a gap, a map, icons that turn into
 other icons) over text. Keep continuity: a thing may carry on into the next shot."""
 
@@ -56,6 +61,31 @@ lines: its `shot` line, its `ent` lines, then its actions in time order."""
 def storyboard_prompt(words: list[dict]) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}" for w in words)
     return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each."
+
+
+SHOT_LINE = re.compile(
+    r"^[\s*#>\-\d.)]*(?:shot\b\s*(?:\d+\s*[:.\-]?\s*)?)?(?P<name>[^|]*?)\s*[|:]\s*(?:words?\s*)?"
+    r"w?(?P<a>\d+)\s*(?:-|–|—|to)\s*w?(?P<b>\d+)\s*\|(?P<plan>.*)$", re.I)
+
+
+def parse_storyboard(text: str, words: int) -> list[dict]:
+    """The storyboard's shot lines, read leniently (a model may drop `SHOT`, number its lines, bold them, or write
+    `words 3-9`): [{name, a, b, plan}], the shots in word order, each a plain unique name."""
+    shots: list[dict] = []
+    for line in text.splitlines():
+        m = SHOT_LINE.match(line.strip().replace("**", ""))
+        if not m:
+            continue
+        a, b = int(m.group("a")), int(m.group("b"))
+        if a > b or a >= max(words, 1):
+            continue
+        name = re.sub(r"[^a-z0-9]+", "_", m.group("name").lower()).strip("_")[:20] or f"s{len(shots) + 1}"
+        if name[0].isdigit():
+            name = "s" + name
+        while any(x["name"] == name for x in shots):
+            name += "2"
+        shots.append({"name": name, "a": a, "b": min(b, words - 1) if words else b, "plan": m.group("plan").strip(" |")})
+    return sorted(shots, key=lambda x: x["a"])
 
 
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "") -> tuple[str, str]:

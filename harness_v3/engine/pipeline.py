@@ -61,14 +61,9 @@ def chat(system: str, user: str, model: str, images: list[str] | None = None, ma
 def storyboard(words: list[dict], model: str) -> list[dict]:
     system, user = prompts.storyboard_prompt(words)
     text = chat(system, user, model, max_tokens=900)
-    shots = []
-    for line in text.splitlines():
-        m = re.search(r"SHOT\s+(\S+)\s*\|\s*words\s*w(\d+)\s*-\s*w(\d+)\s*\|(.*)", line, re.I)
-        if m:
-            shots.append({"name": re.sub(r"\W", "", m.group(1)) or f"s{len(shots)}", "a": int(m.group(2)),
-                          "b": int(m.group(3)), "plan": m.group(4).strip()})
+    shots = prompts.parse_storyboard(text, len(words))
     if not shots:
-        raise SystemExit(f"the storyboard had no SHOT lines:\n{text[:500]}")
+        raise SystemExit(f"the storyboard had no shot lines:\n{text[:500]}")
     return shots
 
 

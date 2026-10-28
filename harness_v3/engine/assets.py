@@ -6,6 +6,11 @@ objects, not only line icons.
     photo "PROMPT"   a picture in a white border with a shadow, as a print laid on the paper (a scene, a place)
     flag CODE        a country's flag (ISO 3166 code: jp, us, in...), from the flag-icons set: exact, never made
 
+    photo commons "WORDS"   a real picture from Wikimedia Commons (a painting, a manuscript page, a photograph of a
+                     place or an object): searched, the best of the candidates chosen by the vision model, kept with
+                     its licence and author beside it (NAME.credit.json) and credited on screen when its licence asks
+                     (also `pic commons "..."`, `card ... img "commons:..."`, `portrait ... img "commons:..."`)
+
 A picture is made once for its look's style, its kind and its words, and kept in harness_v3/.cache/assets/ by a hash
 of those (the image model too): a score rendered again, or another video asking the same, costs nothing. Text never
 goes into a made picture (models garble letters); the engine sets every word.
@@ -53,7 +58,17 @@ def key(kind: str, prompt: str, look: str, model: str) -> str:
 
 
 def path_for(kind: str, prompt: str, look: str, model: str | None = None) -> Path:
+    if is_archive(prompt):                  # a picture from the archive is the same whatever the look or model
+        return CACHE / f"commons-{key(kind, archive_query(prompt), 'commons', 'commons')}.png"
     return CACHE / f"{kind}-{key(kind, prompt, look, model or DEFAULT_MODEL)}.png"
+
+
+def is_archive(prompt: str) -> bool:
+    return str(prompt).strip().lower().startswith("commons:")
+
+
+def archive_query(prompt: str) -> str:
+    return str(prompt).split(":", 1)[1].strip()
 
 
 def spots(path: Path) -> dict:
@@ -149,11 +164,112 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
             continue
         if len(toks) >= 2 and toks[0] == "look":
             look = toks[1]
-        if len(toks) >= 4 and toks[0] == "ent" and toks[2] in KINDS:
-            item = (toks[2], toks[3], look)
-            if item not in out:
-                out.append(item)
+        if len(toks) < 4 or toks[0] != "ent":
+            continue
+        found = []
+        if toks[2] in KINDS:
+            # `photo commons "WORDS"`: from the archive
+            found.append((toks[2], f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]))
+        for i, t in enumerate(toks[:-1]):
+            if t == "img" and i >= 3:            # a card's or a portrait's picture
+                found.append(("pic" if toks[2] == "card" else "photo", toks[i + 1]))
+        for kind, prompt in found:
+            if (kind, prompt, look) not in out:
+                out.append((kind, prompt, look))
     return out
+
+
+# ---------------------------------------------------------------- the archive (Wikimedia Commons) -------------------
+
+COMMONS = "https://commons.wikimedia.org/w/api.php"
+UA = "pocketanim-harness/3.0 (https://github.com/bishboi/pocketanim; explainer videos)"
+
+
+def _get(url: str, params: dict | None = None, tries: int = 4) -> bytes:
+    """A GET to Wikimedia with its User-Agent, waiting as it asks when it is busy (429, 503)."""
+    import time
+    import urllib.parse
+    full = url + ("?" + urllib.parse.urlencode(params) if params else "")
+    for n in range(tries):
+        try:
+            req = urllib.request.Request(full, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and n < tries - 1:
+                time.sleep(min(60, int(e.headers.get("retry-after") or 5 * (n + 1))))
+                continue
+            raise RuntimeError(f"Wikimedia Commons said {e.code}") from e
+    raise RuntimeError("Wikimedia Commons is busy: try again in a minute")
+
+
+def _plain(html: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html or "")).strip()
+
+
+def commons_candidates(query: str, n: int = 8) -> list[dict]:
+    """Pictures on Commons for the words, in its order of relevance: freely licensed bitmaps big enough to show."""
+    d = json.loads(_get(COMMONS, {"action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
+                                  "gsrsearch": f"{query} filetype:bitmap", "gsrlimit": n * 2, "prop": "imageinfo",
+                                  "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 1400}))
+    out = []
+    for p in sorted((d.get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 0)):
+        ii = (p.get("imageinfo") or [{}])[0]
+        meta = ii.get("extmetadata") or {}
+        lic = _plain((meta.get("LicenseShortName") or {}).get("value", ""))
+        if ii.get("mime") not in ("image/jpeg", "image/png", "image/tiff", "image/webp") or "fair" in lic.lower():
+            continue
+        if min(ii.get("width", 0), ii.get("height", 0)) < 400 or not ii.get("thumburl"):
+            continue
+        out.append({"title": p.get("title", ""), "url": ii["thumburl"], "page": ii.get("descriptionurl", ""),
+                    "license": lic or "see the file's page", "artist": _plain((meta.get("Artist") or {}).get("value", ""))[:120],
+                    "needs_credit": not re.search(r"public domain|^pd|cc0", lic, re.I)})
+        if len(out) >= n:
+            break
+    return out
+
+
+def small(url: str, width: int = 360) -> str:
+    """A Commons thumbnail's URL at another width."""
+    return re.sub(r"/\d+px-", f"/{width}px-", url)
+
+
+def from_commons(kind: str, prompt: str, chosen: dict) -> Path:
+    """The chosen archive picture, kept as a print (a `photo`) or, on a plain light ground, cut out (a `pic`), with
+    its credit beside it."""
+    img = _open(_get(chosen["url"]))
+    path = path_for(kind, prompt, "", "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "pic" and _plain_ground(img):
+        out = with_shadow(cutout(img))
+    else:
+        out = framed(img)
+    out.save(path)
+    path.with_suffix(".credit.json").write_text(json.dumps(chosen, indent=1))
+    return path
+
+
+def _plain_ground(img) -> bool:
+    import numpy as np
+    a = np.asarray(img.convert("RGB")).astype(int)
+    corners = np.concatenate([a[:8, :8].reshape(-1, 3), a[:8, -8:].reshape(-1, 3), a[-8:, :8].reshape(-1, 3),
+                              a[-8:, -8:].reshape(-1, 3)])
+    return corners.min() > 200 and corners.std() < 12
+
+
+def credit(path: Path) -> dict | None:
+    f = path.with_suffix(".credit.json")
+    try:
+        return json.loads(f.read_text()) if f.exists() else None
+    except ValueError:
+        return None
+
+
+def choose_prompt(query: str, n: int) -> tuple[str, str]:
+    return ("You choose pictures for an educational video. You see numbered pictures found in an archive for a "
+            "subject. Answer only the number of the one that shows the subject best and most clearly (a real "
+            "depiction, not a map, diagram, document scan or logo unless the subject is one), or `none`."), \
+        f"SUBJECT: {query}\nPICTURES: 1 to {n}, in order."
 
 
 def prompt_for(kind: str, prompt: str, look: str) -> str:

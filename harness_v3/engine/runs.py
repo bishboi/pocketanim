@@ -369,6 +369,8 @@ def _assets(run: dict) -> None:
     def make(item):
         kind, prompt, lk = item
         _check(run["id"])
+        if assets.is_archive(prompt):
+            return _from_archive(run, kind, prompt)
         call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": f"{kind}: {prompt[:60]}", "model": model,
                 "system": "(image)", "user": assets.prompt_for(kind, prompt, lk), "images": 0, "started": time.time(),
                 "status": "running"}
@@ -399,6 +401,51 @@ def _assets(run: dict) -> None:
         notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
     notes += _find_parts(run, text, model)
     run["steps"]["assets"]["notes"] = notes
+
+
+def _from_archive(run: dict, kind: str, prompt: str) -> str | None:
+    """A picture from Wikimedia Commons: the candidates for its words, the best chosen by the vision model from small
+    copies of them (the first when there is no choice to make), fetched and kept with its credit. None found: the
+    image model makes it from the same words. Returns a note when it is drawn as a placeholder."""
+    query = assets.archive_query(prompt)
+    vision = (run["settings"].get("models") or {}).get("critic") or run["settings"]["model"]
+    try:
+        cands = assets.commons_candidates(query)
+    except Exception as e:  # noqa: BLE001
+        cands = []
+        run["steps"]["assets"].setdefault("notes", []).append(f"archive search for \"{query[:40]}\": {str(e)[:100]}")
+    if not cands:
+        try:
+            path, usage = assets.generate(kind, query, run["settings"].get("look") or "editorial",
+                                          (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL)
+            import shutil
+            shutil.copyfile(path, assets.path_for(kind, prompt, "", ""))   # kept as the archive's answer
+            return None
+        except Exception as e:  # noqa: BLE001
+            return f"archive \"{query[:50]}\": nothing found, and not made: {str(e)[:120]}"
+    pick = cands[0]
+    if len(cands) > 1:
+        try:
+            shown = cands[:6]
+            images = ["data:image/jpeg;base64," + base64.b64encode(assets._get(assets.small(c["url"]))).decode()
+                      for c in shown]
+            system, user = assets.choose_prompt(query, len(shown))
+            said = chat(run, "assets", f"choose archive picture: {query[:40]}", system, user, images=images,
+                        max_tokens=50, model=vision)
+            m = re.search(r"\d+", said)
+            if m and 1 <= int(m.group()) <= len(shown):
+                pick = shown[int(m.group()) - 1]
+        except Exception:  # noqa: BLE001 -- no choice made: the archive's first answer
+            pass
+    try:
+        assets.from_commons(kind, prompt, pick)
+    except Exception as e:  # noqa: BLE001
+        return f"archive \"{query[:50]}\": {str(e)[:120]}"
+    with _mut:
+        run.setdefault("credits", [])
+        run["credits"].append({k: pick.get(k) for k in ("title", "page", "license", "artist")})
+        save(run)
+    return None
 
 
 def _find_parts(run: dict, text: str, image_model: str) -> list[str]:

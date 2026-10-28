@@ -394,7 +394,8 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         b = locate(args[1]) if locate else (1, 0, 0)
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
     elif kind in ("pic", "photo"):
-        m = picture(kind, args[0] if args else "", size or (2.6 if kind == "pic" else 3.6), mods)
+        what = f"commons:{args[1]}" if len(args) > 1 and args[0] == "commons" else (args[0] if args else "")
+        m = picture(kind, what, size or (2.6 if kind == "pic" else 3.6), mods)
     elif kind == "flag":
         m = flag(args[0] if args else "", size or 1.6)
     elif kind == "card":
@@ -444,7 +445,15 @@ def picture(kind: str, prompt: str, width: float, mods: dict):
     if p.exists():
         m = image(p, width)
         m.spots = assets.spots(p)        # where its named parts are (a vision model's, kept beside it)
+        cr = assets.credit(p)
+        if cr and cr.get("needs_credit"):   # an archive picture whose licence asks for its author: said under it
+            who = f"{cr.get('artist') or 'Wikimedia Commons'} · {cr.get('license')}"
+            g = Group(m, label(who[:70], 0.07, "soft").next_to(m, DOWN, buff=0.06))
+            g.spots, g.frame_of = m.spots, m
+            return g
         return m
+    if assets.is_archive(prompt):
+        prompt = assets.archive_query(prompt)
     words = " ".join(prompt.split()[:4]).upper()
     box = RoundedRectangle(width=width, height=width * (0.75 if kind == "photo" else 0.8), corner_radius=0.12,
                            fill_color=col("sand"), fill_opacity=1, stroke_color=col("soft"), stroke_width=2)

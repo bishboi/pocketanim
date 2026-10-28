@@ -577,8 +577,9 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
     """Each part of a picture named: a dot where it is, a line out to its name beside the picture (left of it for a
     part on its left half). Where a part is: `"NAME@X,Y"` (0..1 from the picture's top left), else as found in the
     picture by a vision model (the assets step, kept beside the picture), else spread down its middle."""
-    ul, dr = pic.get_corner(UP + LEFT), pic.get_corner(DOWN + RIGHT)
     found = getattr(pic, "spots", {}) or {}
+    pic = getattr(pic, "frame_of", pic)        # the picture itself, not its credit line
+    ul, dr = pic.get_corner(UP + LEFT), pic.get_corner(DOWN + RIGHT)
     spots = []
     for i, raw in enumerate(names):
         nm, _, at = raw.partition("@")

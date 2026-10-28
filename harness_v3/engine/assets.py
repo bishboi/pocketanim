@@ -167,6 +167,8 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
         if len(toks) < 4 or toks[0] != "ent":
             continue
         found = []
+        if toks[2] == "backdrop":                  # a photo behind a whole shot
+            found.append(("photo", f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]))
         if toks[2] in KINDS:
             # `photo commons "WORDS"`: from the archive
             found.append((toks[2], f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]))

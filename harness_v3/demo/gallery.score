@@ -87,3 +87,74 @@ t28        in pile fade
 t28.4      bracket w1,w2,w3 "the old ties"
 t29        spotlight cath
 t31        lift w1
+
+# ---- lists and comparisons: compare, table, list, steps, stat
+shot lists at 18,-11
+ent cmp    compare "manor" "town" "labour:wages" "lord:guild" "serf:free" w 6.4 at -3.4,1.6
+ent tbl    table "crop|season|for" "wheat, rye|autumn|people" "peas, beans|spring|people" "oats|spring|horses" size 0.2 at 3.4,1.9
+ent lst    list "squares" "churches" "roads" "shops" numbered size 0.24 at -4.6,-2.3
+ent stp    steps "plough" "sow" "harvest" w 5.6 at 0.6,-2.0
+ent st     stat 0 "of Europe died" suffix "%" size 1.0 at 5.0,-2.1
+t34        cam lists
+t34.2-t35.5 in cmp stagger .3
+t35.6-t36.6 in tbl stagger .2
+t36.8-t37.8 in lst stagger .2
+t37.8-t38.8 in stp stagger .3
+t38.8      in st fade
+t38.9-t40  count st 20
+t40.1      strike cmp.labour
+t40.3      tick cmp.wages
+
+# ---- measures: calendar, meter, balance; fill, type
+shot measure at 36,-11
+ent cal    calendar 366 at -3.6,1.6
+ent caln   label "a year and a day" size 0.14 at -3.6,-0.2
+ent thermo meter 8 "summer heat" max 10 h 3 at -0.2,0.6
+ent bal    balance "people" "food" w 3.6 at 3.9,0.8
+ent barn   rect w 2.2 h 1.6 fill card line soft at -3.6,-2.4
+ent word   text "town air makes free" size 0.32 at 2.6,-2.8
+t41        cam measure
+t41.2      in cal,caln fade
+t41.5-t44  count cal 366
+t41.6      in thermo fade
+t42-t43.5  grow thermo 3
+t42        in bal fade
+t43.5-t44.5 tip bal left
+t44.6      in barn fade
+t44.8-t46  fill barn 70 gold
+t45        type word
+
+# ---- diagrams too: venn, tree, stack, waffle, formula
+shot more at 54,-11
+ent vn     venn "nobles" "merchants" label "wealth" r 1.25 at -4.4,1.6
+ent tr     tree "king>lords>knights" "lords>clergy" "knights>serfs" w 4.0 h 3.8 at 0.2,1.0
+ent stk    chart stack clergy:5 nobles:5 peasants:90 suffix "%" w 5.2 at -3.8,-2.2
+ent wf     chart waffle died:20 lived:80 suffix "%" at 4.6,0.9
+ent fx     formula "6CO_2 + 6H_2O -> C_6H_12O_6 + 6O_2" size 0.4 at 2.2,-2.8
+t47        cam more
+t47.2-t48.4 in vn stagger .3
+t48.4-t49.6 in tr stagger .2
+t49.6-t50.4 in stk stagger .2
+t50.4-t51.2 in wf stagger .3
+t51.4      in fx fade
+
+# ---- the scene: backdrop, weather, a portrait, a bubble, pan, connect, follow, a map's compass and scale
+shot scene at 0,-22
+ent bg     backdrop "a snowy medieval forest at dusk"
+ent snow   weather snow
+ent kingp  portrait "Edward III" sub "1312 to 1377" img "commons:Edward III of England portrait" size 2.0 at -4.4,0.6
+ent say    bubble "Bring back the old dues!" on kingp
+ent mp     map "british isles" compass scale w 6.4 h 4.4 at 3.2,0.2
+ent ship   icon ship size 0.5 color ink at mp.london
+ent sea    path mp.london mp.calais dashed
+t52        cam scene
+t52.2      in bg fade
+t52.4      in snow fade
+t52.6      in kingp fade
+t53        pan kingp zoom 1.08
+t53.2      in say pop
+t53.6      in mp fade
+t54        in ship,sea fade
+t54.5      connect kingp mp "rules"
+t55-t57    along ship sea
+t55-t57    follow ship zoom 2

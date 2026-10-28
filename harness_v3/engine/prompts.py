@@ -38,6 +38,8 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   MARKS (stay until the thing goes): ring T C | underline T | highlight T | strike T | box T | tick T | cross T |
         stamp T "WORDS" | callout T "WORDS" [left|right|up|down] | bracket A,B,C "WORDS" | spotlight T (all else
         veiled; `lift X` brings one back)
+  pan PHOTO [zoom K] (a slow push into a still) | type T (letter by letter) | fill SHAPE 60 C (fills like water)
+  connect A B "WORDS" (an arrow drawn between them) | follow T [zoom Z] (the camera keeps a moving thing in view)
   cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide
 TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
@@ -57,7 +59,8 @@ RULES
 # card a small model reads stays short. Each is one `ent` placed freely; its parts come on by the actions.
 KIT = {
     "map": """  map REGION   a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
-               a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`;
+               a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`,
+               `compass`, `scale` (a scale bar);
                `w 12 h 6.6` (it fills that). Every place on it is MAP.PLACE: eu.paris, eu.constantinople, eu.north_sea
   region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
                is; `color`, `opacity`, `outline`
@@ -70,24 +73,43 @@ KIT = {
     "chart": """  chart line K:V K:V ...    a line through real values (1000:42 1300:73 1400:45); `suffix " m"`, `w`, `h`
   chart bars K:V ...        bars side by side (England:2 France:1.4); `col` upright
   chart donut K:V ...       shares of a whole; `label "WORDS"` in the middle
+  chart stack K:V ...       shares in one bar  |  chart waffle K:V ...  a hundred squares shared out (died:20 lived:80)
+  stat V "WHAT IT MEANS" [suffix "%"]   a big figure (`count st 20` counts it up)
   Parts: one a value (`in pop stagger .4` draws it point by point; `highlight pop[2]`).""",
     "diagram": """  flow "A>B>C" "B>D:WORDS"   a flow diagram: nodes and arrows laid out in layers (`down`: top to bottom);
                `NAME*` a key node; words after `:` go on the arrow into that node. Parts: the nodes in order,
                each with its arrows in (`in fl[0]`, `in fl[1]`...); nodes are FL.NODE (`ring fl.town`)
   pyramid "TOP" "MIDDLE" "BOTTOM"   levels top first (`inverted`); parts are levels; SOC.LEVEL
-  cycle "A" "B" "C"   round a circle, each arrow on to the next; `label "WORDS"` in the middle""",
+  cycle "A" "B" "C"   round a circle, each arrow on to the next; `label "WORDS"` in the middle
+  tree "king>lords>knights" "lords>clergy"   a hierarchy from the top down (a flow, downward)
+  venn "A" "B" [label "WHAT THEY SHARE"]   two or three overlapping circles""",
+    "lists": """  compare "BEFORE" "AFTER" "a:b" "c:d"   two sides and their rows (`in cmp[1]` a row; `strike cmp.a`, `tick cmp.b`)
+  table "head|head" "cell|cell" ...   rows of cells, the first the heads; cells are TBL.r1c2
+  list "item" "item" ... [numbered]   items one under another (`in lst[2]` as each is named)
+  steps "first" "then" "last"   numbered steps in a row""",
+    "measure": """  calendar 366   days as small squares; `count cal 366` fills them (time passing)
+  meter V "WORDS" [max M]   a thermometer; `grow th 3` moves it (heat, cold, prices, pressure)
+  balance "LEFT" "RIGHT"   a pair of scales; `tip bal left|right|level` (more people than food...)""",
+    "scene": """  backdrop "A PLACE"   a photo behind the whole shot, softened (made like a photo; `backdrop commons "..."`)
+  weather snow|rain   falling over the whole shot while it is up
+  portrait "NAME" [sub "years"] [img "commons:NAME portrait"]   a real person's picture and name
+  bubble "WORDS" on T   a speech bubble over a person (only words the narration quotes)""",
     "paper": """  title "WORDS" [sub "a line"]   a section opening: big words on a highlighter
   quote "WORDS" [who "who said it"]   a quotation (only words the narration quotes)
-  doc "TITLE" [sub "a line"] [seal]   a page of a document (a charter, a law, a letter); `stamp` it""",
+  doc "TITLE" [sub "a line"] [seal]   a page of a document (a charter, a law, a letter); `stamp` it
+  formula "6CO_2 + 6H_2O -> C_6H_12O_6"   a formula (_ below, ^ above, -> an arrow)""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }
 KIT_WORDS = {
     "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
-    "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall",
-    "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|steps|process|orders",
-    "paper": r"title|quote|saying|\bsaid\b|document|charter|\blaw\b|letter|decree",
+    "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million",
+    "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|process|orders|tree|venn|overlap|both",
+    "lists": r"compare|versus|\bvs\b|before|after|table|\blist|steps|stages|instead",
+    "measure": r"calendar|days?\b|year and|thermomet|temperat|heat|cold|balance|scales|weigh|outgrew|faster than",
+    "scene": r"backdrop|weather|snow|rain|storm|winter|portrait|king|queen|ruler|said|speech|forest|village",
+    "paper": r"title|quote|saying|\bsaid\b|document|charter|\blaw\b|letter|decree|formula|equation|reaction",
     "labels": r"label|parts? of|named parts|inside",
 }
 
@@ -96,8 +118,12 @@ def kit_for(plan: str) -> list[str]:
     """The kit cards a shot's plan asks for: its `kit:` list, and any piece its words name."""
     m = re.search(r"kit\s*:\s*([^|]*)", plan, re.I)
     named = {w.strip().lower() for w in re.split(r"[,;/ ]+", m.group(1))} if m else set()
-    alias = {"flow": "diagram", "pyramid": "diagram", "cycle": "diagram", "quote": "paper", "doc": "paper",
-             "title": "paper", "bars": "chart", "line": "chart", "donut": "chart", "label": "labels"}
+    alias = {"flow": "diagram", "pyramid": "diagram", "cycle": "diagram", "tree": "diagram", "venn": "diagram",
+             "quote": "paper", "doc": "paper", "title": "paper", "formula": "paper", "bars": "chart", "line": "chart",
+             "donut": "chart", "stack": "chart", "waffle": "chart", "stat": "chart", "label": "labels",
+             "compare": "lists", "table": "lists", "list": "lists", "steps": "lists", "calendar": "measure",
+             "meter": "measure", "balance": "measure", "backdrop": "scene", "weather": "scene", "portrait": "scene",
+             "bubble": "scene"}
     named = {alias.get(w, w) for w in named}
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
 
@@ -108,9 +134,12 @@ SHOT name | words wA-wB | metaphor: what we SEE that makes the idea clear | thin
 for example:
 SHOT bay | words w0-w14 | metaphor: four dark ships slide into a quiet bay | things: sea, ships, map of Japan, 1853 | kit: map
 KIT (the bigger pieces a shot may use; name those it needs, or none): map (a real map: places, borders of a year,
-routes), timeline (years, events), chart (line, bars, donut from real numbers), flow (how one thing leads to another:
-a flow diagram), pyramid (ranks, orders), cycle (a round of steps), quote (words the narration quotes), doc (a
-charter, a law, a letter), title (a section opening), labels (a picture's parts named).
+routes), timeline (years, events), chart (line, bars, donut, stack, waffle from real numbers), stat (a big figure),
+flow (how one thing leads to another), tree (a hierarchy), pyramid (ranks), cycle (a round of steps), venn (what two
+share), compare (before and after, two sides), table, list, steps, calendar (time passing), meter (heat, cold,
+pressure), balance (one thing outweighing another), backdrop (a place behind the shot), weather (snow, rain), portrait
+(a real person), bubble (a person's quoted words), quote, doc (a charter, a law), title, formula, labels (a picture's
+parts named).
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
 transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""

@@ -50,7 +50,7 @@ import score as S
 
 LEAD = 0.18             # an action lands on its word: it starts this much before it
 # Kinds drawn on another piece (`on NAME` / `map NAME`), where they stand on it.
-ON_PARENT = ("region", "pin", "river", "event", "span", "labels")
+ON_PARENT = ("region", "pin", "river", "event", "span", "labels", "bubble")
 # The marks a verb draws, and each one's colour when none is said.
 MARKS = {"ring": "coral", "circle": "coral", "mark": "coral", "underline": "coral", "highlight": "accent",
          "strike": "red", "box": "coral", "tick": "green", "cross": "red", "stamp": "red", "callout": "ink"}
@@ -58,7 +58,8 @@ SIDES = ("left", "right", "up", "down")
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
                "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
                "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
-               "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6}
+               "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6,
+               "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0}
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -141,6 +142,7 @@ class ScoreScene(MovingCameraScene):
         self.E: dict[str, Mobject] = {}          # entity name -> its mobject
         self.alpha: dict[int, Alpha] = {}
         self.marks: dict[str, list] = {}         # entity name -> rings and lines drawn on it
+        self.fills: dict[str, dict] = {}         # entity name -> the level a `fill` has brought it to
         self.up: set[int] = set()                # what is on the screen
         self.tweens: list[Tween] = []
         self.clock = 0.0
@@ -157,6 +159,7 @@ class ScoreScene(MovingCameraScene):
             for tw in self.tweens[n:]:
                 tw.line, tw.verb = act.line, act.verb
         self._introduce_the_rest()
+        self._weather()
         self.tweens.sort(key=lambda t: t.t0)
         first = next((a for a in sc.acts if a.verb == "cam"), None)
         f = self.camera.frame
@@ -227,7 +230,8 @@ class ScoreScene(MovingCameraScene):
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
     SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots", "pic", "photo", "flag", "card", "tag",
-              "label", "timeline", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title"}
+              "label", "timeline", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "compare", "table",
+              "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "portrait", "tree"}
     HOLDERS = {"rect", "circle", "blob", "card", "photo"}
 
     def _holder(self, e: S.Ent) -> bool:
@@ -361,7 +365,8 @@ class ScoreScene(MovingCameraScene):
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
         on_map = e.kind in ON_PARENT        # drawn where it stands on its map, timeline or picture
-        if e.kind not in ("land", "waves", "path", "arrow", "islands", "map") and not on_map and (m.width > 12 or m.height > 7):
+        if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather") and not on_map
+                and (m.width > 12 or m.height > 7)):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
         if e.mods.get("on") and len(m.submobjects) > 1 and not on_map:
             # Its copies (or dots) spread along a path, evenly.
@@ -376,8 +381,11 @@ class ScoreScene(MovingCameraScene):
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
         # A region sits under what is on it; a map under its regions, a pin over them.
-        layer = int(e.mods.get("layer", -2 if e.kind == "map" else -1 if e.kind in ("blob", "islands", "region", "river")
-                               else 1 if e.kind in ("pin", "labels") else 0))
+        layer = int(e.mods.get("layer", -5 if e.kind == "backdrop" else -2 if e.kind == "map"
+                               else -1 if e.kind in ("blob", "islands", "region", "river")
+                               else 1 if e.kind in ("pin", "labels", "bubble") else 4 if e.kind == "weather" else 0))
+        if e.kind == "backdrop" and e.mods.get("opacity") is None:
+            e.mods["opacity"] = 0.3                 # softened: the shot's things stand out on it
         m.set_z_index(layer * 10 + (5 if e.kind in ("text", "num") else 0))
         if e.mods.get("opacity") is not None:
             Alpha(m).set(float(e.mods["opacity"]))
@@ -554,6 +562,35 @@ class ScoreScene(MovingCameraScene):
             to = float(re.sub(r"[^\d.\-]", "", act.args[0]) or 0)
             for m in self._valued(act.target, v):
                 (self._count if v == "count" else self._grow)(m, to, t0, t1)
+        elif v == "pan":
+            # Slowly into a picture (a camera over a still): `pan T [zoom K] [by DX,DY]`.
+            k = float(self._opt(act, "zoom", 1.12))
+            by = self._opt(act, "by", "0,0", str)
+            d = np.array([*(float(x) for x in by.split(",")), 0.0])
+            for (name, m) in self._targets(act.target):
+                self._pan(m, k, d, t0, t1 if act.t1 is not None else t0 + DEFAULT_RUN["pan"])
+        elif v == "type":
+            for (name, m) in self._targets(act.target):
+                self._type(name, m, t0, t1)
+        elif v == "fill":
+            to = float(next((a for a in act.args if re.match(r"^[\d.]+$", a)), "1"))
+            colour = look.col(next((a for a in act.args if a in look.L), "sky"))
+            for (name, m) in self._targets(act.target):
+                self._fill(name, m, min(1.0, to / 100 if to > 1 else to), colour, t0, t1)
+        elif v == "connect":
+            (na, ma), = self._targets(act.target)[:1]
+            (nb, mb), = self._targets(act.args[0])[:1]
+            words = next((a for a in act.args[1:] if a not in look.L), "")
+            self._connect(na, ma, mb, words, look.col(next((a for a in act.args[1:] if a in look.L), "ink")), t0, t1)
+        elif v == "follow":
+            (name, m), = self._targets(act.target)[:1]
+            self._follow(m, self._opt(act, "zoom"), t0, t1)
+        elif v == "tip":
+            import kit
+            way = {"left": -0.2, "right": 0.2}.get(act.args[0] if act.args else "level", 0.0)
+            for (name, m) in self._targets(act.target):
+                if isinstance(m, kit.Balance):
+                    self._tip(m, way, t0, t1)
         elif v == "spotlight":
             self._spotlight(act.target, float(self._opt(act, "dim", 0.22)), t0, t1)
         elif v == "bracket":
@@ -808,10 +845,10 @@ class ScoreScene(MovingCameraScene):
         out = []
         for name, m in self._targets(ref):
             # (not hasattr: manim answers any `set_...` name on any mobject)
-            if isinstance(m, (look.Num, look.Bar)):
+            if isinstance(m, (look.Num, look.Bar, look.Valued)):
                 out.append(m)
             else:
-                out += [p for p in m.get_family() if isinstance(p, (look.Num, look.Bar))]
+                out += [p for p in m.get_family() if isinstance(p, (look.Num, look.Bar, look.Valued))]
         if not out:
             kind = self.SCORE.ents.get(re.sub(r"\[.*", "", ref.split(",")[0]))
             raise ValueError(f"{verb} needs a num or a bar ({ref} is {'a ' + kind.kind if kind else 'not one'})")
@@ -930,6 +967,128 @@ class ScoreScene(MovingCameraScene):
                 state["anim"].finish()
         rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, rate_functions.ease_in_out_sine)
         self.tweens.append(Call(t0, t1, start, step, stop, rate))
+
+    def _pan(self, m, k, d, t0, t1) -> None:
+        state = {"k": 1.0, "d": np.zeros(3)}
+
+        def step(a):
+            kk = k ** a
+            m.scale(kk / state["k"])
+            m.shift(d * a - state["d"])
+            state["k"], state["d"] = kk, d * a
+        self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
+
+    def _type(self, name, m, t0, t1) -> None:
+        """Words coming on letter by letter."""
+        glyphs = [x for x in m.family_members_with_points()]
+        state = {}
+
+        def start():
+            self._show(name, m)
+            self._alpha(m).set(1.0)
+            state["al"] = [Alpha(g) for g in glyphs]
+            for al in state["al"]:
+                al.set(0.0)
+
+        def step(a):
+            n = int(round(a * len(glyphs)))
+            for i, al in enumerate(state["al"]):
+                al.set(1.0 if i < n else 0.0)
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+
+    def _fill(self, name, m, to, c, t0, t1) -> None:
+        """A shape filling from the bottom, as with water: to a share of its height."""
+        state = {}
+
+        def start():
+            ul, dr = m.get_corner(UP + LEFT), m.get_corner(DOWN + RIGHT)
+            fills = self.fills.setdefault(name, {})
+            if "mk" not in fills:
+                mk = Rectangle(width=(dr[0] - ul[0]) * 0.86, height=0.01, fill_color=c, fill_opacity=0.6, stroke_width=0)
+                mk.move_to([(ul[0] + dr[0]) / 2, dr[1] + 0.005 + (ul[1] - dr[1]) * 0.03, 0])
+                mk.set_z_index(max(x.z_index for x in m.get_family()) + 1)
+                fills.update(mk=mk, h=0.0, full=(ul[1] - dr[1]) * 0.94, base=dr[1] + (ul[1] - dr[1]) * 0.03)
+                self.marks.setdefault(name, []).append(mk)
+                self.add(mk)
+            state["h0"] = fills["h"]
+            state["f"] = fills
+
+        def step(a):
+            f = state["f"]
+            h = state["h0"] + (to - state["h0"]) * a
+            f["mk"].stretch_to_fit_height(max(0.01, f["full"] * h))
+            f["mk"].move_to([f["mk"].get_center()[0], f["base"] + f["mk"].height / 2, 0])
+            f["h"] = h
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_in_out_sine))
+
+    def _connect(self, name, a, b, words, c, t0, t1) -> None:
+        """An arrow drawn from one thing to another as the voice joins them (it goes when the first goes)."""
+        import kit
+        state = {}
+
+        def start():
+            p0, p1 = kit.edge_point(a, b.get_center()), kit.edge_point(b, a.get_center())
+            mk = kit.tipped([p0, p1], c, smooth=False)
+            if words:
+                t = kit.halo(look.label(words, 0.13, "ink"))
+                d = p1 - p0
+                nrm = np.array([-d[1], d[0], 0.0]) / (np.linalg.norm(d) or 1)
+                mk.add(t.move_to((p0 + p1) / 2 + nrm * 0.25 * (1 if nrm[1] >= 0 else -1)))
+            mk.set_z_index(max(x.z_index for x in a.get_family()) + 1)
+            self.marks.setdefault(name, []).append(mk)
+            self.add(mk)
+            anim = Create(mk, lag_ratio=0.2)
+            anim.begin()
+            state["anim"] = anim
+
+        def stop():
+            state["anim"].interpolate(1)
+            state["anim"].finish()
+        self.tweens.append(Call(t0, t1, start, lambda x: state["anim"].interpolate(x), stop, rate_functions.ease_in_out_sine))
+
+    def _follow(self, m, zoom, t0, t1) -> None:
+        """The camera keeps a moving thing in the middle (`follow ship`), easing after it."""
+        f = self.camera.frame
+
+        def step(a):
+            f.move_to(f.get_center() + (m.get_center() - f.get_center()) * 0.12)
+            if zoom:
+                w = S.SCREEN_W / float(zoom)
+                f.set_width(f.width + (w - f.width) * 0.06)
+        tw = Call(t0, t1, None, step, None, rate_functions.linear)
+        tw.camera = True
+        self.tweens.append(tw)
+
+    def _tip(self, m, to, t0, t1) -> None:
+        state = {}
+
+        def start():
+            state["a0"] = m.tilt
+        self.tweens.append(Call(t0, t1, start, lambda a: m.set_tilt(state["a0"] + (to - state["a0"]) * a), None,
+                                rate_functions.ease_out_back))
+
+    def _weather(self) -> None:
+        """Snow or rain keeps falling while it is up: each flake where its start, speed and the time put it (the
+        same in every chunk)."""
+        for name, e in self.SCORE.ents.items():
+            m = self.E.get(name)
+            if e.kind != "weather" or m is None:
+                continue
+            c0 = m.get_center().copy()
+            w, h = m.size
+
+            def step(a, m=m, c0=c0, w=w, h=h):
+                f = self.camera.frame
+                # Still while it is not up or the camera is elsewhere: nothing to draw, nothing to record.
+                if id(m) not in self.up or self._alpha(m).now < 0.01 or \
+                        np.linalg.norm(f.get_center() - c0) > f.width * 0.9:
+                    return
+                t = self.clock
+                for p, (x, y, speed, ph) in zip(m.submobjects, m.seeds):
+                    yy = (y + h / 2 - speed * t) % h - h / 2
+                    xx = x + (0.25 * math.sin(t * 0.9 + ph) if m.how == "snow" else -0.2 * speed * t % 0.01)
+                    p.move_to(c0 + np.array([xx, yy, 0.0]))
+            self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, step, None, rate_functions.linear))
 
     def _spotlight(self, target: str, dim: float, t0, t1) -> None:
         """Everything else up in the target's shot veiled (`lift` brings a thing back)."""

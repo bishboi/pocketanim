@@ -83,6 +83,16 @@ def para(words: str, size: float, width: float, **kw) -> VGroup:
     return g
 
 
+def even(words: str, size: float, bold: bool = False, color="ink"):
+    """Words whose capitals are `size` tall whatever letters they hold (rows of a table, a list, a comparison read as
+    one size; `text` fits each one's own height)."""
+    from manim import BOLD, NORMAL, Text
+    kw = dict(font=L["font"], weight=BOLD if bold else NORMAL, font_size=48)
+    ref = Text("H", **kw)
+    t = Text(str(words), color=col(color), **kw)
+    return t.scale(size / max(ref.height, 0.01))
+
+
 def node(words: str, k: float = 1.0, fill=None, sub: str | None = None, min_w: float = 1.6) -> VGroup:
     """A paper card with words in the headline face (a flow's node, a timeline's event)."""
     t = text(str(words).replace("_", " ").upper(), 0.27 * k, color="ink")
@@ -260,6 +270,8 @@ def chart(args: list[str], mods: dict, c=None) -> VGroup:
         return _line(data, mods, c)
     if how == "donut":
         return _donut(data, mods)
+    if how in ("stack", "waffle"):
+        return (stack if how == "stack" else waffle)(data, mods, c)
     return _bars(data, mods, c)
 
 
@@ -623,3 +635,341 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
             ln = Line(p, end, stroke_color=colour, stroke_width=STROKE * 0.35)
             out[i] = VGroup(dot, ln, t)
     return VGroup(*out)
+
+
+# ---------------------------------------------------------------- lists, tables, comparisons -------------------------
+
+def compare(args: list[str], mods: dict, c=None) -> VGroup:
+    """Two sides and their rows: `compare "manor" "town" "labour:wages" "lord:guild"`. Parts: the heads, then a row
+    each (left, an arrow, right)."""
+    heads = [a for a in args if ":" not in a][:2] or ["before", "after"]
+    rows = [a.split(":", 1) for a in args if ":" in a]
+    w = float(mods.get("w", 8))
+    xl, xr = -w / 4, w / 4
+    head = VGroup()
+    for x, words, colour in ((xl, heads[0], "soft"), (xr, heads[-1], c or "accent")):
+        t = text(words.replace("_", " ").upper(), 0.36, bold=True, color="ink").move_to([x, 0, 0])
+        bar = Rectangle(width=t.width + 0.3, height=0.12, fill_color=col(colour), fill_opacity=1, stroke_width=0)
+        head.add(VGroup(t, bar.next_to(t, DOWN, buff=0.1)))
+    g = VGroup(head)
+    g.places = Keys()
+    y = -0.85
+    for i, (a, b) in enumerate(rows):
+        la = even(a.replace("_", " "), 0.24).move_to([xl, y, 0])
+        lb = even(b.replace("_", " "), 0.24, bold=True).move_to([xr, y, 0])
+        ar = tipped([[xl + w / 8, y, 0], [xr - w / 8, y, 0]], col("soft"), STROKE * 0.4, smooth=False)
+        row = VGroup(la, ar, lb)
+        g.add(row)
+        g.places[f"r{i + 1}"] = row
+        g.places[key(a)] = la
+        g.places[key(b)] = lb
+        y -= 0.75
+    return g.move_to(ORIGIN)
+
+
+def table(args: list[str], mods: dict, c=None) -> VGroup:
+    """Rows of cells split by `|`, the first the heads: `table "crop|season" "wheat|autumn"`. Parts: a row each;
+    cells are TABLE.r2c1 (row 2, column 1; the heads are row 0)."""
+    rows = [[x.strip().replace("_", " ") for x in a.split("|")] for a in args]
+    n = max(len(r) for r in rows)
+    size = float(mods.get("size") or 0.24)
+    cells = [[even(x.upper() if i == 0 else x, size * (0.9 if i == 0 else 1), bold=i == 0)
+              for x in r + [""] * (n - len(r))] for i, r in enumerate(rows)]
+    cw = [max(cells[i][j].width for i in range(len(rows))) + 0.6 for j in range(n)]
+    rh = size * 2.4
+    total = sum(cw)
+    g = VGroup()
+    g.places = Keys()
+    for i, r in enumerate(cells):
+        y = -i * rh
+        band = Rectangle(width=total, height=rh, stroke_width=0, fill_opacity=1,
+                         fill_color=col(c or "accent") if i == 0 else col("card" if i % 2 else "bg"))
+        band.move_to([total / 2, y, 0])
+        row = VGroup(band)
+        x = 0.0
+        for j, t in enumerate(r):
+            t.move_to([x + 0.3 + t.width / 2, y, 0])
+            row.add(t)
+            g.places[f"r{i}c{j + 1}"] = t
+            x += cw[j]
+        row.add(Line([0, y - rh / 2, 0], [total, y - rh / 2, 0], stroke_color=col("soft"), stroke_width=1))
+        g.add(row)
+    return g.move_to(ORIGIN)
+
+
+def bullets(args: list[str], mods: dict, c=None) -> VGroup:
+    """Items one under another, a dot (or `numbered`) before each. Parts: the items."""
+    size = float(mods.get("size") or 0.3)
+    g = VGroup()
+    g.places = Keys()
+    for i, it in enumerate(args):
+        if mods.get("numbered"):
+            mark = VGroup(Circle(radius=size * 0.62, fill_color=col(c or "accent"), fill_opacity=1, stroke_width=0),
+                          text(str(i + 1), size * 0.8, bold=True, color="ink"))
+        else:
+            mark = VGroup(Dot(radius=size * 0.22, color=col(c or "accent")))
+        t = even(it.replace("_", " "), size)
+        row = VGroup(mark, t.next_to(mark, RIGHT, buff=size * 0.6))
+        row.move_to([0, -i * size * 2.1, 0]).align_to([0, 0, 0], LEFT)
+        g.add(row)
+        g.places[key(it)] = row
+    return g.move_to(ORIGIN)
+
+
+def steps(args: list[str], mods: dict, c=None) -> VGroup:
+    """Numbered steps in a row, joined: `steps "plough" "sow" "harvest"`. Parts: the steps (each with the line in)."""
+    n = len(args)
+    w = float(mods.get("w", min(12, 3 * n)))
+    g = VGroup()
+    g.places = Keys()
+    xs = [-w / 2 + w * (i + 0.5) / n for i in range(n)]
+    for i, (x, it) in enumerate(zip(xs, args)):
+        disc = Circle(radius=0.38, fill_color=col(c or "accent"), fill_opacity=1, stroke_color=col("ink"), stroke_width=2)
+        num = text(str(i + 1), 0.3, bold=True, color="ink")
+        words = even(it.replace("_", " ").upper(), 0.2)
+        if words.width > w / n - 0.2:
+            words.scale_to_fit_width(w / n - 0.2)
+        part = VGroup(disc.move_to([x, 0, 0]), num.move_to([x, 0, 0]), words.move_to([x, -0.75, 0]))
+        if i:
+            part.add(Line([xs[i - 1] + 0.42, 0, 0], [x - 0.42, 0, 0], stroke_color=col("ink"), stroke_width=STROKE * 0.4))
+        g.add(part)
+        g.places[key(it)] = part
+    return g
+
+
+def stat(args: list[str], mods: dict, c=None) -> VGroup:
+    """A big figure with its meaning under it: `stat 20 "of Europe died" suffix "%"`; it counts (`count st 20`)."""
+    from look import Num
+    v = float(args[0]) if args else 0
+    n = Num(v, mods.get("prefix", ""), mods.get("suffix", ""), float(mods.get("size") or 1.3), c)
+    words = label(args[1] if len(args) > 1 else "", 0.17, "ink")
+    bar = Rectangle(width=max(n.width, words.width) + 0.3, height=0.1, fill_color=col("accent"), fill_opacity=1,
+                    stroke_width=0)
+    return VGroup(n, VGroup(bar.next_to(n, DOWN, buff=0.15), words.next_to(bar, DOWN, buff=0.2)))
+
+
+# ---------------------------------------------------------------- measures -------------------------------------------
+
+from look import Valued  # noqa: E402
+
+
+class Calendar(Valued, VGroup):
+    """Days as a grid of small squares; `count CAL N` fills the first N (a year passing)."""
+
+    def __init__(self, days: int, value: float = 0, cols: int = 31, c=None):
+        super().__init__()
+        days = max(1, min(int(days), 400))
+        self.on, self.off = col(c or "accent"), col("sand")
+        s = 0.12
+        for i in range(days):
+            self.add(Rectangle(width=s, height=s, fill_color=self.off, fill_opacity=1, stroke_color=col("soft"),
+                               stroke_width=0.5).move_to([(i % cols) * (s + 0.04), -(i // cols) * (s + 0.04), 0]))
+        self.value = 0
+        self.set_value(value)
+
+    def set_value(self, v: float) -> None:
+        n = int(round(v))
+        for i, sq in enumerate(self.submobjects):
+            sq.set_fill(self.on if i < n else self.off, family=False)
+        self.value = v
+
+
+class Meter(Valued, VGroup):
+    """A thermometer: a tube filled to a value (of `max`); `grow M V` moves it; its words under it."""
+
+    def __init__(self, value: float, top: float = 10, h: float = 3.0, words: str = "", c=None):
+        super().__init__()
+        self.top, self.h, self.value = top, h, value
+        self.tube = RoundedRectangle(width=0.42, height=h, corner_radius=0.21, fill_color=col("card"), fill_opacity=1,
+                                     stroke_color=col("ink"), stroke_width=2.5)
+        self.bulb = Circle(radius=0.36, fill_color=col(c or "red"), fill_opacity=1, stroke_color=col("ink"),
+                           stroke_width=2.5).move_to(self.tube.get_bottom() + DOWN * 0.18)
+        self.colour = col(c or "red")
+        self.level = self._level(value)
+        ticks = VGroup(*(Line([0.25, -h / 2 + h * k / 5, 0], [0.42, -h / 2 + h * k / 5, 0], stroke_color=col("ink"),
+                              stroke_width=2) for k in range(1, 5)))
+        self.add(self.tube, self.level, self.bulb, ticks)
+        if words:
+            self.add(label(words, 0.13, "ink").next_to(self.bulb, DOWN, buff=0.2))
+
+    def _level(self, v: float):
+        lh = max(0.05, (self.h - 0.2) * max(0.0, min(v, self.top)) / self.top)
+        return Rectangle(width=0.22, height=lh, fill_color=self.colour, fill_opacity=1, stroke_width=0).move_to(
+            self.tube.get_bottom() + UP * (lh / 2 + 0.05))
+
+    def set_value(self, v: float) -> None:
+        new = self._level(v)
+        new.set_z_index(self.level.z_index)
+        new.set_fill(opacity=self.level.get_fill_opacity())
+        self.level.become(new)
+        self.value = v
+
+
+class Balance(VGroup):
+    """A balance: a post, a beam, a pan hanging at each end with its words. `tip B left|right|level` tilts it.
+    Parts: [stand, beam, left pan, right pan]."""
+
+    def __init__(self, left: str, right: str, w: float = 5.0, c=None):
+        super().__init__()
+        self.half = w / 2
+        ink = col("ink")
+        stand = VGroup(Line([0, -1.6, 0], [0, 0.9, 0], stroke_color=ink, stroke_width=STROKE * 0.7),
+                       Polygon([-0.7, -1.6, 0], [0.7, -1.6, 0], [0, -1.15, 0], fill_color=ink, fill_opacity=1,
+                               stroke_width=0),
+                       Dot([0, 0.9, 0], radius=0.09, color=ink))
+        self.pivot = np.array([0, 0.9, 0])
+        self.beam = Line(self.pivot + LEFT * self.half, self.pivot + RIGHT * self.half, stroke_color=ink,
+                         stroke_width=STROKE * 0.8)
+        self.pans = []
+        for side, words in ((-1, left), (1, right)):
+            hang = VGroup(Line([0, 0, 0], [-0.55, -1.0, 0], stroke_color=ink, stroke_width=2),
+                          Line([0, 0, 0], [0.55, -1.0, 0], stroke_color=ink, stroke_width=2))
+            dish = Polygon([-0.8, -1.0, 0], [0.8, -1.0, 0], [0.5, -1.3, 0], [-0.5, -1.3, 0],
+                           fill_color=col(c or "accent"), fill_opacity=1, stroke_color=ink, stroke_width=2)
+            t = text(words.replace("_", " ").upper(), 0.22, bold=True, color="ink").move_to([0, -1.6, 0])
+            pan = VGroup(hang, dish, t)
+            pan.hook = self.pivot + RIGHT * side * self.half
+            pan.shift(pan.hook)
+            self.pans.append(pan)
+        self.tilt = 0.0
+        self.add(stand, self.beam, *self.pans)
+
+    def set_tilt(self, a: float) -> None:
+        """The beam at angle `a` (positive: the right side down), the pans hanging straight from its ends."""
+        p = self.beam.get_center()
+        self.beam.rotate(-(a - self.tilt), about_point=p)
+        for side, pan in zip((-1, 1), self.pans):
+            end = p + np.array([side * self.half * math.cos(a), -side * self.half * math.sin(a), 0])
+            hook = pan[0][0].get_start()
+            pan.shift(end - hook)
+        self.tilt = a
+
+
+# ---------------------------------------------------------------- more diagrams and charts ----------------------------
+
+def venn(args: list[str], mods: dict, c=None) -> VGroup:
+    """Two or three overlapping circles, each named; `label "WORDS"` in what they share. Parts: the circles, then
+    the shared words."""
+    names = args[:3] or ["a", "b"]
+    r = float(mods.get("r", 1.6))
+    fills = ["accent", "teal", "coral"]
+    centres = ([[-r * 0.55, 0, 0], [r * 0.55, 0, 0]] if len(names) == 2 else
+               [[-r * 0.55, r * 0.32, 0], [r * 0.55, r * 0.32, 0], [0, -r * 0.6, 0]])
+    g = VGroup()
+    g.places = Keys()
+    for i, (nm, cpt) in enumerate(zip(names, centres)):
+        circ = Circle(radius=r, fill_color=col(fills[i]), fill_opacity=0.35, stroke_color=col(fills[i]),
+                      stroke_width=STROKE * 0.5).move_to(cpt)
+        out = np.array(cpt) / (np.linalg.norm(cpt) or 1)
+        t = halo(even(nm.replace("_", " ").upper(), 0.24, bold=True))
+        # each name outside its circle, away from what they share
+        t.move_to(np.array(cpt) + (out * (r + 0.2) + UP * 0.0 if len(names) == 3 else UP * (r + 0.3) + out * r * 0.3))
+        part = VGroup(circ, t)
+        g.add(part)
+        g.places[key(nm)] = part
+    if mods.get("label"):
+        g.add(halo(label(str(mods["label"]), 0.14, "ink")).move_to(ORIGIN))
+    return g
+
+
+def stack(data, mods, c=None) -> VGroup:
+    """Shares of a whole in one bar, each named under its part. Parts: the shares."""
+    w, h = float(mods.get("w", 9)), 0.7
+    total = sum(v for _, v in data) or 1
+    g = VGroup()
+    x = -w / 2
+    for i, (k, v) in enumerate(data):
+        bw = w * v / total
+        seg = Rectangle(width=max(0.02, bw), height=h, fill_color=col(PALETTE[i % len(PALETTE)]), fill_opacity=1,
+                        stroke_color=col("bg"), stroke_width=2).move_to([x + bw / 2, 0, 0])
+        t = label(f"{k} {_fmt(v, mods)}", 0.12, "ink")
+        t.move_to([x + bw / 2, (-0.65 if i % 2 == 0 else 0.65), 0])
+        g.add(VGroup(seg, t))
+        x += bw
+    return g
+
+
+def waffle(data, mods, c=None) -> VGroup:
+    """A hundred squares shared out (`chart waffle died:20 lived:80`). Parts: the shares, each its squares and name."""
+    total = sum(v for _, v in data) or 1
+    counts = [round(100 * v / total) for _, v in data]
+    counts[-1] = 100 - sum(counts[:-1])
+    s, gap = 0.22, 0.05
+    g = VGroup()
+    i = 0
+    for j, ((k, v), n) in enumerate(zip(data, counts)):
+        sq = VGroup()
+        for _ in range(max(0, n)):
+            sq.add(Rectangle(width=s, height=s, fill_color=col(PALETTE[j % len(PALETTE)]), fill_opacity=1,
+                             stroke_width=0).move_to([(i % 10) * (s + gap), -(i // 10) * (s + gap), 0]))
+            i += 1
+        g.add(VGroup(sq))
+    side = VGroup()
+    for j, (part, (k, v)) in enumerate(zip(g, data)):
+        key_sq = Rectangle(width=0.22, height=0.22, fill_color=col(PALETTE[j % len(PALETTE)]), fill_opacity=1,
+                           stroke_width=0)
+        t = label(f"{k} {_fmt(v, mods)}", 0.13, "ink").next_to(key_sq, RIGHT, buff=0.15)
+        row = VGroup(key_sq, t).move_to([10 * (s + gap) + 0.5, -j * 0.45, 0]).align_to([10 * (s + gap) + 0.3, 0, 0], LEFT)
+        part.add(row)
+    return g.move_to(ORIGIN)
+
+
+# ---------------------------------------------------------------- words in the scene ---------------------------------
+
+def formula(words: str, mods: dict, c=None):
+    """A formula set as text: `_x` or `_{..}` below, `^x` or `^{..}` above, `*` a times sign, `->` an arrow
+    (H_2O, x^2 + y^2, 6CO_2 + 6H_2O -> C_6H_12O_6)."""
+    from manim import MarkupText
+    from look import _esc
+    s = _esc(words).replace("-&gt;", "→").replace("*", "×")
+    s = re.sub(r"_\{([^}]*)\}", r"<sub>\1</sub>", s)
+    s = re.sub(r"\^\{([^}]*)\}", r"<sup>\1</sup>", s)
+    s = re.sub(r"_(\d+|[A-Za-z])", r"<sub>\1</sub>", s)           # H_2O, C_6H_12O_6, x_i
+    s = re.sub(r"\^(\d+[+\-]?|[A-Za-z+\-])", r"<sup>\1</sup>", s)   # x^2, Ca^2+, e^x
+    t = MarkupText(s, font=L.get("body") or "Inter", color=col(c or "ink"), font_size=48)
+    t.scale(float(mods.get("size") or 0.5) * 1.35 / max(t.height, 0.01) * 0.8)
+    return VGroup(t)
+
+
+def bubble(m, words: str, mods: dict, c=None) -> VGroup:
+    """A speech bubble over a thing (a person's picture), its tail to it: `bubble "I am free!" on youth`."""
+    side = -1 if mods.get("side") == "left" else 1
+    body = para(words, float(mods.get("size") or 0.24), float(mods.get("w", 3.2)), color="ink")
+    box = RoundedRectangle(width=body.width + 0.5, height=body.height + 0.4, corner_radius=0.22,
+                           fill_color=col(c or "card"), fill_opacity=1, stroke_color=col("ink"), stroke_width=2)
+    top = m.get_top()
+    box.move_to(top + np.array([side * (box.width / 2 - 0.2), 0.45 + box.height / 2, 0]))
+    base = box.get_bottom()[1]
+    bx = top[0] + side * 0.35
+    tail = Polygon([bx, base + 0.02, 0], [bx + side * 0.45, base + 0.02, 0], [top[0] + side * 0.05, top[1] + 0.1, 0],
+                   fill_color=col(c or "card"), fill_opacity=1, stroke_width=0)
+    edge = VGroup(Line([bx, base, 0], [top[0] + side * 0.05, top[1] + 0.1, 0]),
+                  Line([bx + side * 0.45, base, 0], [top[0] + side * 0.05, top[1] + 0.1, 0])).set_stroke(col("ink"), 2)
+    return VGroup(box, tail, edge, body.move_to(box))
+
+
+# ---------------------------------------------------------------- the weather ----------------------------------------
+
+def weather(how: str, mods: dict, c=None) -> VGroup:
+    """Snow or rain over the whole screen; render.py keeps it falling while it is up (`in snow fade`). Each flake's
+    start and speed are kept (`seeds`), so every chunk of a video draws the same fall."""
+    how = how or "snow"
+    n = int(mods.get("n", 70 if how == "snow" else 90))
+    w, h = float(mods.get("w", 14.4)), float(mods.get("h", 8.2))
+    rng = np.random.default_rng(zlib.crc32(how.encode()) + n)
+    g = VGroup()
+    g.seeds = []
+    g.size = (w, h)
+    for _ in range(n):
+        x, y = rng.uniform(-w / 2, w / 2), rng.uniform(-h / 2, h / 2)
+        if how == "rain":
+            p = Line([0, 0, 0], [-0.08, -0.38, 0], stroke_color=col(c or "navy"), stroke_width=2, stroke_opacity=0.5)
+            speed = rng.uniform(5.5, 7.5)
+        else:
+            r = rng.uniform(0.03, 0.07)
+            p = Dot(radius=r, color=col(c or "white")).set_opacity(0.9)
+            speed = rng.uniform(0.5, 1.1)
+        g.add(p.move_to([x, y, 0]))
+        g.seeds.append((x, y, speed, rng.uniform(0, math.tau)))
+    g.how = how
+    return g

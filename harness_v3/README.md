@@ -106,6 +106,16 @@ Labels on a picture: after the pictures are made, the assets step shows each lab
 (the critic's, else the run's model) once, which says where each part is; that is kept beside the picture
 (`NAME.spots.json`) and the labels point there. `"spire@0.5,0.1"` places one by hand.
 
+More pieces (also `engine/kit.py`, all in the gallery): `compare "manor" "town" "labour:wages"` (two sides, a row
+each), `table "crop|season" "wheat|autumn"`, `list "squares" "churches" numbered`, `steps "plough" "sow" "harvest"`,
+`stat 20 "of Europe died" suffix "%"` (counts), `calendar 366` (`count cal 366` fills the days), `meter 8 "heat"`
+(a thermometer; `grow`), `balance "people" "food"` (`tip bal left`), `venn "nobles" "merchants" label "wealth"`,
+`tree "king>lords>knights"`, `chart stack ...` and `chart waffle died:20 lived:80`, `formula "6CO_2 + 6H_2O ->
+C_6H_12O_6"`, `backdrop "a snowy forest"` (a softened photo behind a shot), `weather snow|rain` (falls only while up
+and in view), `portrait "Edward III" sub "1312 to 1377" img "commons:..."`, `bubble "words" on PERSON`, and a map's
+`compass` and `scale` bar. Verbs: `pan PHOTO` (a slow push into a still), `type T`, `fill SHAPE 60`, `connect A B
+"words"`, `follow T` (the camera keeps a moving thing in view), `tip`.
+
 Marks (verbs; they stay until the thing goes): `ring`, `underline`, `highlight`, `strike`, `box`, `tick`, `cross`,
 `stamp T "FREE"`, `callout T "words" up`, `bracket A,B,C "words"`, `spotlight T` (everything else veiled; `lift`
 brings one back). `dots 100 shape user` draws people instead of dots.

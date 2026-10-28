@@ -243,6 +243,10 @@ def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color
     return g
 
 
+class Valued:
+    """A piece with a value that `count` and `grow` change (`set_value`): a calendar filling, a meter rising."""
+
+
 class Num(VGroup):
     """A number that can count: its words rebuilt as its value changes, in place."""
 
@@ -348,7 +352,7 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind == "map":
         m = GeoMap(args[0] if args else "world", float(mods.get("w", 12)), float(mods.get("h", 6.6)),
                    int(mods["year"]) if mods.get("year") is not None else None, bool(mods.get("names")),
-                   bool(mods.get("rivers")), mods.get("fill"))
+                   bool(mods.get("rivers")), mods.get("fill"), bool(mods.get("compass")), bool(mods.get("scale")))
     elif kind in ("region", "pin", "river"):
         ref = mods.get("map") or mods.get("on")
         on = find(ref) if find and ref else None
@@ -363,11 +367,12 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = dots(n, lay, int(mods.get("grid", 10)), size or 0.16, c, mods.get("shape"))
     elif kind in KIT:
         import kit
-        if kind in ("event", "span", "labels"):
+        if kind in ("event", "span", "labels", "bubble"):
             on = find(mods.get("on")) if find and mods.get("on") else None
-            want = kit.Timeline if kind != "labels" else (ImageMobject, VGroup, Group)
+            want = kit.Timeline if kind in ("event", "span") else (ImageMobject, VGroup, Group)
             if on is None or not isinstance(on, want):
-                raise ValueError(f"a {kind} is drawn on a {'picture' if kind == 'labels' else 'timeline'}: `on NAME`")
+                raise ValueError(f"a {kind} is drawn on a {'timeline' if kind in ('event', 'span') else 'thing'}: "
+                                 "`on NAME`")
         if kind == "timeline":
             m = kit.Timeline(kit.year_of(args[0]), kit.year_of(args[1]), float(mods.get("w", 11)), c)
         elif kind == "event":
@@ -380,8 +385,23 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
             m = kit.chart(args, mods, c)
         elif kind == "labels":
             m = kit.labels(on, args, mods, c, mods.get("_screen"))
-        elif kind in ("pyramid", "cycle", "flow"):
+        elif kind in ("pyramid", "cycle", "flow", "compare", "table", "steps", "stat", "venn"):
             m = getattr(kit, kind)(args, mods, c)
+        elif kind == "tree":                        # a flow from the top down: kings, lords, knights
+            m = kit.flow(args, {**mods, "down": True}, c)
+        elif kind == "list":
+            m = kit.bullets(args, mods, c)
+        elif kind == "calendar":
+            m = kit.Calendar(int(float(args[0])) if args else 365, 0, int(mods.get("grid", 31)), c)
+        elif kind == "meter":
+            m = kit.Meter(float(args[0]) if args else 0, float(mods.get("max", 10)), float(mods.get("h", 3)),
+                          args[1] if len(args) > 1 else "", c)
+        elif kind == "balance":
+            m = kit.Balance(args[0] if args else "", args[1] if len(args) > 1 else "", float(mods.get("w", 5)), c)
+        elif kind == "bubble":
+            m = kit.bubble(on, args[0] if args else "", mods, c)
+        elif kind == "weather":
+            m = kit.weather(args[0] if args else "snow", mods, c)
         else:
             m = getattr(kit, kind)(args[0] if args else "", mods, c)
     elif kind == "num":
@@ -393,6 +413,17 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         a = locate(args[0]) if locate else (0, 0, 0)
         b = locate(args[1]) if locate else (1, 0, 0)
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
+    elif kind == "backdrop":
+        # A photo over the whole screen, softened, behind everything of its shot: a place to stand in.
+        what = f"commons:{args[1]}" if len(args) > 1 and args[0] == "commons" else (args[0] if args else "")
+        m = picture("photo", what, float(mods.get("w", 16.5)), mods)
+    elif kind == "portrait":
+        p = picture("photo", str((mods.get("img") or args[0]) if args else ""), size or 2.6, mods)
+        name = text(str(args[0] if args else "").upper(), 0.3, bold=True).next_to(p, DOWN, buff=0.2)
+        parts = [p, name]
+        if mods.get("sub"):
+            parts.append(label(str(mods["sub"]), 0.12, "soft").next_to(name, DOWN, buff=0.12))
+        m = Group(*parts)
     elif kind in ("pic", "photo"):
         what = f"commons:{args[1]}" if len(args) > 1 and args[0] == "commons" else (args[0] if args else "")
         m = picture(kind, what, size or (2.6 if kind == "pic" else 3.6), mods)
@@ -423,7 +454,9 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
 
 
 # The bigger pieces (kit.py), built from these.
-KIT = {"timeline", "event", "span", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels"}
+KIT = {"timeline", "event", "span", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels", "compare",
+       "table", "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather",
+       "tree"}
 
 
 # ---------------------------------------------------------------- the kit's pieces -----------------------------------
@@ -601,7 +634,7 @@ class GeoMap(VGroup):
     names]. Places on it: `NAME.place`."""
 
     def __init__(self, region: str, w: float = 12.0, h: float = 6.6, year: int | None = None, names: bool = False,
-                 rivers: bool = False, fill=None):
+                 rivers: bool = False, fill=None, compass: bool = False, scale: bool = False):
         super().__init__()
         import geo
         from shapely.geometry import box
@@ -646,7 +679,33 @@ class GeoMap(VGroup):
             for _, g in geo.rivers(self.bounds):
                 rv.add(*self.line_mob(g, col("sky"), 1.6))
         self.add(sea, land, borders, rv, self._names(sw / 2, sh / 2) if names else VGroup(), self._ref)
+        if compass:
+            self.add(self._compass(sw / 2, sh / 2))
+        if scale:
+            self.add(self._scale(sw / 2, sh / 2))
         self.places = _Places(self)
+
+    def _compass(self, hw: float, hh: float):
+        """North, in the map's top right corner."""
+        o = np.array([hw - 0.55, hh - 0.75, 0])
+        needle = VMobject(fill_color=col("ink"), fill_opacity=1, stroke_width=0)
+        needle.set_points_as_corners([o + UP * 0.4, o + RIGHT * 0.14 + DOWN * 0.1, o + DOWN * 0.02, o + LEFT * 0.14 + DOWN * 0.1,
+                                      o + UP * 0.4])
+        return VGroup(Circle(radius=0.3, stroke_color=col("ink"), stroke_width=1.5).move_to(o), needle,
+                      label("N", 0.1, "ink").move_to(o + UP * 0.58))
+
+    def _scale(self, hw: float, hh: float):
+        """A scale bar in the bottom left corner: a round number of kilometres about a sixth of the map across."""
+        km_per_unit = 111.32 / self.s                        # a degree of latitude is 111 km
+        want = km_per_unit * 2 * hw / 6
+        nice = min((v for v in (10, 20, 50, 100, 200, 250, 500, 1000, 2000, 5000) if v >= want * 0.6), default=5000)
+        length = nice / km_per_unit
+        o = np.array([-hw + 0.4, -hh + 0.35, 0])
+        bar = VGroup(Rectangle(width=length / 2, height=0.08, fill_color=col("ink"), fill_opacity=1, stroke_width=0)
+                     .move_to(o + RIGHT * length / 4),
+                     Rectangle(width=length / 2, height=0.08, fill_color=col("card"), fill_opacity=1,
+                               stroke_color=col("ink"), stroke_width=1).move_to(o + RIGHT * length * 3 / 4))
+        return VGroup(bar, label(f"{nice:,} km", 0.09, "ink").next_to(bar, UP, buff=0.08).align_to(bar, LEFT))
 
     # ---- coordinates
     def local(self, lon: float, lat: float) -> np.ndarray:

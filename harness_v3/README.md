@@ -43,8 +43,7 @@ w58-w62     morph fields works stagger .14
 ## The app
 
 ```
-sudo apt-get install -y libcairo2-dev libpango1.0-dev pkg-config ffmpeg   # once
-./setup.sh                                                                 # once
+./setup.sh        # once: cairo, pango, ffmpeg, node (Homebrew on macOS, apt on Linux), ../.venv3, icons, voices
 cp .env.example .env.local           # then fill in OPENROUTER_API_KEY (script, storyboard, score, critic) and
                                      # DATALAB_API_KEY (PDFs); v2's app/.env.local is read too, and exported
                                      # variables win over both

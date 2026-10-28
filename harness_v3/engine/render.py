@@ -128,10 +128,14 @@ class ScoreScene(MovingCameraScene):
         self._build()
         self._spread()
         for act in sc.acts:
+            n = len(self.tweens)
             try:
                 self._schedule(act)
             except Exception as e:  # noqa: BLE001 -- one action that cannot be played is left out, said
                 print(f"score line {act.line}: {act.verb} left out: {e}", file=sys.stderr)
+                del self.tweens[n:]
+            for tw in self.tweens[n:]:
+                tw.line, tw.verb = act.line, act.verb
         self._introduce_the_rest()
         self.tweens.sort(key=lambda t: t.t0)
         first = next((a for a in sc.acts if a.verb == "cam"), None)
@@ -362,14 +366,19 @@ class ScoreScene(MovingCameraScene):
         for tw in self.tweens:
             if tw.done or t < tw.t0:
                 continue
-            if not tw.started:
-                tw.started = True
-                tw.start()
-            a = min(1.0, (t - tw.t0) / (tw.t1 - tw.t0))
-            tw.step(tw.rate(a))
-            if a >= 1.0:
+            try:
+                if not tw.started:
+                    tw.started = True
+                    tw.start()
+                a = min(1.0, (t - tw.t0) / (tw.t1 - tw.t0))
+                tw.step(tw.rate(a))
+                if a >= 1.0:
+                    tw.done = True
+                    tw.stop()
+            except Exception as e:  # noqa: BLE001 -- an action that fails as it plays is dropped, said; the rest plays
                 tw.done = True
-                tw.stop()
+                print(f"score line {getattr(tw, 'line', '?')}: {getattr(tw, 'verb', 'an action')} stopped as it played: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
 
     # ------------------------------------------------------------ actions ----------------------------------------------
     def _span(self, act: S.Act, lead: bool = True) -> tuple[float, float]:
@@ -445,12 +454,12 @@ class ScoreScene(MovingCameraScene):
                     self._pulse(m, a0, a1)
                 else:
                     self._shake(m, a0, a1)
-        elif v == "count":
-            (name, m), = self._targets(act.target)[:1]
-            self._count(m, float(act.args[0]), t0, t1)
-        elif v == "grow":
-            (name, m), = self._targets(act.target)[:1]
-            self._grow(m, float(act.args[0]), t0, t1)
+        elif v in ("count", "grow"):
+            if not act.args:
+                raise ValueError(f"{v} needs the value to reach (`{v} NAME 42`)")
+            to = float(re.sub(r"[^\d.\-]", "", act.args[0]) or 0)
+            for m in self._valued(act.target, v):
+                (self._count if v == "count" else self._grow)(m, to, t0, t1)
         elif v in ("ring", "mark"):
             for (name, m) in self._targets(act.target):
                 self._mark(name, m, v, look.col(act.args[0] if act.args else "coral"), t0, t1)
@@ -687,6 +696,20 @@ class ScoreScene(MovingCameraScene):
             m.shift(RIGHT * (x - state["x"]))
             state["x"] = x
         self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
+
+    def _valued(self, ref: str, verb: str) -> list:
+        """The numbers or bars an action changes: the target itself, or each one inside it (`num x3`)."""
+        out = []
+        for name, m in self._targets(ref):
+            # (not hasattr: manim answers any `set_...` name on any mobject)
+            if isinstance(m, (look.Num, look.Bar)):
+                out.append(m)
+            else:
+                out += [p for p in m.get_family() if isinstance(p, (look.Num, look.Bar))]
+        if not out:
+            kind = self.SCORE.ents.get(re.sub(r"\[.*", "", ref.split(",")[0]))
+            raise ValueError(f"{verb} needs a num or a bar ({ref} is {'a ' + kind.kind if kind else 'not one'})")
+        return out
 
     def _count(self, m, to, t0, t1) -> None:
         state = {}

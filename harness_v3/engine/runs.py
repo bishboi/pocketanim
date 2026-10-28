@@ -366,41 +366,102 @@ def _assets(run: dict) -> None:
     todo = [w for w in wants if not assets.path_for(w[0], w[1], w[2], model).exists()]
     notes = [f"{len(wants)} picture(s) asked for, {len(wants) - len(todo)} kept from before"]
 
+    said = _better_words(run, text, todo) if todo else {}
+
+    def record(label: str, user: str) -> dict:
+        call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": label, "model": model, "system": "(image)",
+                "user": user, "images": 0, "started": time.time(), "status": "running"}
+        with _mut:
+            run["calls"].append(call)
+            save(run)
+        return call
+
+    def done(call: dict, **kw) -> None:
+        with _mut:
+            call.update(kw)
+            call["ended"] = time.time()
+            call["seconds"] = round(call["ended"] - call["started"], 2)
+            save(run)
+
     def make(item):
         kind, prompt, lk = item
         _check(run["id"])
         if assets.is_archive(prompt):
             return _from_archive(run, kind, prompt)
-        call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": f"{kind}: {prompt[:60]}", "model": model,
-                "system": "(image)", "user": assets.prompt_for(kind, prompt, lk), "images": 0, "started": time.time(),
-                "status": "running"}
-        with _mut:
-            run["calls"].append(call)
-            save(run)
+        words = said.get((kind, prompt))
+        call = record(f"{kind}: {prompt[:60]}", assets.prompt_for(kind, words or prompt, lk))
         try:
-            path, usage = assets.generate(kind, prompt, lk, model)
-            with _mut:
-                call.update({"status": "done", "output": path.name, "cost": usage.get("cost"),
-                             "tokens_in": usage.get("prompt_tokens"), "tokens_out": usage.get("completion_tokens")})
+            path, usage = assets.generate(kind, prompt, lk, model, words)
+            done(call, status="done", output=path.name, cost=usage.get("cost"), tokens_in=usage.get("prompt_tokens"),
+                 tokens_out=usage.get("completion_tokens"))
             return None
         except Exception as e:  # noqa: BLE001 -- a picture that cannot be made: a placeholder, said
-            with _mut:
-                call.update({"status": "failed", "error": str(e)[:500]})
+            done(call, status="failed", error=str(e)[:500])
             return f"{kind} \"{prompt[:50]}\": {str(e)[:160]}"
-        finally:
-            with _mut:
-                call["ended"] = time.time()
-                call["seconds"] = round(call["ended"] - call["started"], 2)
-                save(run)
 
+    def make_sheet(chunk):
+        """Small objects on one sheet, cut apart; one not cut cleanly is made on its own."""
+        _check(run["id"])
+        lk = chunk[0][2]
+        pairs = [(p, said.get(("pic", p)) or p) for _, p, _ in chunk]
+        prompt = assets.sheet_prompt([w for _, w in pairs], lk)[0]
+        call = record(f"pic sheet ({len(chunk)}): " + "; ".join(p[:24] for p, _ in pairs), prompt)
+        try:
+            made, missed, usage = assets.generate_sheet(pairs, lk, model)
+            done(call, status="done", output=f"{len(made)} of {len(chunk)} cut from one sheet", cost=usage.get("cost"),
+                 tokens_in=usage.get("prompt_tokens"), tokens_out=usage.get("completion_tokens"))
+        except Exception as e:  # noqa: BLE001 -- the sheet failed: each made on its own
+            done(call, status="failed", error=str(e)[:500])
+            missed = [p for p, _ in pairs]
+        sheets.append((len(chunk), len(chunk) - len(missed)))
+        return [f for f in (make(("pic", p, lk)) for p in missed) if f]
+
+    # Small objects go on sheets (V3_IMAGE_SHEET a sheet, of one look); scenes, archive pictures and a lone object
+    # are made one by one.
+    sheets: list[tuple[int, int]] = []
+    small = [w for w in todo if w[0] == "pic" and not assets.is_archive(w[1])] if assets.SHEET > 1 else []
+    single = [w for w in todo if w not in small]
+    chunks = []
+    for lk in dict.fromkeys(w[2] for w in small):
+        mine = [w for w in small if w[2] == lk]
+        chunks += [mine[i:i + assets.SHEET] for i in range(0, len(mine), assets.SHEET)]
+    single += [c[0] for c in chunks if len(c) == 1]
+    chunks = [c for c in chunks if len(c) > 1]
     jobs = max(1, int(os.environ.get("V3_IMAGE_JOBS", "4")))
     if todo:
-        with ThreadPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
-            failed = [f for f in pool.map(make, todo) if f]
+        with ThreadPoolExecutor(max_workers=min(jobs, len(single) + len(chunks))) as pool:
+            futs = [pool.submit(make_sheet, c) for c in chunks] + [pool.submit(make, w) for w in single]
+            got = [f.result() for f in futs]
+        failed = [f for g in got for f in ([g] if isinstance(g, str) else g or [])]
         notes.append(f"{len(todo) - len(failed)} made with {model}")
+        if sheets:
+            notes.append(f"{sum(n for n, _ in sheets)} small object(s) asked for on {len(sheets)} sheet(s); "
+                         f"{sum(k for _, k in sheets)} cut cleanly, the rest made one by one")
         notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
     notes += _find_parts(run, text, model)
     run["steps"]["assets"]["notes"] = notes
+
+
+def _better_words(run: dict, text: str, todo: list) -> dict:
+    """One call (the score's model) rewrites each picture's few words into the exact picture wanted, from the
+    narration and its shot's plan: {(kind, the score's words): the image model's words}. V3_IMAGE_REFINE=0: off."""
+    if os.environ.get("V3_IMAGE_REFINE", "1") == "0":
+        return {}
+    items = [(k, p) for k, p, _ in todo if not assets.is_archive(p)]
+    if not items:
+        return {}
+    plans = assets.shots_of(text)
+    narration = (run_dir(run["id"]) / "narration.txt").read_text() if (run_dir(run["id"]) / "narration.txt").exists() else ""
+    system, user = assets.refine_prompt([(k, p, plans.get((k, p), "")) for k, p in items], narration)
+    st = run["settings"]
+    try:
+        answer = chat(run, "assets", f"better picture prompts ({len(items)})", system, user,
+                      max_tokens=120 * len(items) + 200, model=(st.get("models") or {}).get("score") or st["model"])
+    except Exception as e:  # noqa: BLE001 -- the score's own words are used
+        run["steps"]["assets"].setdefault("notes", []).append(f"picture prompts not rewritten: {str(e)[:120]}")
+        return {}
+    got = assets.read_refined(answer, len(items))
+    return {items[i]: w for i, w in got.items()}
 
 
 def _from_archive(run: dict, kind: str, prompt: str) -> str | None:

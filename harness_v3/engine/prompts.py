@@ -19,8 +19,10 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
   KINDS: text "WORDS" | icon NAME (Lucide names: ship, train-front, factory, wheat, users, landmark, castle, lock,
          coins, flag, scroll, crown, mountain-snow, globe, school, anchor, swords, book-open...) | circle | rect | blob
          | ring | waves N | dots N | num V | bar V | arrow A B | path P P P...
-         | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out, e.g. pic "a stack of
-           gold coins"; no words in it; 1-3 a shot) | photo "A SCENE" (a framed print of a place or scene)
+         | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out; 1-3 a shot)
+         | photo "A SCENE" (a framed print of a place or scene). Say exactly what to draw, of its time and place:
+           pic "a 14th-century English silver penny, worn, both faces stamped" not pic "a coin"; photo "a muddy
+           medieval village street at dawn, timber houses, a church tower behind" not photo "a village". No words in it.
          | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)

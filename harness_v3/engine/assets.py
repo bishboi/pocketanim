@@ -278,16 +278,14 @@ def prompt_for(kind: str, prompt: str, look: str) -> str:
     return f"{prompt.strip().rstrip('.')}. {STYLE.get(look, STYLE['paper'])}. {HOW[kind]}"
 
 
-def generate(kind: str, prompt: str, look: str, model: str | None = None) -> tuple[Path, dict]:
-    """Make the picture (one Image API call) and keep it, finished (cut out, shadowed, framed). Returns its path and
-    the call's usage (cost, tokens)."""
-    model = model or DEFAULT_MODEL
+def _image(model: str, prompt: str, aspect: str, transparent: bool = False):
+    """One Image API call: the picture (PIL, RGBA) and the call's usage (cost, tokens)."""
     key_ = os.environ.get("OPENROUTER_API_KEY")
     if not key_:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
-    body = {"model": model, "prompt": prompt_for(kind, prompt, look), "n": 1, "output_format": "png",
-            "aspect_ratio": "1:1" if kind == "pic" else "4:3", "quality": os.environ.get("V3_IMAGE_QUALITY", "medium")}
-    if kind == "pic":
+    body = {"model": model, "prompt": prompt, "n": 1, "output_format": "png", "aspect_ratio": aspect,
+            "quality": os.environ.get("V3_IMAGE_QUALITY", "medium")}
+    if transparent:
         body["background"] = "transparent"     # where the model can; else we cut it out ourselves
     req = urllib.request.Request("https://openrouter.ai/api/v1/images", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {key_}", "Content-Type": "application/json",
@@ -311,12 +309,156 @@ def generate(kind: str, prompt: str, look: str, model: str | None = None) -> tup
         raw = data["url"].split(",", 1)[1]
     if not raw:
         raise RuntimeError(f"the image model gave no picture: {str(out)[:300]}")
-    img = _open(base64.b64decode(raw))
+    return _open(base64.b64decode(raw)), out.get("usage") or {}
+
+
+def generate(kind: str, prompt: str, look: str, model: str | None = None, said: str | None = None) -> tuple[Path, dict]:
+    """Make the picture (one Image API call) and keep it, finished (cut out, shadowed, framed). `said`: the words the
+    image model is given (a better prompt written for it); the picture is kept under the score's own words. Returns
+    its path and the call's usage (cost, tokens)."""
+    model = model or DEFAULT_MODEL
+    img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", kind == "pic")
     done = cutout(img) if kind == "pic" else framed(img)
     p = path_for(kind, prompt, look, model)
     CACHE.mkdir(parents=True, exist_ok=True)
     done.save(p)
-    return p, out.get("usage") or {}
+    keep_said(p, said)
+    return p, usage
+
+
+def keep_said(p: Path, said: str | None) -> None:
+    if said:
+        p.with_suffix(".prompt.txt").write_text(said)
+
+
+# ---------------------------------------------------------------- a sheet of small things ----------------------------
+# Small cut-out objects are asked for several at a time, laid out in a grid on one picture, and cut apart: one call
+# instead of six, and the six in one hand. A cell where the grid was not kept (its object touching the cell's edge,
+# or nothing in it) is made again on its own.
+
+SHEET = max(1, int(os.environ.get("V3_IMAGE_SHEET", "6")))
+# How many go on a sheet -> (columns, rows, aspect): the cells about square.
+GRIDS = {2: (2, 1, "16:9"), 3: (2, 2, "1:1"), 4: (2, 2, "1:1"), 5: (3, 2, "3:2"), 6: (3, 2, "3:2")}
+ORDINAL = ["first", "second", "third", "fourth", "fifth", "sixth"]
+
+
+def sheet_prompt(things: list[str], look: str) -> tuple[str, int, int, str]:
+    """The words for a sheet of `things` (2 to 6): the image model's prompt, and the grid it asks for."""
+    cols, rows, aspect = GRIDS[len(things)]
+    where = []
+    for i, t in enumerate(things):
+        r, c = divmod(i, cols)
+        row = "top" if r == 0 and rows > 1 else "bottom" if rows > 1 else "single"
+        side = ["left", "middle", "right"][c] if cols == 3 else ["left", "right"][c]
+        where.append(f"{ORDINAL[i]} cell ({row} row, {side}): {t.strip().rstrip('.')}")
+    prompt = (f"A reference sheet of {len(things)} separate objects arranged in an even grid of {cols} columns and "
+              f"{rows} row{'s' if rows > 1 else ''}, each object alone in the middle of its own equal cell, whole and "
+              "uncropped, filling about two thirds of its cell and never reaching into another cell, with wide empty "
+              "space between the objects. One plain flat light grey background (#DDDDDD) everywhere; no grid lines, "
+              "no borders, no frames, no shadows, no floor, no text, no letters, no numbers, no labels. All in the "
+              f"same style: {STYLE.get(look, STYLE['paper'])}.\n" + "\n".join(where))
+    return prompt, cols, rows, aspect
+
+
+def split_sheet(img, cols: int, rows: int, n: int) -> list:
+    """The sheet cut into its cells: each cell's object cut out (with its shadow), or None where the cell holds no
+    object or its object runs to the cell's edge (the model did not keep to the grid)."""
+    import numpy as np
+    W, H = img.size
+    out = []
+    for i in range(n):
+        r, c = divmod(i, cols)
+        x0, x1 = round(W * c / cols), round(W * (c + 1) / cols)
+        y0, y1 = round(H * r / rows), round(H * (r + 1) / rows)
+        cell = img.crop((x0, y0, x1, y1)).convert("RGBA")
+        a = np.asarray(cell)
+        if a[..., 3].min() > 250:
+            rgb = a[..., :3].astype(int)
+            bg = np.median(np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]]), axis=0)
+            thing = np.abs(rgb - bg).max(axis=2) > 26
+        else:
+            thing = a[..., 3] > 20
+        ys, xs = np.nonzero(thing)
+        h, w = thing.shape
+        if len(xs) < 0.01 * w * h:
+            out.append(None)                            # an empty cell
+            continue
+        m = 3
+        if xs.min() <= m or ys.min() <= m or xs.max() >= w - 1 - m or ys.max() >= h - 1 - m:
+            out.append(None)                            # cut by the cell's edge: not kept to the grid
+            continue
+        out.append(cutout(cell))
+    return out
+
+
+def generate_sheet(items: list[tuple[str, str]], look: str, model: str | None = None) -> tuple[dict, list, dict]:
+    """Small objects (`pic`) made on one sheet and cut apart. `items`: (the score's words, the words given to the
+    image model). Returns ({score words: path}, [score words not cut cleanly], usage)."""
+    model = model or DEFAULT_MODEL
+    prompt, cols, rows, aspect = sheet_prompt([said for _, said in items], look)
+    img, usage = _image(model, prompt, aspect, transparent=False)
+    made, missed = {}, []
+    CACHE.mkdir(parents=True, exist_ok=True)
+    for (words, said), cut in zip(items, split_sheet(img, cols, rows, len(items))):
+        if cut is None:
+            missed.append(words)
+            continue
+        p = path_for("pic", words, look, model)
+        cut.save(p)
+        keep_said(p, said if said != words else None)
+        made[words] = p
+    return made, missed, usage
+
+
+# ---------------------------------------------------------------- better words for the image model -------------------
+
+REFINE = """You write prompts for an image model that makes the pictures of an educational explainer video. Each
+picture was asked for in a few words by the video's writer; rewrite each into the exact picture wanted, using the
+narration and the shot it is in, so the model draws the right thing of the right time and place.
+
+Write 25 to 50 words for each: what it is, exactly (its kind, period and place, e.g. "a 13th-century English iron
+plough share" not "a plough"); its materials, colours and condition; its pose or how it is seen (straight on, three
+quarters, from above); for a person, their age, clothes of the period, what they hold and do. For a `pic`: ONE object
+or one person, whole, nothing else. For a `photo`: the scene, the viewpoint, the time of day and the light. Be
+historically and factually accurate; nothing modern unless the subject is. Never ask for words, letters, numbers,
+labels or signs in the picture, and do not name an art style (the style is added).
+
+Answer only lines `ID | PROMPT`, one per picture, in the order given."""
+
+
+def shots_of(score_text: str) -> dict:
+    """Each entity's shot plan (the `# ---- name: plan` line a generated score puts over its shot)."""
+    plan, out = "", {}
+    for raw in score_text.splitlines():
+        line = raw.strip()
+        m = re.match(r"^#\s*-+\s*(.*?)\s*-*$", line)
+        if m:
+            plan = m.group(1)
+            continue
+        try:
+            toks = shlex.split(line, comments=True)
+        except ValueError:
+            continue
+        if len(toks) >= 4 and toks[0] == "ent":
+            out[(toks[2], toks[3])] = plan
+            if toks[3] == "commons" and len(toks) > 4:
+                out[(toks[2], toks[4])] = plan
+    return out
+
+
+def refine_prompt(items: list[tuple[str, str, str]], narration: str) -> tuple[str, str]:
+    """(kind, the score's words, its shot's plan) for each picture -> the call that writes better words."""
+    rows = "\n".join(f"{i + 1} | {kind} | {words} | shot: {plan[:160]}" for i, (kind, words, plan) in enumerate(items))
+    return REFINE, f"NARRATION:\n{narration[:6000]}\n\nPICTURES (ID | kind | asked for | shot):\n{rows}"
+
+
+def read_refined(text: str, n: int) -> dict:
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"^\s*\**\s*(\d+)\s*[|.:)]\s*(.+?)\s*$", line)
+        if m and 1 <= int(m.group(1)) <= n and len(m.group(2)) > 8:
+            out[int(m.group(1)) - 1] = m.group(2).strip().strip('"')
+    return out
 
 
 def _open(b: bytes):

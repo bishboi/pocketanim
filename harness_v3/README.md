@@ -83,6 +83,13 @@ is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.par
 name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
 fills the `w`/`h` it is given (12 x 6.6 by default).
 
+Pictures are asked for well and cheaply: before any is made, one call to the score's model rewrites each picture's
+few words into an exact prompt from the narration and its shot (what, of when and where, materials, pose; kept
+beside the picture as NAME.prompt.txt; `V3_IMAGE_REFINE=0` turns it off), and small cut-out objects (`pic`) are asked
+for six at a time on one sheet (a 3 x 2 grid on plain grey) and cut apart (`V3_IMAGE_SHEET`). A cell where the model
+did not keep to the grid (its object running to the cell's edge, or nothing in it) is made again on its own. Photos
+are made one by one.
+
 The bigger pieces (`engine/kit.py`; every one in `demo/gallery.score`), still placed freely and brought on by the
 actions, part by part as the voice names them:
 

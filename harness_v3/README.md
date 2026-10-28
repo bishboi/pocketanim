@@ -29,7 +29,8 @@ w58-w62     morph fields works stagger .14
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
 | `engine/runs.py` | A run: its settings, its steps (voice, storyboard, score, render, critic) with status, time and cost, every model call with its prompt, answer, tokens and cost (`runs/<id>/run.json`). |
-| `engine/books.py` | A book: a PDF uploaded and read (its pages' text and sections), scripts of chosen pages (one call each, written as short videos), and each video built as a run; the script calls' cost and its videos' runs added up (`books/<id>/book.json`). |
+| `engine/datalab.py` | A PDF read by Datalab's convert API (JSON blocks, as v2 reads it; `DATALAB_API_KEY`), cached by the PDF's hash: each page's text and the headings. |
+| `engine/books.py` | A book: a PDF uploaded and read by Datalab (its pages' text, and sections from its headings), scripts of chosen pages (one call each, written as short videos), and each video built as a run; the script calls' cost and its videos' runs added up (`books/<id>/book.json`). |
 | `engine/server.py`, `engine/ui.html` | The web app over runs (standard library only). |
 | `engine/pipeline.py` | Narration to video, end to end (`--score` to render a given score; the calls need `OPENROUTER_API_KEY`). |
 | `demo/` | The 40-second demo: its narration and its score. |
@@ -44,16 +45,18 @@ w58-w62     morph fields works stagger .14
 ```
 sudo apt-get install -y libcairo2-dev libpango1.0-dev pkg-config ffmpeg   # once
 ./setup.sh                                                                 # once
-export OPENROUTER_API_KEY=...        # for storyboard, score and critic; optional V3_MODEL=provider/model
+export OPENROUTER_API_KEY=...        # for script, storyboard, score and critic; optional V3_MODEL=provider/model
+export DATALAB_API_KEY=...           # to read PDFs (optional DATALAB_MODE=balanced|accurate|fast)
 ../.venv3/bin/python engine/server.py --port 8300                          # then open http://localhost:8300
 ```
 
-From a book: **Upload PDF**, pick a section (from the PDF's outline) or a page range, and **Write the script**:
+From a book: **Upload PDF**, Datalab reads it (in the background: a minute or a few; a PDF read before comes from the cache, at no cost),
+then pick a section (from its headings) or a page range, and **Write the script**:
 one call writes those pages as a few short videos (how many and how long, and notes for the writer, are yours to
 set). Each video's title and narration can be edited; **Build this video** (or **Build all not built**) makes each
 one a run, one at a time (`V3_PARALLEL=2` for more). The book shows read, script and videos with their time and
-cost, the script calls with their prompts, tokens and cost, and each video's run status, cost and player. Scanned
-PDFs (no text) need OCR first; the book's figures are not used yet.
+cost (Datalab's own cost for the read, when its result gives one), the script calls with their prompts, tokens and cost, and each video's run status, cost and player. The book's
+figures are not used yet (Datalab's result, with its pictures, is kept in `books/<id>/datalab.json`).
 
 A run by hand: **New run** takes a title, the narration (one sentence a line), the model, the voice, quality, speed and pause, the critic on
 or off, and (optional) a score written by hand, which skips the storyboard and score calls (no key needed). A run

@@ -230,6 +230,7 @@ async function create() {
 
 async function upload(file) {
   if (!file) return;
+  if (!config.datalab) { alert("DATALAB_API_KEY is not set on the server: PDFs are read by Datalab. Set it and restart the server."); $("#pdfpick").value = ""; return; }
   $("#pdfpick").value = "";
   sel = null; clearTimeout(timer);
   $("#main").innerHTML = `<p class="soft">Reading ${esc(file.name)}…</p>`;
@@ -248,7 +249,7 @@ async function refreshBook(force) {
   bdata = d;
   if (changed && !editing()) renderBook();
   clearTimeout(btimer);
-  const live = d.busy || d.book.scripts.some((s) => s.videos.some((v) => v.run_info && ["running", "queued", "new"].includes(v.run_info.status)));
+  const live = d.busy || d.book.status === "reading" || d.book.scripts.some((s) => s.videos.some((v) => v.run_info && ["running", "queued", "new"].includes(v.run_info.status)));
   if (live) btimer = setTimeout(() => { refreshBook(); loadRuns(); }, 2000);
 }
 
@@ -257,8 +258,9 @@ const editing = () => document.activeElement && document.activeElement.matches("
 
 function renderBook() {
   const d = bdata, b = d.book;
-  if (!range) range = b.sections[0] ? {from: b.sections[0].from, to: b.sections[0].to} : {from: 1, to: Math.min(b.pages, 4)};
-  const byStep = {script: b.cost || 0, videos: d.videos.cost};
+  if (b.status !== "done") range = null;
+  else if (!range) range = b.sections[0] ? {from: b.sections[0].from, to: b.sections[0].to} : {from: 1, to: Math.min(b.pages, 4)};
+  const byStep = {read: b.read.cost || 0, script: b.cost || 0, videos: d.videos.cost};
   const opt = (xs, v) => xs.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
   const scripts = b.scripts.slice().reverse();
   const built = scripts.reduce((k, s) => k + s.videos.filter((v) => v.run).length, 0);
@@ -269,8 +271,10 @@ function renderBook() {
     <div class="row soft" style="margin-top:4px">${esc(b.name)} · ${b.pages} pages · ${new Date(b.created * 1000).toLocaleString()}</div>
     ${!config.key ? `<div class="banner">No OPENROUTER_API_KEY on the server: writing a script (and each video's storyboard and score) needs it.</div>` : ""}
     <div class="steps" style="grid-template-columns: repeat(3, 1fr)">
-      <div class="step"><h4>read</h4><div class="row"><span class="chip ${b.read.status}">${b.read.status}</span><span class="soft">${secs(b.read.seconds)}</span></div>
-        <div class="notes">${esc(b.read.notes.join("\n"))}</div></div>
+      <div class="step"><h4>read (Datalab)</h4><div class="row"><span class="chip ${b.read.status}">${b.read.status}</span><span class="soft">${secs(b.read.seconds)}</span>
+        ${b.read.cost ? `<span class="money">${usd(b.read.cost)}</span>` : ""}</div>
+        ${b.read.error ? `<div class="err">${esc(b.read.error)}</div>` : ""}
+        <div class="notes">${esc(b.read.status === "running" ? "Datalab is converting the PDF (a minute or a few)…" : (b.read.notes || []).join("\n"))}</div></div>
       <div class="step"><h4>script</h4><div class="row"><span class="chip ${d.busy ? "running" : !b.scripts.length ? "waiting" : b.scripts[b.scripts.length - 1].status}">${d.busy ? "running" : b.scripts.length + " scripts"}</span>
         <span class="money">${usd(byStep.script)}</span><span class="soft">${secs(b.scripts.reduce((k, s) => k + (s.seconds || 0), 0))}</span></div>
         <div class="notes">${total} videos written</div></div>
@@ -278,10 +282,12 @@ function renderBook() {
         <span class="money">${usd(byStep.videos)}</span></div>
         <div class="notes">each one a run: voice, storyboard, score, render, critic (open it for its own breakdown)</div></div>
     </div>
-    <div class="row soft">cost: script <span class="money">${usd(byStep.script)}</span> · videos <span class="money">${usd(byStep.videos)}</span> · total <span class="money">${usd(d.total.cost)}</span></div>
+    <div class="row soft">cost: read <span class="money">${usd(byStep.read)}</span> · script <span class="money">${usd(byStep.script)}</span> · videos <span class="money">${usd(byStep.videos)}</span> · total <span class="money">${usd(d.total.cost)}</span></div>
     <div class="tabs">${["script", "text", "calls"].map((t) => `<button class="${btab === t ? "on" : ""}" onclick="btab='${t}';renderBook()">${{script: "Pages & script", text: "Pages' text", calls: `Calls (${b.calls.length})`}[t]}</button>`).join("")}</div>
     <div id="bpane"></div>`;
   const p = $("#bpane");
+  if (b.status !== "done") { p.innerHTML = `<div class="bookgrid"><div><iframe class="pdf" src="/books/${bsel}/source.pdf"></iframe></div>
+    <div><p class="soft">${b.status === "failed" ? "The PDF could not be read: see the read step above." : "The pages and sections come when Datalab has read the PDF."}</p></div></div>`; return; }
   if (btab === "calls") { p.innerHTML = callsTable(b.calls, b.cost, bopen, "bopen", "renderBook()"); return; }
   if (btab === "text") {
     p.innerHTML = `<p class="soft">Pages ${range.from}–${range.to}: the text the script call reads (up to 40,000 characters).</p><div id="ptext" class="soft">…</div>`;
@@ -372,6 +378,7 @@ async function dropScript(sid) {
   const k = $("#key");
   k.textContent = config.key ? "model key set" : "no model key";
   k.className = "chip " + (config.key ? "done" : "failed");
+  k.insertAdjacentHTML("afterend", `<span class="chip ${config.datalab ? "done" : "failed"}">${config.datalab ? "Datalab key set" : "no Datalab key"}</span>`);
   await loadRuns();
   setInterval(loadRuns, 8000);
 })();

@@ -13,7 +13,7 @@ The API (JSON):
     GET  /api/config                       the models, voices and whether a key is set
 
     GET  /api/books                        every book (newest first): id, title, pages, videos, cost with its videos'
-    POST /api/books                        the PDF as the body (header X-Filename): kept and read
+    POST /api/books                        the PDF as the body (header X-Filename): kept, and read by Datalab
     GET  /api/books/<id>                   the book (sections, scripts, calls), each video's run beside it, the totals
     GET  /api/books/<id>/pages?from=&to=   the pages' text
     POST /api/books/<id>/script            {from, to, model, videos, seconds, notes}: a script of those pages, started
@@ -77,7 +77,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             elif path == "/api/config":
                 self._json({"models": MODELS, "default_model": runs.DEFAULT_MODEL, "voices": VOICES,
-                            "key": bool(os.environ.get("OPENROUTER_API_KEY"))})
+                            "key": bool(os.environ.get("OPENROUTER_API_KEY")),
+                            "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})
             elif path == "/api/runs":
                 self._json(runs.listing())
             elif path == "/api/books":

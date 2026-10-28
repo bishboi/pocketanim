@@ -3,7 +3,8 @@
 A book lives in harness_v3/books/<id>/: source.pdf, pages.json (each page's text) and book.json (its title, pages,
 sections, scripts and calls). The steps:
 
-    read     the PDF's text, page by page, and its sections (its own outline; else every few pages) (no model call)
+    read     the PDF read by Datalab (datalab.py; DATALAB_API_KEY): each page's text, and the sections from its
+             headings (else every few pages). Datalab's result is kept (datalab.json) and cached by the PDF's hash.
     script   one model call: the pages chosen (a section, or a page range) written as a few short videos, each a
              title and its narration (prompts.SCRIPT). A book may have several scripts (other pages, other notes).
     build    each video (or all of them) made as a run from its narration: voice, storyboard, score, render, critic.
@@ -15,6 +16,7 @@ them up.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -22,6 +24,7 @@ import traceback
 import uuid
 from pathlib import Path
 
+import datalab
 import prompts
 import runs
 
@@ -62,8 +65,9 @@ def listing() -> list[dict]:
         except Exception:  # noqa: BLE001 -- a book being written
             continue
         made = videos_cost(b)
+        rc = (b.get("read") or {}).get("cost") or 0
         out.append({k: b.get(k) for k in ("id", "title", "created", "pages")} |
-                   {"cost": round((b.get("cost") or 0) + made["cost"], 6), "script_cost": b.get("cost") or 0, "tokens": (b.get("tokens") or 0) + made["tokens"],
+                   {"cost": round((b.get("cost") or 0) + rc + made["cost"], 6), "script_cost": (b.get("cost") or 0) + rc, "tokens": (b.get("tokens") or 0) + made["tokens"],
                     "videos": made["count"], "status": "running" if b["id"] in _busy else b.get("status", "done")})
     return out
 
@@ -87,45 +91,78 @@ def videos_cost(book: dict) -> dict:
 # ---------------------------------------------------------------- read ------------------------------------------------
 
 def add(name: str, data: bytes) -> dict:
-    """The PDF kept and read: its pages' text and its sections."""
-    import pymupdf
-
+    """The PDF kept, and read by Datalab in a thread (the book is "reading" till then)."""
+    if not data.startswith(b"%PDF"):
+        raise ValueError("that is not a PDF")
+    if not os.environ.get("DATALAB_API_KEY", "").strip():
+        raise ValueError("DATALAB_API_KEY is not set: the PDF is read by Datalab")
     bid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
     d = book_dir(bid)
     d.mkdir(parents=True, exist_ok=True)
     (d / "source.pdf").write_bytes(data)
-    t0 = time.time()
-    try:
-        doc = pymupdf.open(stream=data, filetype="pdf")
-    except Exception as e:  # noqa: BLE001
-        raise ValueError(f"not a PDF this can read: {e}") from e
-    texts = [re.sub(r"[ \t]+", " ", p.get_text("text")).strip() for p in doc]
-    (d / "pages.json").write_text(json.dumps(texts))
-    n = len(texts)
-    sections = []
-    toc = [t for t in doc.get_toc() if t[2] >= 1]
-    top = min((t[0] for t in toc), default=1)
-    heads = [t for t in toc if t[0] <= top + 1]
-    for k, (level, title, page) in enumerate(heads):
-        nxt = next((h[2] for h in heads[k + 1:] if h[2] > page), n + 1)
-        sections.append({"title": title.strip(), "level": level - top, "from": max(1, page), "to": max(page, nxt - 1)})
-    if not sections:
-        step = 4 if n > 8 else n
-        sections = [{"title": f"Pages {a}-{min(n, a + step - 1)}", "level": 0, "from": a, "to": min(n, a + step - 1)}
-                    for a in range(1, n + 1, max(1, step))]
-    chars = sum(len(t) for t in texts)
-    meta = ((doc.metadata or {}).get("title") or "").strip()
-    if not meta or re.search(r"\.(html?|docx?|pdf|tex|indd)$|^untitled|^microsoft", meta, re.I):
-        meta = ""  # a tool's file name, not the book's title
-    title = meta or re.sub(r"\.pdf$", "", name, flags=re.I).replace("_", " ") or "Untitled"
-    book = {"id": bid, "title": title.strip()[:120], "name": name, "created": time.time(), "pages": n, "status": "done",
-            "sections": sections, "scripts": [], "calls": [], "cost": 0.0, "tokens": 0,
-            "read": {"status": "done", "seconds": round(time.time() - t0, 2),
-                     "notes": [f"{n} pages, {chars} characters, {len(sections)} sections"
-                               + (" (from its outline)" if toc else " (no outline: every few pages)")]
-                     + (["almost no text: a scanned PDF needs OCR first"] if chars < 200 * max(1, n) // 4 else [])}}
+    book = {"id": bid, "title": re.sub(r"\.pdf$", "", name, flags=re.I).replace("_", " ").strip() or "Untitled",
+            "name": name, "created": time.time(), "pages": 0, "status": "reading", "sections": [], "scripts": [],
+            "calls": [], "cost": 0.0, "tokens": 0, "read": {"status": "running", "started": time.time(), "notes": []}}
     save(book)
+    threading.Thread(target=_read, args=(bid,), daemon=True).start()
     return book
+
+
+def _read(bid: str) -> None:
+    d = book_dir(bid)
+    notes: list[str] = []
+    read: dict = {}
+    try:
+        result, cached = datalab.convert((d / "source.pdf").read_bytes())
+        (d / "datalab.json").write_text(json.dumps(result.get("json")))
+        texts, heads, title = datalab.pages_and_heads(result["json"])
+        (d / "pages.json").write_text(json.dumps(texts))
+        n = len(texts)
+        sections = _sections(heads, n)
+        chars = sum(len(t) for t in texts)
+        cents = (result.get("cost_breakdown") or {}).get("final_cost_cents")
+        notes.append(f"{n} pages, {chars} characters, {len(sections)} sections"
+                     + (" (from its headings)" if heads else " (no headings: every few pages)"))
+        notes.append("Datalab's earlier result for this PDF (no new conversion)" if cached
+                     else f"converted by Datalab ({os.environ.get('DATALAB_MODE') or 'balanced'} mode)")
+        read = {"status": "done", "notes": notes, "cost": 0.0 if cached or cents is None else round(cents / 100, 4)}
+        with _lock:
+            book = load(bid)
+            book.update({"pages": n, "sections": sections, "status": "done"})
+            if title and book["title"] == re.sub(r"\.pdf$", "", book["name"], flags=re.I).replace("_", " ").strip():
+                book["title"] = title[:120]
+            book["read"] = book["read"] | read
+            _finish_read(book)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        with _lock:
+            book = load(bid)
+            book["status"] = "failed"
+            book["read"] |= {"status": "failed", "error": str(e)[:1500]}
+            _finish_read(book)
+
+
+def _finish_read(book: dict) -> None:
+    r = book["read"]
+    r["ended"] = time.time()
+    r["seconds"] = round(r["ended"] - r["started"], 1)
+    save(book)
+
+
+def _sections(heads: list[dict], n: int) -> list[dict]:
+    """The book's sections from its headings' top two levels (each runs to the page the next one starts on); every
+    few pages when it has none."""
+    if heads:
+        top = min(h["level"] for h in heads)
+        heads = [h for h in heads if h["level"] <= top + 1]
+        out = []
+        for k, h in enumerate(heads):
+            nxt = next((x["page"] for x in heads[k + 1:] if x["level"] <= h["level"]), n)
+            out.append({"title": h["title"], "level": h["level"] - top, "from": h["page"], "to": max(h["page"], nxt)})
+        return out
+    step = 4 if n > 8 else max(1, n)
+    return [{"title": f"Pages {a}-{min(n, a + step - 1)}", "level": 0, "from": a, "to": min(n, a + step - 1)}
+            for a in range(1, n + 1, step)]
 
 
 # ---------------------------------------------------------------- script ----------------------------------------------
@@ -143,6 +180,8 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
         if bid in _busy:
             raise RuntimeError("this book is busy writing a script: wait for it")
         book = load(bid)
+        if book.get("status") != "done":
+            raise RuntimeError("the PDF is not read yet")
         a, b = max(1, int(a)), min(book["pages"], int(b))
         if a > b:
             raise ValueError("the pages are empty")
@@ -250,6 +289,7 @@ def view(bid: str) -> dict:
                 except FileNotFoundError:
                     v["run_info"] = None
     made = videos_cost(book)
+    rc = (book.get("read") or {}).get("cost") or 0
     return {"book": book, "busy": bid in _busy, "videos": made,
-            "total": {"cost": round((book.get("cost") or 0) + made["cost"], 6),
+            "total": {"cost": round((book.get("cost") or 0) + rc + made["cost"], 6),
                       "tokens": (book.get("tokens") or 0) + made["tokens"]}}

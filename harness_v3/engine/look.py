@@ -355,7 +355,14 @@ def build(kind: str, args: list[str], mods: dict, locate=None):
         m = label(args[0] if args else "", size or 0.2, c or "soft")
     elif kind == "path":
         # Its points in its shot's frame (X,Y) or places (`japan.tokyo`), where they are: a path is never moved.
-        pts = [tuple(locate(a)[:2]) if locate else tuple(float(v) for v in a.split(",")) for a in args]
+        pts = []
+        for a in args:      # a word that is no point, place or entity (a model's "with", "via") is passed over
+            try:
+                pts.append(tuple(locate(a)[:2]) if locate else tuple(float(v) for v in a.split(",")))
+            except (ValueError, TypeError, KeyError):
+                continue
+        if len(pts) < 2:
+            raise ValueError("a path needs two points or more (X,Y, a place, or an entity)")
         m = path(pts, smooth=not mods.get("flat"), color=c, width=float(mods.get("width", 1)), dashed=bool(mods.get("dashed")))
     else:
         raise ValueError(f"no kind {kind!r}")

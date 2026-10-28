@@ -197,15 +197,20 @@ class ScoreScene(MovingCameraScene):
         self.paper = tex
 
     def _build(self) -> None:
+        """Every entity drawn: paths after what they name, then arrows and what is spread `on` a path. One that cannot be drawn (a word
+        where a point should be) is left out, said in the notes, with the actions on it; the rest plays."""
         sc = self.SCORE
-        later = []
-        for name, e in sc.ents.items():
-            if e.kind == "arrow":
-                later.append(e)
-                continue
-            self._make(e)
-        for e in later:
-            self._make(e)
+        ents = list(sc.ents.values())
+        paths = [e for e in ents if e.kind == "path"]
+        last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path")]   # on a path
+        for e in [e for e in ents if e not in paths and e not in last] + paths + last:
+            try:
+                self._make(e)
+            except Exception as ex:  # noqa: BLE001
+                sc.notes.append(f"line {e.line}: {e.name} ({e.kind}) left out: {ex}")
+                self.E.pop(e.name, None)
+        for name in [n for n in sc.ents if n not in self.E]:
+            del sc.ents[name]
 
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.

@@ -70,3 +70,4 @@ ios/build/
 harness_v3/.cache/
 harness_v3/out/
 harness_v3/runs/
+harness_v3/books/

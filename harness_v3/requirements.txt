@@ -1,3 +1,4 @@
 manim==0.22.1
 piper-tts
 faster-whisper
+pymupdf

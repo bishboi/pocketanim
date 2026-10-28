@@ -66,3 +66,50 @@ CRITIC = """You judge frames of an animated explainer, each with its time and th
 real faults, one line each: `tSECONDS: FAULT` -- dead time (nothing moving for long), text too small or cut off,
 things overlapping, an action far from its word, a change that feels like a slide (everything replaced at once).
 Answer `ok` when there is none."""
+
+
+SCRIPT = """You are a great teacher turning pages of a book into the narration of short animated explainer videos.
+Read the pages and write VIDEOS: each one idea of the pages, about SECONDS seconds spoken (WORDS words), together
+covering what the pages teach, in the book's order. Write only this, nothing else:
+
+VIDEO: a short title
+one spoken sentence a line
+...
+
+HOW A GREAT TEACHER TELLS IT:
+- One story with one big question, asked in the first video and answered by the last. Each video picks up where the
+  one before leaves off and ends on something open that the next one answers (the last ends on the answer).
+- Concrete before abstract: a scene, an object, a number made tangible, then the term. Everyday life is the best
+  source.
+- Make them guess before you tell: ask, let them think a beat, then answer. Name the wrong idea students usually
+  hold, then show why it fails.
+- Say things that can be SHOWN: things that move, grow, split, join, count up, travel on a map, turn into other
+  things. The video draws what the sentences name, so name it plainly.
+- Short sentences, one a line, as they are spoken; vary the rhythm. Never read out a list, never a summary.
+- Facts come from the pages only: no invented events, people, quotes, numbers or dates. A scene you imagine is said
+  as imagined ("imagine...")."""
+
+
+def script_prompt(pages: str, videos: int, seconds: int, notes: str = "") -> tuple[str, str]:
+    words = f"{int(seconds * 2.2)}-{int(seconds * 2.7)}"
+    system = SCRIPT.replace("SECONDS", str(seconds)).replace("WORDS", words)
+    user = (f"Write {videos} video{'s' if videos != 1 else ''} at most (fewer when the pages hold less).\n"
+            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
+            + f"\nTHE PAGES:\n{pages}")
+    return system, user
+
+
+def parse_script(text: str) -> list[dict]:
+    """`VIDEO: title` then its lines -> [{title, narration}]."""
+    out: list[dict] = []
+    for line in text.splitlines():
+        s = line.strip().strip("*").strip()
+        if not s or s.startswith("```"):
+            continue
+        low = s.lower()
+        if low.startswith("video:") or low.startswith("video "):
+            title = s.split(":", 1)[1].strip() if ":" in s else s[6:].strip()
+            out.append({"title": title.strip("*# ") or f"Video {len(out) + 1}", "lines": []})
+        elif out:
+            out[-1]["lines"].append(s.lstrip("-• ").strip())
+    return [{"title": v["title"], "narration": "\n".join(x for x in v["lines"] if x)} for v in out if v["lines"]]

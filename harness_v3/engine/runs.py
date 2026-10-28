@@ -41,6 +41,8 @@ DEFAULT_MODEL = os.environ.get("V3_MODEL", "anthropic/claude-haiku-4.5")
 SHOT_STEP = 18.0
 _locks: dict[str, threading.Lock] = {}
 _busy: set[str] = set()
+# How many runs make their video at once (the rest wait, "queued"): voice and render are heavy.
+_slots = threading.Semaphore(int(os.environ.get("V3_PARALLEL", "1")))
 
 
 # ---------------------------------------------------------------- the run on disk --------------------------------------
@@ -88,6 +90,8 @@ def create(title: str, narration: str, settings: dict) -> dict:
     d = run_dir(rid)
     d.mkdir(parents=True, exist_ok=True)
     (d / "narration.txt").write_text(narration.strip() + "\n")
+    if settings.get("book"):
+        run["settings"]["book"] = settings["book"]
     if settings.get("score"):
         (d / "given.score").write_text(settings["score"])
         run["settings"]["given_score"] = True
@@ -98,8 +102,10 @@ def create(title: str, narration: str, settings: dict) -> dict:
 # ---------------------------------------------------------------- model calls ------------------------------------------
 
 def chat(run: dict, step: str, label: str, system: str, user: str, images: list[str] | None = None,
-         max_tokens: int = 1800) -> str:
-    """One OpenRouter call, recorded on the run (its prompt, answer, tokens, cost, time)."""
+         max_tokens: int = 1800, saver=None) -> str:
+    """One OpenRouter call, recorded on the run (its prompt, answer, tokens, cost, time). A book's calls are kept on
+    the book (`saver` writes it)."""
+    save = saver or globals()["save"]
     model = run["settings"]["model"]
     call = {"id": uuid.uuid4().hex[:8], "step": step, "label": label, "model": model, "system": system, "user": user,
             "images": len(images or []), "started": time.time(), "status": "running"}
@@ -108,7 +114,7 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
     key = os.environ.get("OPENROUTER_API_KEY")
     try:
         if not key:
-            raise RuntimeError("OPENROUTER_API_KEY is not set: give a score by hand, or set the key and run this step again")
+            raise RuntimeError("OPENROUTER_API_KEY is not set: set the key and run this step again")
         content = [{"type": "text", "text": user}] + [{"type": "image_url", "image_url": {"url": i}} for i in images or []]
         body = {"model": model, "max_tokens": max_tokens, "temperature": 0.4, "usage": {"include": True},
                 "messages": [{"role": "system", "content": system},
@@ -242,10 +248,13 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
     with lock:
         _busy.add(rid)
         run = load(rid)
-        run["status"] = "running"
+        run["status"] = "queued"
         for s in STEPS[STEPS.index(start):]:
             run["steps"][s] = {"status": "waiting"}
         save(run)
+        _slots.acquire()
+        run = load(rid)
+        run["status"] = "running"
         try:
             for s in STEPS[STEPS.index(start):]:
                 step = run["steps"][s]
@@ -271,6 +280,7 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
             run["status"] = "done"
         finally:
             save(run)
+            _slots.release()
             _busy.discard(rid)
 
 
@@ -279,6 +289,7 @@ def start(rid: str, step: str = "voice", shot: int | None = None) -> None:
         raise RuntimeError("this run is busy: wait for it")
     if step not in STEPS:
         raise ValueError(f"no step {step!r}")
+    _busy.add(rid)
     threading.Thread(target=go, args=(rid, step, shot), daemon=True).start()
 
 

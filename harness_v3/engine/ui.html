@@ -50,16 +50,29 @@
   .money { color:#ffd27a; }
   .form { display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; }
   .form label { color:var(--soft); font-size:12px; } .form .full { grid-column: 1 / -1; }
+  .side h5 { margin:14px 0 2px; color:var(--soft); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+  .chip.queued { background:#2a2410; color:#ffd27a; }
+  .bookgrid { display:grid; grid-template-columns: minmax(320px, 42%) 1fr; gap:12px; margin-top:12px; }
+  @media (max-width: 1100px) { .bookgrid { grid-template-columns: 1fr; } }
+  .pdf { width:100%; height:78vh; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .sec { padding:4px 6px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
+  .sec:hover { background:#161a20; } .sec.on { background:#2a1d14; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px; }
+  .vid { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
   .banner { background:#2a2010; border:1px solid #5a4416; color:#ffd27a; border-radius:8px; padding:8px 10px; margin:8px 0; }
 </style>
 </head>
 <body>
 <header><b>harness v3</b><span class="soft">animated explainers from a score</span><span id="key" class="chip"></span>
-  <span style="flex:1"></span><span class="soft">all runs: <span id="allcost" class="money"></span></span></header>
+  <span style="flex:1"></span><span class="soft">all runs and scripts: <span id="allcost" class="money"></span></span></header>
 <div class="wrap">
   <aside>
-    <button class="primary" style="width:100%" onclick="showNew()">+ New run</button>
-    <div id="runs"></div>
+    <div class="side"><div class="row" style="flex-wrap:nowrap">
+      <button class="primary" style="flex:1" onclick="$('#pdfpick').click()">+ Upload PDF</button>
+      <button style="flex:1" onclick="showNew()">+ New run</button></div>
+    <input type="file" id="pdfpick" accept="application/pdf,.pdf" style="display:none" onchange="upload(this.files[0])">
+    <h5>Books</h5><div id="books"></div>
+    <h5>Runs</h5><div id="runs"></div></div>
   </aside>
   <main id="main"><p class="soft">Pick a run, or make a new one.</p></main>
 </div>
@@ -68,7 +81,8 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const usd = (v) => v ? "$" + (v < 0.01 ? v.toFixed(5) : v.toFixed(4)) : "$0";
 const secs = (v) => v == null ? "" : (v < 60 ? v.toFixed(1) + " s" : Math.floor(v / 60) + " min " + Math.round(v % 60) + " s");
-let config = {}, sel = null, data = null, tab = "video", open = {}, timer = null, dirty = false;
+let bsel = null, bdata = null, btimer = null, range = null, bopen = {}, btab = "script";
+let config = {}, sel = null, data = null, tab = "video", opened = {}, timer = null, dirty = false;
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -78,8 +92,12 @@ async function api(path, opts) {
 }
 
 async function loadRuns() {
-  const list = await api("/api/runs");
-  $("#allcost").textContent = usd(list.reduce((k, r) => k + (r.cost || 0), 0));
+  const [list, bl] = await Promise.all([api("/api/runs"), api("/api/books")]);
+  $("#allcost").textContent = usd(list.reduce((k, r) => k + (r.cost || 0), 0) + bl.reduce((k, b) => k + (b.script_cost || 0), 0));
+  $("#books").innerHTML = bl.map((b) => `<div class="run ${b.id === bsel ? "sel" : ""}" onclick="pickBook('${b.id}')">
+    <div class="t">📄 ${esc(b.title)}</div>
+    <div class="row soft"><span class="chip ${b.status}">${b.status}</span><span class="money">${usd(b.cost)}</span>
+      <span>${b.pages} pages</span><span>${b.videos} videos</span></div></div>`).join("") || `<p class="soft">No books yet.</p>`;
   $("#runs").innerHTML = list.map((r) => `<div class="run ${r.id === sel ? "sel" : ""}" onclick="pick('${r.id}')">
     <div class="t">${esc(r.title)}</div>
     <div class="row soft"><span class="chip ${r.status}">${r.status}</span><span class="money">${usd(r.cost)}</span>
@@ -87,7 +105,7 @@ async function loadRuns() {
     || `<p class="soft">No runs yet.</p>`;
 }
 
-function pick(id) { sel = id; dirty = false; tab = tab || "video"; refresh(true); loadRuns(); }
+function pick(id) { bsel = null; clearTimeout(btimer); sel = id; dirty = false; tab = tab || "video"; refresh(true); loadRuns(); }
 
 async function refresh(force) {
   if (!sel) return;
@@ -120,6 +138,7 @@ function render() {
   $("#main").innerHTML = `
     <div class="row"><span class="big">${esc(r.title)}</span><span class="chip ${r.status}">${r.status}</span>
       <span class="money big">${usd(r.cost)}</span><span class="soft">${r.tokens || 0} tokens · ${calls.length} calls</span></div>
+    ${st.book ? `<div class="row soft" style="margin-top:4px">from 📄 <a href="#" style="color:var(--accent)" onclick="pickBook('${st.book.id}');return false">${esc(st.book.title)}</a> · pages ${esc(st.book.pages)} · video ${st.book.video + 1}</div>` : ""}
     <div class="row soft" style="margin-top:4px">model ${esc(st.model)} · voice ${esc(st.voice)} · quality ${st.quality}
       · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
       ${r.words ? ` · ${r.words.count} words, ${r.words.seconds.toFixed(1)} s` : ""}</div>
@@ -152,18 +171,21 @@ function pane() {
        <td><button onclick="again('score', ${k})" ${data.busy ? "disabled" : ""}>score again</button></td></tr>`).join("")}</table>`
       : `<p class="soft">${data.run.settings.given_score ? "The score was given by hand: no storyboard." : "No storyboard yet."}</p>`;
   } else {
-    const calls = data.run.calls || [];
-    p.innerHTML = calls.length ? `<table><tr><th>step</th><th>call</th><th>model</th><th>status</th><th>tokens in / out</th><th>cost</th><th>time</th></tr>${calls.map((c) =>
-      `<tr class="call" onclick="open['${c.id}']=!open['${c.id}'];pane()"><td>${c.step}</td><td>${esc(c.label)}${c.images ? ` · ${c.images} images` : ""}</td>
-       <td>${esc(c.model)}</td><td><span class="chip ${c.status}">${c.status}</span></td><td>${c.tokens_in ?? ""} / ${c.tokens_out ?? ""}</td>
-       <td class="money">${usd(c.cost)}</td><td>${secs(c.seconds)}</td></tr>
-       ${open[c.id] ? `<tr><td colspan="7">${c.error ? `<pre style="color:#ff9a9a">${esc(c.error)}</pre>` : ""}
-         <div class="soft">system</div><pre>${esc(c.system)}</pre><div class="soft">user</div><pre>${esc(c.user)}</pre>
-         <div class="soft">answer</div><pre>${esc(c.output || "")}</pre></td></tr>` : ""}`).join("")}
-      <tr><th colspan="4">total</th><th>${calls.reduce((k, c) => k + (c.tokens_in || 0), 0)} / ${calls.reduce((k, c) => k + (c.tokens_out || 0), 0)}</th>
-        <th class="money">${usd(data.run.cost)}</th><th>${secs(calls.reduce((k, c) => k + (c.seconds || 0), 0))}</th></tr></table>`
-      : `<p class="soft">No model calls in this run.</p>`;
+    p.innerHTML = callsTable(data.run.calls || [], data.run.cost, opened, "opened", "pane()");
   }
+}
+
+function callsTable(calls, cost, o, store, redraw) {
+  return calls.length ? `<table><tr><th>step</th><th>call</th><th>model</th><th>status</th><th>tokens in / out</th><th>cost</th><th>time</th></tr>${calls.map((c) =>
+    `<tr class="call" onclick="${store}['${c.id}']=!${store}['${c.id}'];${redraw}"><td>${c.step}</td><td>${esc(c.label)}${c.images ? ` · ${c.images} images` : ""}</td>
+     <td>${esc(c.model)}</td><td><span class="chip ${c.status}">${c.status}</span></td><td>${c.tokens_in ?? ""} / ${c.tokens_out ?? ""}</td>
+     <td class="money">${usd(c.cost)}</td><td>${secs(c.seconds)}</td></tr>
+     ${o[c.id] ? `<tr><td colspan="7">${c.error ? `<pre style="color:#ff9a9a">${esc(c.error)}</pre>` : ""}
+       <div class="soft">system</div><pre>${esc(c.system)}</pre><div class="soft">user</div><pre>${esc(c.user)}</pre>
+       <div class="soft">answer</div><pre>${esc(c.output || "")}</pre></td></tr>` : ""}`).join("")}
+    <tr><th colspan="4">total</th><th>${calls.reduce((k, c) => k + (c.tokens_in || 0), 0)} / ${calls.reduce((k, c) => k + (c.tokens_out || 0), 0)}</th>
+      <th class="money">${usd(cost)}</th><th>${secs(calls.reduce((k, c) => k + (c.seconds || 0), 0))}</th></tr></table>`
+    : `<p class="soft">No model calls yet.</p>`;
 }
 
 async function again(step, shot) {
@@ -177,7 +199,7 @@ async function saveScore() {
 }
 
 function showNew() {
-  sel = null; clearTimeout(timer); loadRuns();
+  sel = null; bsel = null; clearTimeout(btimer); clearTimeout(timer); loadRuns();
   const opt = (xs, v) => xs.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
   $("#main").innerHTML = `<p class="big">New run</p>
     <div class="form">
@@ -202,6 +224,147 @@ async function create() {
     score: $("#n-score").value.trim() || undefined};
   try { const r = await api("/api/runs", {method: "POST", body: JSON.stringify(body)}); tab = "video"; pick(r.id); }
   catch (e) { alert(e.message); }
+}
+
+// ---------------------------------------------------------------- books ----------------------------------------------
+
+async function upload(file) {
+  if (!file) return;
+  $("#pdfpick").value = "";
+  sel = null; clearTimeout(timer);
+  $("#main").innerHTML = `<p class="soft">Reading ${esc(file.name)}…</p>`;
+  try {
+    const r = await api("/api/books", {method: "POST", headers: {"X-Filename": encodeURIComponent(file.name)}, body: file});
+    pickBook(r.id);
+  } catch (e) { $("#main").innerHTML = `<div class="banner">${esc(e.message)}</div>`; }
+}
+
+function pickBook(id) { sel = null; clearTimeout(timer); bsel = id; range = null; bdata = null; refreshBook(true); loadRuns(); }
+
+async function refreshBook(force) {
+  if (!bsel) return;
+  const d = await api("/api/books/" + bsel);
+  const changed = force || JSON.stringify(d) !== JSON.stringify(bdata);
+  bdata = d;
+  if (changed && !editing()) renderBook();
+  clearTimeout(btimer);
+  const live = d.busy || d.book.scripts.some((s) => s.videos.some((v) => v.run_info && ["running", "queued", "new"].includes(v.run_info.status)));
+  if (live) btimer = setTimeout(() => { refreshBook(); loadRuns(); }, 2000);
+}
+
+// a narration being typed is not redrawn under the cursor
+const editing = () => document.activeElement && document.activeElement.matches("#main textarea, #main input");
+
+function renderBook() {
+  const d = bdata, b = d.book;
+  if (!range) range = b.sections[0] ? {from: b.sections[0].from, to: b.sections[0].to} : {from: 1, to: Math.min(b.pages, 4)};
+  const byStep = {script: b.cost || 0, videos: d.videos.cost};
+  const opt = (xs, v) => xs.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const scripts = b.scripts.slice().reverse();
+  const built = scripts.reduce((k, s) => k + s.videos.filter((v) => v.run).length, 0);
+  const total = scripts.reduce((k, s) => k + s.videos.length, 0);
+  $("#main").innerHTML = `
+    <div class="row"><span class="big">📄 ${esc(b.title)}</span><span class="money big">${usd(d.total.cost)}</span>
+      <span class="soft">${d.total.tokens} tokens · ${b.calls.length} script calls · ${d.videos.count} videos made</span></div>
+    <div class="row soft" style="margin-top:4px">${esc(b.name)} · ${b.pages} pages · ${new Date(b.created * 1000).toLocaleString()}</div>
+    ${!config.key ? `<div class="banner">No OPENROUTER_API_KEY on the server: writing a script (and each video's storyboard and score) needs it.</div>` : ""}
+    <div class="steps" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="step"><h4>read</h4><div class="row"><span class="chip ${b.read.status}">${b.read.status}</span><span class="soft">${secs(b.read.seconds)}</span></div>
+        <div class="notes">${esc(b.read.notes.join("\n"))}</div></div>
+      <div class="step"><h4>script</h4><div class="row"><span class="chip ${d.busy ? "running" : !b.scripts.length ? "waiting" : b.scripts[b.scripts.length - 1].status}">${d.busy ? "running" : b.scripts.length + " scripts"}</span>
+        <span class="money">${usd(byStep.script)}</span><span class="soft">${secs(b.scripts.reduce((k, s) => k + (s.seconds || 0), 0))}</span></div>
+        <div class="notes">${total} videos written</div></div>
+      <div class="step"><h4>videos</h4><div class="row"><span class="chip ${built ? "done" : "waiting"}">${built} / ${total} built</span>
+        <span class="money">${usd(byStep.videos)}</span></div>
+        <div class="notes">each one a run: voice, storyboard, score, render, critic (open it for its own breakdown)</div></div>
+    </div>
+    <div class="row soft">cost: script <span class="money">${usd(byStep.script)}</span> · videos <span class="money">${usd(byStep.videos)}</span> · total <span class="money">${usd(d.total.cost)}</span></div>
+    <div class="tabs">${["script", "text", "calls"].map((t) => `<button class="${btab === t ? "on" : ""}" onclick="btab='${t}';renderBook()">${{script: "Pages & script", text: "Pages' text", calls: `Calls (${b.calls.length})`}[t]}</button>`).join("")}</div>
+    <div id="bpane"></div>`;
+  const p = $("#bpane");
+  if (btab === "calls") { p.innerHTML = callsTable(b.calls, b.cost, bopen, "bopen", "renderBook()"); return; }
+  if (btab === "text") {
+    p.innerHTML = `<p class="soft">Pages ${range.from}–${range.to}: the text the script call reads (up to 40,000 characters).</p><div id="ptext" class="soft">…</div>`;
+    api(`/api/books/${bsel}/pages?from=${range.from}&to=${range.to}`).then((ps) => {
+      $("#ptext").innerHTML = ps.map((x) => `<div class="soft">page ${x.page}</div><pre>${esc(x.text)}</pre>`).join(""); });
+    return;
+  }
+  p.innerHTML = `<div class="bookgrid">
+    <div><iframe class="pdf" src="/books/${bsel}/source.pdf#page=${range.from}"></iframe></div>
+    <div>
+      <div class="card"><b>1. Pick the pages</b>
+        <div style="max-height:200px;overflow:auto;margin-top:6px">${b.sections.map((s) =>
+          `<div class="sec ${s.from === range.from && s.to === range.to ? "on" : ""}" style="padding-left:${6 + s.level * 14}px" onclick="range={from:${s.from},to:${s.to}};renderBook()">
+             <span>${esc(s.title)}</span><span class="soft">p. ${s.from}–${s.to}</span></div>`).join("")}</div>
+        <div class="row" style="margin-top:6px;flex-wrap:nowrap"><span class="soft">pages</span>
+          <input id="b-from" type="number" min="1" max="${b.pages}" value="${range.from}" style="width:80px" onchange="range.from=+this.value;renderBook()">
+          <span class="soft">to</span><input id="b-to" type="number" min="1" max="${b.pages}" value="${range.to}" style="width:80px" onchange="range.to=+this.value;renderBook()"></div></div>
+      <div class="card"><b>2. Write the script</b> <span class="soft">(one model call: the pages as a few short videos)</span>
+        <div class="form" style="margin-top:6px">
+          <div><label>Model</label><select id="s-model">${opt(config.models, config.default_model)}</select></div>
+          <div><label>Videos (at most)</label><input id="s-videos" type="number" min="1" max="12" value="3"></div>
+          <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="120" value="40"></div>
+          <div></div>
+          <div class="full"><label>Notes for the writer (optional)</label><input id="s-notes" placeholder="for class 8; start from the monsoon; skip the dates"></div>
+        </div>
+        <p><button class="primary" onclick="writeScript()" ${d.busy ? "disabled" : ""}>${d.busy ? "Writing…" : `Write the script of pages ${range.from}–${range.to}`}</button></p></div>
+      <div class="card"><b>3. Build the videos</b> <span class="soft">(each video a run; they are made one at a time)</span>
+        <div class="form" style="margin-top:6px">
+          <div><label>Model (storyboard, score, critic)</label><select id="v-model">${opt(config.models, config.default_model)}</select></div>
+          <div><label>Voice</label><select id="v-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
+          <div><label>Quality</label><select id="v-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
+          <div><label><input type="checkbox" id="v-critic" style="width:auto"> Critic</label></div>
+        </div></div>
+      ${scripts.map(scriptCard).join("") || `<p class="soft">No script yet.</p>`}
+    </div></div>`;
+}
+
+function scriptCard(s) {
+  const head = `<div class="row"><b>${esc(s.title)}</b><span class="soft">pages ${s.from}–${s.to}</span>
+    <span class="chip ${s.status}">${s.status}</span>${s.seconds != null ? `<span class="soft">${secs(s.seconds)}</span>` : ""}
+    ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}<span class="soft">${esc(s.settings.model)} · ${s.settings.videos} × ${s.settings.seconds} s</span>
+    <span style="flex:1"></span>
+    ${s.videos.some((v) => !v.run) ? `<button class="primary" onclick="buildVideos('${s.id}')">Build all not built</button>` : ""}
+    <button onclick="dropScript('${s.id}')">Drop</button></div>`;
+  return `<div class="card">${head}${s.error ? `<div class="err" style="color:#ff9a9a;white-space:pre-wrap">${esc(s.error)}</div>` : ""}
+    ${s.videos.map((v, k) => {
+      const ri = v.run_info, words = v.narration.split(/\s+/).filter(Boolean).length;
+      return `<div class="vid"><div class="row"><b>${k + 1}.</b><input id="vt-${s.id}-${k}" value="${esc(v.title)}" style="flex:1;width:auto">
+        <span class="soft">${words} words ≈ ${Math.round(words / 2.4)} s</span></div>
+        <textarea id="vn-${s.id}-${k}" rows="${Math.min(10, v.narration.split("\n").length + 1)}" style="margin-top:6px">${esc(v.narration)}</textarea>
+        <div class="row" style="margin-top:6px"><button onclick="saveVideo('${s.id}', ${k})">Save text</button>
+          <button class="${v.run ? "" : "primary"}" onclick="buildVideos('${s.id}', ${k})">${v.run ? "Build again" : "Build this video"}</button>
+          ${ri ? `<a href="#" onclick="pick('${v.run}');return false" style="color:var(--accent)">open run →</a>
+            <span class="chip ${ri.status}">${ri.status}</span><span class="money">${usd(ri.cost)}</span><span class="soft">${ri.tokens || 0} tok${ri.seconds ? ` · ${ri.seconds.toFixed(0)} s` : ""}</span>
+            <span class="soft">${Object.entries(ri.steps).map(([n, st]) => `<span class="chip ${st}" title="${n}">${n[0]}</span>`).join(" ")}</span>` : ""}</div>
+        ${ri && ri.video ? `<video controls preload="none" style="margin-top:6px;max-width:420px" src="/files/${v.run}/video.mp4?v=${ri.cost}-${ri.status}"></video>` : ""}</div>`;
+    }).join("")}</div>`;
+}
+
+async function writeScript() {
+  const body = {from: range.from, to: range.to, model: $("#s-model").value, videos: +$("#s-videos").value,
+    seconds: +$("#s-seconds").value, notes: $("#s-notes").value};
+  try { await api(`/api/books/${bsel}/script`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }
+  catch (e) { alert(e.message); }
+}
+
+async function saveVideo(sid, k) {
+  try {
+    await api(`/api/books/${bsel}/scripts/${sid}/${k}`, {method: "PUT", body: JSON.stringify({title: $(`#vt-${sid}-${k}`).value, narration: $(`#vn-${sid}-${k}`).value})});
+    document.activeElement.blur(); refreshBook(true);
+  } catch (e) { alert(e.message); }
+}
+
+async function buildVideos(sid, k) {
+  if (k != null) await saveVideo(sid, k);
+  const body = {script: sid, video: k, model: $("#v-model").value, voice: $("#v-voice").value, quality: $("#v-q").value, critic: $("#v-critic").checked};
+  try { await api(`/api/books/${bsel}/build`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }
+  catch (e) { alert(e.message); }
+}
+
+async function dropScript(sid) {
+  if (!confirm("Drop this script? Its videos' runs stay in the runs list.")) return;
+  try { await api(`/api/books/${bsel}/scripts/${sid}`, {method: "DELETE"}); refreshBook(true); } catch (e) { alert(e.message); }
 }
 
 (async () => {

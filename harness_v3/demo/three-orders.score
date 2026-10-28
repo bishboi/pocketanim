@@ -205,9 +205,7 @@ ent head8   label "money began to matter" size 0.2 at -3.9,3.2
 ent coins   pic "a small pile of medieval silver coins" size 2.0 at -5.0,1.5
 ent lab     card "labour" sub "days of work for the lord" w 2.8 h 1.7 at -1.2,1.5
 ent cash    card "cash rent" sub "paid in coin" w 2.8 h 1.7 at -1.2,1.5
-ent grain   icon wheat badge gold size 0.95 at 2.1,1.5
-ent shop    icon store badge navy size 0.95 at 5.0,1.5
-ent sell    arrow grain shop color soft
+ent trade   flow "cultivators>traders:crops>coin*" w 5.6 h 1.6 at 3.6,1.5
 ent gb      flag gb size 1.1 at -5.3,-1.5
 ent plab    label "agricultural prices · england" size 0.13 at -2.3,-0.75
 ent pbar    bar 1 max 2.2 w 6.0 h 0.55 color coral at -0.7,-1.5
@@ -220,9 +218,9 @@ w418        in head8 fade
 w420        in coins pop
 w426        in lab drop
 w431-w432   morph lab cash
-w437        in grain pop
-w440        in shop pop
-w440-w441   in sell draw
+w436        in trade[0] pop
+w437-w440   in trade[1] fade
+w447        in trade[2] pop
 w449        pulse coins
 w455        in gb drop
 w456        in plab,pbar,px,y1 fade
@@ -279,7 +277,7 @@ w549-w550   in taxes pop
 shot air at 36,-22
 ent youth   pic "a young medieval peasant carrying a bundle on a stick over his shoulder, walking, full figure" size 2.4 at -4.8,0.4
 ent gate    pic "a medieval town gate in a stone wall" size 2.6 at 4.4,0.6
-ent quote   tag "“town air makes free”" size 0.46 at 0,2.6
+ent saying  quote "Town air makes free." who "people said" w 6.4 size 0.42 at 0,2.55
 ent days    num 0 suffix " days" size 0.5 at 0,-1.6
 ent dayl    label "hidden in a town for a year and a day" size 0.13 at 0,-2.4
 ent free    icon lock-open badge green size 0.85 at 2.0,-1.6
@@ -288,10 +286,11 @@ w559-w560   cam air
 w561        in youth pop
 w568        in gate pop
 w571-w577   move youth to 1.8,0.4
-w581-w584   in quote pop
+w581-w584   in saying fade
 w590-w591   in days,dayl fade
 w594-w600   count days 366
 w607-w608   in free pop
+w607        stamp youth "free" green
 w608        pulse free
 
 # ---- 12 folk: who lived in towns ---------------------------------------------------------------------------------
@@ -356,6 +355,7 @@ ent years   icon hourglass badge sand size 0.75 at 4.2,1.3
 ent pilg    icon users x3 row gap 0.25 size 0.7 color ink at 4.2,0.2
 ent glassw  pic "a colourful medieval stained glass window showing a Bible scene" size 2.4 at 4.2,-2.0
 ent bell    icon bell badge gold size 0.95 at -5.6,-2.9
+ent parts   labels "stained glass" "nave" "bell tower" on cathp
 
 w718-w719   cam cath
 w718        in cathp rise
@@ -366,6 +366,9 @@ w741        in years pop
 w741-w742   spin years 180
 w757        in pilg pop stagger .12
 w759-w760   in glassw pop
+w759        in parts[0] fade
+w778        in parts[1] fade
+w792        in parts[2] fade
 w768        pulse glassw
 w792        in bell pop
 w792-w793   shake bell
@@ -450,9 +453,7 @@ w912-w913   pulse flo,par,lond
 # ---- 17 after: fewer people, higher wages, revolts ---------------------------------------------------------------
 shot after at 0,-44
 ent ph17    label "europe's population" size 0.18 at -4.3,3.2
-ent fallb   bar 73 max 80 w 7.4 h 0.55 color accent at -0.6,2.3
-ent falln   num 73 suffix " m" size 0.45 at 4.6,2.3
-ent fyr     label "1300 to 1400" size 0.12 at -3.4,1.65
+ent popchart chart line 1000:42 1200:62 1300:73 1400:45 suffix " m" w 5.8 h 1.2 at 1.4,2.3
 ent wage    icon arrow-up badge green size 0.9 at -4.2,0.3
 ent wagel   label "wages" size 0.13 at -4.2,-0.6
 ent price   icon arrow-down badge coral size 0.9 at -1.4,0.3
@@ -464,9 +465,10 @@ ent r3      tag "england" size 0.28 at 1.3,-1.9
 ent ties    tag "the old ties could not be restored" size 0.32 fill ink color white at 0,-3.0
 
 w914-w915   cam after
-w914        in ph17,fallb,falln,fyr fade
-w922-w924   grow fallb 45
-w922-w924   count falln 45
+w914        in ph17 fade
+w915-w918   in popchart[0:3] fade stagger .25
+w922-w924   in popchart[3] draw
+w925        color popchart[3] red
 w930        in wage pop
 w931        in wagel fade
 w936        in price pop
@@ -483,10 +485,22 @@ w973        dim revive 0.4
 
 # ---- 18 close: what kind of power would take its place? ----------------------------------------------------------
 shot close at 18,-44
-ent qend    tag "what kind of power would take its place?" size 0.52 at 0,0.8
-ent crown   icon crown badge accent size 1.3 at 0,-1.3
+ent crown   icon crown badge accent size 1.0 at 0,3.15
+ent qend    tag "what kind of power would take its place?" size 0.46 at 0,1.75
+ent recap   timeline 1000 1400 w 12 at 0,-1.6
+ent ev1     event 1000 "42 million" on recap
+ent ev2     event 1300 "73 million" on recap
+ent ev3     event 1347 "black death" on recap
+ent ev4     event 1400 "45 million" on recap
+ent famspan span 1315 1317 "famine" on recap side down color coral
 
 w977-w978   cam close
+w977-w978   in recap draw
+w979        in ev1 drop
+w981        in ev2 drop
+w983        in famspan fade
+w984        in ev3 drop
+w985        in ev4 drop
 w987-w988   in qend pop
 w990        in crown pop
 w990-w991   float crown 0.08

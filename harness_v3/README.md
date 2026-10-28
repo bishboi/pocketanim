@@ -29,6 +29,7 @@ w58-w62     morph fields works stagger .14
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
 | `engine/assets.py` | Pictures a score asks for (`pic`, `photo`), made by an image model through OpenRouter's Image API (`V3_IMAGE_MODEL`), cut out or framed with a soft shadow, kept by their words; flags (`flag jp`) from flag-icons, exact. |
+| `engine/kit.py` | The bigger pieces (after v2's kit): timeline / event / span, chart (line, bars, donut), flow (a flow diagram laid out in layers), pyramid, cycle, quote, doc, title, and labels on a picture. Each is one `ent`, placed freely; its parts are what the actions bring on (`in fl[1]`), its places are `NAME.KEY` (`tl.1347`, `fl.town`). `demo/gallery.score` shows every one. |
 | `engine/geo.py` | Real maps' data: countries, coasts, seas, rivers and towns from Natural Earth; the states of a year from historical-basemaps (A. Ourednik, GPL-3.0; fetched when first asked for); places by name (towns, old names such as Constantinople, sites of the past, seas, else OpenStreetMap, cached). In `.cache/geo`. |
 | `engine/timeline.py` | The video as a timeline a player draws (no MP4): the renderer's own scene played without drawing, each drawn piece recorded (its shape once, then its transform, colours and width; a picture by its corners), keys only where something changes (`player/timeline.json`). |
 | `engine/player.html` | The player: draws a timeline at any time t in a canvas, in step with the voice (the Player tab; `/play/<run>`). |
@@ -80,7 +81,37 @@ states of 1300 (no year: today's borders); `ent hre region "Holy Roman Empire" m
 sea where it really is; `ent paris pin Paris map eu` marks a town; `ent rhine river Rhine map eu`; any place on a map
 is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.paris zoom 2` flies there). A region is a
 name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
-fills the `w`/`h` it is given (12 x 6.6 by default). The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
+fills the `w`/`h` it is given (12 x 6.6 by default).
+
+The bigger pieces (`engine/kit.py`; every one in `demo/gallery.score`), still placed freely and brought on by the
+actions, part by part as the voice names them:
+
+```
+ent tl     timeline 1000 1400 w 12            # years; tl.1347 is a place on it (`move marker to tl.1347`)
+ent bd     event 1347 "black death" on tl     # a card on a stem, kept clear of the others
+ent fam    span 1315 1317 "famine" on tl
+ent pop    chart line 1000:42 1300:73 1400:45 suffix " m"     # also: chart bars K:V..., chart donut K:V...
+ent fl     flow "farm>market:sells grain>town*" "market>lord:rent"   # a flow diagram, laid out in layers
+ent soc    pyramid "clergy" "nobles" "peasants"
+ent rot    cycle "wheat" "beans" "fallow" label "3 fields"
+ent q      quote "Town air makes free." who "people said"
+ent ch     doc "Charter of the town" sub "anno 1188" seal
+ent t      title "the three orders" sub "part two"
+ent parts  labels "spire" "rose window" "portal" on cath     # a picture's parts named
+w10        in fl[1] fade          # a piece's parts: the second node with its arrows in
+w12        ring fl.town           # a named part
+```
+
+Labels on a picture: after the pictures are made, the assets step shows each labelled picture to the vision model
+(the critic's, else the run's model) once, which says where each part is; that is kept beside the picture
+(`NAME.spots.json`) and the labels point there. `"spire@0.5,0.1"` places one by hand.
+
+Marks (verbs; they stay until the thing goes): `ring`, `underline`, `highlight`, `strike`, `box`, `tick`, `cross`,
+`stamp T "FREE"`, `callout T "words" up`, `bracket A,B,C "words"`, `spotlight T` (everything else veiled; `lift`
+brings one back). `dots 100 shape user` draws people instead of dots.
+
+The score's card stays short: the storyboard names each shot's pieces (`| kit: map, flow`), and a shot's call is told
+only those pieces' lines. The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
 call with its cost; a model can be set per step (`V3_MODEL_SCRIPT`, `_STORYBOARD`, `_SCORE`, `_VISION`).
 
 The player: every run gets a timeline step (before the render, which is now optional: `V3_RENDER_MP4=1`, the new

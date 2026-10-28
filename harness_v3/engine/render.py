@@ -39,7 +39,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, ImageMobject, Line, Mobject,
+from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, ImageMobject, Line, Mobject, Rectangle,
+                   RoundedRectangle,
                    MovingCameraScene, ReplacementTransform, VGroup, VMobject, Write, config, rate_functions,
                    tempconfig)
 from manim.utils.color import ManimColor, interpolate_color
@@ -48,9 +49,16 @@ import look
 import score as S
 
 LEAD = 0.18             # an action lands on its word: it starts this much before it
+# Kinds drawn on another piece (`on NAME` / `map NAME`), where they stand on it.
+ON_PARENT = ("region", "pin", "river", "event", "span", "labels")
+# The marks a verb draws, and each one's colour when none is said.
+MARKS = {"ring": "coral", "circle": "coral", "mark": "coral", "underline": "coral", "highlight": "accent",
+         "strike": "red", "box": "coral", "tick": "green", "cross": "red", "stamp": "red", "callout": "ink"}
+SIDES = ("left", "right", "up", "down")
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
                "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
-               "mark": 0.5, "flow": 2.0, "cam": 1.4}
+               "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
+               "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6}
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -203,9 +211,10 @@ class ScoreScene(MovingCameraScene):
         where a point should be) is left out, said in the notes, with the actions on it; the rest plays."""
         sc = self.SCORE
         ents = list(sc.ents.values())
-        # What stands on a map (a region, a pin, a river) and paths are drawn after what they name.
-        paths = [e for e in ents if e.kind in ("path", "region", "pin", "river")]
-        last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path")]   # on a path
+        # What stands on another piece (a map's regions, a timeline's events, a picture's labels) and paths are drawn
+        # after what they name.
+        paths = [e for e in ents if e.kind == "path" or e.kind in ON_PARENT]
+        last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path" and e.kind not in ON_PARENT)]
         for e in [e for e in ents if e not in paths and e not in last] + paths + last:
             try:
                 self._make(e)
@@ -218,7 +227,7 @@ class ScoreScene(MovingCameraScene):
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
     SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots", "pic", "photo", "flag", "card", "tag",
-              "label"}
+              "label", "timeline", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title"}
     HOLDERS = {"rect", "circle", "blob", "card", "photo"}
 
     def _holder(self, e: S.Ent) -> bool:
@@ -341,16 +350,20 @@ class ScoreScene(MovingCameraScene):
         return self._origin(shot) + np.array([x, y, 0.0])
 
     def _make(self, e: S.Ent) -> None:
+        if e.kind == "labels":                  # the shot's screen, so names stay on it
+            o = self._origin(e.shot)
+            e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
+
         def one():
             return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot),
                               find=lambda n: self.E.get(n))
         m = look.copies(one, int(e.mods["x"]), e.mods) if int(e.mods.get("x", 1)) > 1 else one()
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
-        on_map = e.kind in ("region", "pin", "river")       # drawn where it stands on its map
+        on_map = e.kind in ON_PARENT        # drawn where it stands on its map, timeline or picture
         if e.kind not in ("land", "waves", "path", "arrow", "islands", "map") and not on_map and (m.width > 12 or m.height > 7):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
-        if e.mods.get("on") and len(m.submobjects) > 1:
+        if e.mods.get("on") and len(m.submobjects) > 1 and not on_map:
             # Its copies (or dots) spread along a path, evenly.
             track = self._track(self.E[e.mods["on"]])
             n = len(m.submobjects)
@@ -364,7 +377,7 @@ class ScoreScene(MovingCameraScene):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
         # A region sits under what is on it; a map under its regions, a pin over them.
         layer = int(e.mods.get("layer", -2 if e.kind == "map" else -1 if e.kind in ("blob", "islands", "region", "river")
-                               else 1 if e.kind == "pin" else 0))
+                               else 1 if e.kind in ("pin", "labels") else 0))
         m.set_z_index(layer * 10 + (5 if e.kind in ("text", "num") else 0))
         if e.mods.get("opacity") is not None:
             Alpha(m).set(float(e.mods["opacity"]))
@@ -374,6 +387,12 @@ class ScoreScene(MovingCameraScene):
     def _targets(self, ref: str) -> list:
         out = []
         for one in ref.split(","):
+            base, _, part = one.strip().partition(".")
+            if part and base in self.E and part in getattr(self.E[base], "places", {}):
+                hit = self.E[base].places[part]       # a named part of a piece (`fl.town`, `soc.nobles`)
+                if isinstance(hit, Mobject):
+                    out.append((base, hit))
+                    continue
             m = re.match(r"^([\w\-]+)(?:\[(\-?\d*)(?::(\-?\d*))?\])?$", one.strip())
             if not m or m.group(1) not in self.E:
                 raise ValueError(f"no entity {one!r}")
@@ -535,11 +554,21 @@ class ScoreScene(MovingCameraScene):
             to = float(re.sub(r"[^\d.\-]", "", act.args[0]) or 0)
             for m in self._valued(act.target, v):
                 (self._count if v == "count" else self._grow)(m, to, t0, t1)
-        elif v in ("ring", "mark"):
+        elif v == "spotlight":
+            self._spotlight(act.target, float(self._opt(act, "dim", 0.22)), t0, t1)
+        elif v == "bracket":
+            items = self._targets(act.target)
+            words = next((a for a in act.args if a not in look.L), "")
+            colour = look.col(next((a for a in act.args if a in look.L), "ink"))
+            self._mark(items[0][0], Group(*(m for _, m in items)), "bracket", colour, t0, t1, words)
+        elif v in MARKS:
+            words = next((a for a in act.args if a not in look.L and a not in SIDES), "")
+            side = next((a for a in act.args if a in SIDES), None)
+            colour = look.col(next((a for a in act.args if a in look.L), MARKS[v]))
             for (name, m) in self._targets(act.target):
                 if m is self.E[name] and self.SCORE.ents[name].kind == "pin":
                     m = m[0]                # a pin is marked at its dot, not round its name
-                self._mark(name, m, v, look.col(act.args[0] if act.args else "coral"), t0, t1)
+                self._mark(name, m, v, colour, t0, t1, words, side)
         elif v == "flow":
             self._flow(self._track(self.E[act.target]), int(self._opt(act, "n", 6, int)),
                        look.col(next((x for x in act.args if x in look.L), "coral")), t0, t1)
@@ -806,30 +835,118 @@ class ScoreScene(MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, lambda a: m.set_value(state["v0"] + (to - state["v0"]) * a), None,
                                 rate_functions.ease_out_cubic))
 
-    def _mark(self, name, m, kind, c, t0, t1) -> None:
+    def _mark(self, name, m, kind, c, t0, t1, words: str = "", side: str | None = None) -> None:
+        """A mark drawn on (or by) a thing, staying until the thing goes: ring, underline, highlight, strike, box,
+        tick, cross, stamp "WORDS", callout "WORDS", bracket "WORDS"."""
         state = {}
 
         def start():
-            if kind == "ring":
-                mk = Ellipse(width=m.width + 0.6, height=m.height + 0.45, stroke_color=c, stroke_width=look.STROKE)
-                mk.rotate(-0.08).move_to(m)
+            ul, dr = m.get_corner(UP + LEFT), m.get_corner(DOWN + RIGHT)
+            w, h = dr[0] - ul[0], ul[1] - dr[1]
+            c0 = (ul + dr) / 2
+            zs = [x.z_index for x in m.get_family()] or [0]
+            z = max(zs)
+            how = "draw"
+            if kind in ("ring", "circle"):
+                mk = Ellipse(width=w + 0.6, height=h + 0.45, stroke_color=c, stroke_width=look.STROKE)
+                mk.rotate(-0.08).move_to(c0)
+            elif kind in ("mark", "underline"):
+                mk = Line([ul[0], dr[1] - 0.12, 0], [dr[0], dr[1] - 0.12, 0], stroke_color=c, stroke_width=look.STROKE)
+            elif kind == "strike":
+                mk = Line([ul[0] - 0.1, c0[1], 0], [dr[0] + 0.1, c0[1], 0], stroke_color=c, stroke_width=look.STROKE)
+            elif kind == "box":
+                mk = RoundedRectangle(width=w + 0.4, height=h + 0.32, corner_radius=0.12, stroke_color=c,
+                                      stroke_width=look.STROKE * 0.7, fill_opacity=0).move_to(c0)
+            elif kind == "highlight":
+                if h > 0.9:                             # not a line of words: a soft wash behind the whole of it
+                    mk = Rectangle(width=w + 0.3, height=h + 0.25, fill_color=c, fill_opacity=0.3, stroke_width=0)
+                    mk.move_to(c0)
+                else:
+                    mk = Rectangle(width=w + 0.3, height=h * 0.62 + 0.1, fill_color=c, fill_opacity=0.6, stroke_width=0)
+                    mk.move_to([c0[0], dr[1] + h * 0.33, 0])
+                z = min(zs) - 3                         # under the words it marks
+                how = "sweep"
+            elif kind == "tick":
+                s = max(0.45, min(0.8, h * 0.6))
+                o = np.array([dr[0] + 0.35, c0[1], 0])
+                mk = VMobject(stroke_color=c, stroke_width=look.STROKE * 1.2)
+                mk.set_points_as_corners([o + np.array([0, 0, 0]), o + np.array([s * 0.35, -s * 0.4, 0]),
+                                          o + np.array([s, s * 0.5, 0])])
+            elif kind == "cross":
+                s = max(0.5, min(w, h) * 0.75) / 2
+                mk = VGroup(Line(c0 + np.array([-s, s, 0]), c0 + np.array([s, -s, 0])),
+                            Line(c0 + np.array([-s, -s, 0]), c0 + np.array([s, s, 0]))).set_stroke(c, width=look.STROKE * 1.4)
+            elif kind == "stamp":
+                t = look.text((words or "yes").upper(), 0.42, bold=True, color=c)
+                frame = RoundedRectangle(width=t.width + 0.5, height=t.height + 0.4, corner_radius=0.08, stroke_color=c,
+                                         stroke_width=look.STROKE * 0.8, fill_color=look.col("bg"), fill_opacity=0.35)
+                mk = VGroup(frame, t.move_to(frame)).rotate(-0.21).move_to(c0)
+                how = "stamp"
+            elif kind == "callout":
+                d = {"left": LEFT, "right": RIGHT, "up": UP, "down": DOWN}.get(side or "", UP + RIGHT)
+                t = look.label(words or "", 0.15, "ink").set_stroke(look.col("bg"), width=6, background=True)
+                far = c0 + np.array([d[0] * (w / 2 + 0.9), d[1] * (h / 2 + 0.7), 0])
+                t.move_to(far + np.array([np.sign(d[0]) * t.width / 2, np.sign(d[1]) * 0.12, 0]))
+                start_pt = c0 + np.array([d[0] * w / 2, d[1] * h / 2, 0]) * 0.85
+                mk = VGroup(Dot(start_pt, radius=0.06, color=c), Line(start_pt, far, stroke_color=c, stroke_width=look.STROKE * 0.4), t)
+            elif kind == "bracket":
+                from manim import Brace
+                mk = VGroup(Brace(m, RIGHT, buff=0.2, color=c, sharpness=1.2))
+                if words:
+                    mk.add(look.label(words, 0.15, "ink").next_to(mk[0], RIGHT, buff=0.15))
             else:
-                mk = Line(m.get_corner(DOWN + LEFT) + DOWN * 0.12, m.get_corner(DOWN + RIGHT) + DOWN * 0.12,
-                          stroke_color=c, stroke_width=look.STROKE)
-            mk.set_z_index(m.z_index + 2)
+                raise ValueError(f"no mark {kind!r}")
+            mk.set_z_index(z + 2)
             self.marks.setdefault(name, []).append(mk)
             self.add(mk)
-            anim = Create(mk)
-            anim.begin()
-            state["anim"] = anim
+            state["mk"] = mk
+            if how == "draw":
+                anim = Create(mk) if kind not in ("callout", "bracket") else Create(mk, lag_ratio=0.3)
+                anim.begin()
+                state["anim"] = anim
+            elif how == "sweep":
+                state["w"], state["left"] = mk.width, mk.get_left().copy()
+                mk.stretch_to_fit_width(0.01).move_to(state["left"] + RIGHT * 0.005)
+            else:
+                state["al"] = Alpha(mk)
+                state["k"] = 1.0
 
         def step(a):
-            state["anim"].interpolate(a)
+            mk = state["mk"]
+            if "anim" in state:
+                state["anim"].interpolate(a)
+            elif "w" in state:
+                mk.stretch_to_fit_width(max(0.01, state["w"] * a))
+                mk.move_to(state["left"] + RIGHT * mk.width / 2)
+            else:                               # a stamp: down hard from bigger
+                k = 1.0 + 0.8 * (1 - a)
+                mk.scale(k / state["k"])
+                state["k"] = k
+                state["al"].set(min(1.0, a * 2.2))
 
         def stop():
-            state["anim"].interpolate(1)
-            state["anim"].finish()
-        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_sine))
+            if "anim" in state:
+                state["anim"].interpolate(1)
+                state["anim"].finish()
+        rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, rate_functions.ease_in_out_sine)
+        self.tweens.append(Call(t0, t1, start, step, stop, rate))
+
+    def _spotlight(self, target: str, dim: float, t0, t1) -> None:
+        """Everything else up in the target's shot veiled (`lift` brings a thing back)."""
+        names = {n for n, _ in self._targets(target)}
+        shot = self.SCORE.ents[next(iter(names))].shot
+        state = {}
+
+        def start():
+            others = [n for n, e in self.SCORE.ents.items() if e.shot == shot and n not in names and n in self.E
+                      and id(self.E[n]) in self.up and e.mods.get("on") not in names]   # its labels stay lit
+            mobs = [self.E[n] for n in others] + [mk for n in others for mk in self.marks.get(n, [])]
+            state["al"] = [(self._alpha(m), self._alpha(m).now) for m in mobs]
+
+        def step(a):
+            for al, a0 in state["al"]:
+                al.set(a0 + (min(a0, dim) - a0) * a)
+        self.tweens.append(Call(t0, t1, start, step, None))
 
     def _flow(self, path, n, c, t0, t1) -> None:
         ds = [Dot(radius=0.09, color=c) for _ in range(n)]

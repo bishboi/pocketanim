@@ -219,13 +219,13 @@ def create(title: str, narration: str, settings: dict) -> dict:
 # ---------------------------------------------------------------- model calls ------------------------------------------
 
 def chat(run: dict, step: str, label: str, system: str, user: str, images: list[str] | None = None,
-         max_tokens: int = 1800, saver=None) -> str:
+         max_tokens: int = 1800, saver=None, model: str | None = None) -> str:
     """One OpenRouter call, recorded on the run (its prompt, answer, tokens, cost, time). A book's calls are kept on
     the book (`saver` writes it)."""
     save = saver or globals()["save"]
     _check(run.get("id"))
     st = run["settings"]
-    model = (st.get("models") or {}).get(step) or st["model"]
+    model = model or (st.get("models") or {}).get(step) or st["model"]
     call = {"id": uuid.uuid4().hex[:8], "step": step, "label": label, "model": model, "system": system, "user": user,
             "images": len(images or []), "started": time.time(), "status": "running"}
     with _mut:
@@ -365,9 +365,6 @@ def _assets(run: dict) -> None:
     wants = [(k, p, lk if lk in look.LOOKS else "paper") for k, p, lk in assets.wants(text)]
     todo = [w for w in wants if not assets.path_for(w[0], w[1], w[2], model).exists()]
     notes = [f"{len(wants)} picture(s) asked for, {len(wants) - len(todo)} kept from before"]
-    if not todo:
-        run["steps"]["assets"]["notes"] = notes
-        return
 
     def make(item):
         kind, prompt, lk = item
@@ -395,11 +392,43 @@ def _assets(run: dict) -> None:
                 save(run)
 
     jobs = max(1, int(os.environ.get("V3_IMAGE_JOBS", "4")))
-    with ThreadPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
-        failed = [f for f in pool.map(make, todo) if f]
-    notes.append(f"{len(todo) - len(failed)} made with {model}")
-    notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
+    if todo:
+        with ThreadPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
+            failed = [f for f in pool.map(make, todo) if f]
+        notes.append(f"{len(todo) - len(failed)} made with {model}")
+        notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
+    notes += _find_parts(run, text, model)
     run["steps"]["assets"]["notes"] = notes
+
+
+def _find_parts(run: dict, text: str, image_model: str) -> list[str]:
+    """Where the parts a score names on its pictures (`labels`) are: a vision model looks at each picture once and
+    says, kept beside the picture; a part it cannot find is drawn where the score's default puts it."""
+    import look
+    notes = []
+    vision = (run["settings"].get("models") or {}).get("critic") or run["settings"]["model"]
+    for kind, prompt, lk, names in assets.labelled(text):
+        p = assets.path_for(kind, prompt, lk if lk in look.LOOKS else "paper", image_model)
+        if not p.exists():
+            continue
+        import kit
+        have = json.loads(p.with_suffix(".spots.json").read_text()) if p.with_suffix(".spots.json").exists() else {}
+        missing = [n for n in names if kit.key(n) not in have]
+        if not missing:
+            continue
+        system, user = assets.find_prompt(missing)
+        try:
+            said = chat(run, "assets", f"find parts: {prompt[:40]}", system, user, images=[assets.data_url(p)],
+                        max_tokens=400, model=vision)
+        except Exception as e:  # noqa: BLE001 -- not found: the labels go where the score's defaults put them
+            notes.append(f"could not find the parts of \"{prompt[:40]}\": {str(e)[:120]}")
+            continue
+        found = assets.read_spots(said, missing)
+        assets.keep_spots(p, {kit.key(n): found.get(kit.key(n)) for n in missing})
+        lost = [n for n in missing if not found.get(kit.key(n))]
+        notes.append(f"parts of \"{prompt[:40]}\" found by {vision}: {len(missing) - len(lost)}/{len(missing)}"
+                     + (f" (not seen: {', '.join(lost)})" if lost else ""))
+    return notes
 
 
 def _render(run: dict) -> None:

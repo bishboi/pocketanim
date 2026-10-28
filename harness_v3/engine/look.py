@@ -17,6 +17,7 @@ Kinds (`ent NAME KIND ARGS [mods]`):
                             `color`, `opacity`, `outline`
     pin "PLACE" map M       a place marked on M (a ringed dot and its name); `label "..."`, `side left`, `color`
     river "NAME" map M      a river on M; `color`, `width`
+    timeline, event, span, chart, pyramid, cycle, flow, quote, doc, title, labels: the bigger pieces (kit.py)
     dots N                  N dots; `grid C` (C columns), `row`, `cluster`; `size`, `color`
     num V                   a number that can count; `prefix`, `suffix`, `size`, `color`
     bar V                   a bar of length V (of `max`, default 10) that can grow; `w` (its full length), `h`, `color`
@@ -217,11 +218,17 @@ def waves(n: int = 3, w: float = 12.0, color=None):
     return g
 
 
-def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color=None):
+def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color=None, shape=None):
     # A dot is small whatever `size` a model writes (it means 1 for an icon); the group stays a compact block.
+    # `shape NAME`: each one a small icon (`shape user`: people) instead of a dot.
     n = max(1, min(int(n), 400))
     size = 0.16 if size > 0.5 else min(max(size, 0.05), 0.22)
-    g = VGroup(*[Dot(radius=size, color=col(color or "coral")) for _ in range(n)])
+    if shape:
+        one = icon(str(shape), size * 2.8, color or "ink")
+        one.set_fill(col(color or "ink"), opacity=1)
+        g = VGroup(*[one.copy() for _ in range(n)])
+    else:
+        g = VGroup(*[Dot(radius=size, color=col(color or "coral")) for _ in range(n)])
     if layout == "row":
         g.arrange(RIGHT, buff=size * 0.9)
     elif layout == "cluster":
@@ -343,16 +350,40 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
                    int(mods["year"]) if mods.get("year") is not None else None, bool(mods.get("names")),
                    bool(mods.get("rivers")), mods.get("fill"))
     elif kind in ("region", "pin", "river"):
-        on = find(mods["map"]) if find and mods.get("map") else None
+        ref = mods.get("map") or mods.get("on")
+        on = find(ref) if find and ref else None
         if not isinstance(on, GeoMap):
-            raise ValueError(f"a {kind} is drawn on a map: `map NAME` (a `map` entity drawn before it)")
+            raise ValueError(f"a {kind} is drawn on a map: `on NAME` (a `map` entity)")
         what = args[0] if args else ""
         m = (region(on, what, mods, c) if kind == "region" else pin(on, what, mods, c) if kind == "pin"
              else river(on, what, c, float(mods.get("width", 1))))
     elif kind == "dots":
         n = int(args[0]) if args else 10
         lay = "row" if mods.get("row") else "cluster" if mods.get("cluster") else "grid"
-        m = dots(n, lay, int(mods.get("grid", 10)), size or 0.16, c)
+        m = dots(n, lay, int(mods.get("grid", 10)), size or 0.16, c, mods.get("shape"))
+    elif kind in KIT:
+        import kit
+        if kind in ("event", "span", "labels"):
+            on = find(mods.get("on")) if find and mods.get("on") else None
+            want = kit.Timeline if kind != "labels" else (ImageMobject, VGroup, Group)
+            if on is None or not isinstance(on, want):
+                raise ValueError(f"a {kind} is drawn on a {'picture' if kind == 'labels' else 'timeline'}: `on NAME`")
+        if kind == "timeline":
+            m = kit.Timeline(kit.year_of(args[0]), kit.year_of(args[1]), float(mods.get("w", 11)), c)
+        elif kind == "event":
+            m = kit.event(on, args[0], args[1] if len(args) > 1 else "", mods, c)
+        elif kind == "span":
+            m = kit.span(on, args[0], args[1], args[2] if len(args) > 2 else "", mods, c)
+        elif kind == "chart":
+            if ":" in str(mods.get("line", "")):        # `chart line 1000:42 ...`: `line` read as a modifier
+                args = ["line", str(mods.pop("line"))] + list(args)
+            m = kit.chart(args, mods, c)
+        elif kind == "labels":
+            m = kit.labels(on, args, mods, c, mods.get("_screen"))
+        elif kind in ("pyramid", "cycle", "flow"):
+            m = getattr(kit, kind)(args, mods, c)
+        else:
+            m = getattr(kit, kind)(args[0] if args else "", mods, c)
     elif kind == "num":
         m = Num(float(args[0]) if args else 0, mods.get("prefix", ""), mods.get("suffix", ""), size or 1.0, c,
                 bold=not mods.get("flat"))
@@ -390,6 +421,10 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     return m
 
 
+# The bigger pieces (kit.py), built from these.
+KIT = {"timeline", "event", "span", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels"}
+
+
 # ---------------------------------------------------------------- the kit's pieces -----------------------------------
 
 def image(path, size: float):
@@ -407,7 +442,9 @@ def picture(kind: str, prompt: str, width: float, mods: dict):
     it is not made."""
     p = assets.path_for(kind, prompt, L.get("_name", "paper"))
     if p.exists():
-        return image(p, width)
+        m = image(p, width)
+        m.spots = assets.spots(p)        # where its named parts are (a vision model's, kept beside it)
+        return m
     words = " ".join(prompt.split()[:4]).upper()
     box = RoundedRectangle(width=width, height=width * (0.75 if kind == "photo" else 0.8), corner_radius=0.12,
                            fill_color=col("sand"), fill_opacity=1, stroke_color=col("soft"), stroke_width=2)

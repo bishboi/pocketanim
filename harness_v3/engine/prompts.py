@@ -19,17 +19,12 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
   KINDS: text "WORDS" | icon NAME (Lucide names: ship, train-front, factory, wheat, users, landmark, castle, lock,
          coins, flag, scroll, crown, mountain-snow, globe, school, anchor, swords, book-open...) | circle | rect | blob
          | ring | waves N | dots N | num V | bar V | arrow A B | path P P P...
-         | map REGION (a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
-           a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`;
-           every place on it is MAP.PLACE, e.g. eu.paris, eu.constantinople, eu.north_sea)
-         | region "NAME" map M (a country, a state of the map's year e.g. "Holy Roman Empire", or a sea, shaded where
-           it really is; `outline`) | pin "PLACE" map M (a town marked, its name beside; `side left`) | river "NAME" map M
          | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out, e.g. pic "a stack of
            gold coins"; no words in it; 1-3 a shot) | photo "A SCENE" (a framed print of a place or scene)
          | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
-  MODS: at X,Y | at MAP.PLACE | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
+  MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline, a node of a flow) | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
@@ -40,9 +35,11 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   along T PATH | flow PATH n N COLOR | float T AMP
   morph A B [stagger S] (A becomes B; B never shown before)
   count NUM V | grow BAR V | color T C | dim T O | lift T | scale T K | spin T DEG | pulse T | shake T
-  ring T C | mark T C
+  MARKS (stay until the thing goes): ring T C | underline T | highlight T | strike T | box T | tick T | cross T |
+        stamp T "WORDS" | callout T "WORDS" [left|right|up|down] | bracket A,B,C "WORDS" | spotlight T (all else
+        veiled; `lift X` brings one back)
   cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide
-TARGET: NAME, NAME[2], NAME[0:3], or A,B,C.
+TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
 - Nothing is a slide: keep things up and change them (move, morph, count, grow, color) instead of replacing them.
 - Something moves on every phrase; land each action on the word that names it.
@@ -52,17 +49,68 @@ RULES
 - Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
   to put one on another on purpose (a label on its card, an icon on its badge).
 - Show real things: a pic, a photo, a flag or a card says more than a line icon. One big picture per idea.
-- Where things happen, use a `map`, never a blob or a drawn shape for a country: draw it big (w 12 h 6.6), shade
-  regions, pin towns, draw routes as `path M.a M.b M.c`, and move the camera to a place (`cam M.paris zoom 2`).
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences."""
 
+# The bigger pieces, each told to a shot's call only when its plan asks for it (the storyboard names them), so the
+# card a small model reads stays short. Each is one `ent` placed freely; its parts come on by the actions.
+KIT = {
+    "map": """  map REGION   a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
+               a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`;
+               `w 12 h 6.6` (it fills that). Every place on it is MAP.PLACE: eu.paris, eu.constantinople, eu.north_sea
+  region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
+               is; `color`, `opacity`, `outline`
+  pin "PLACE" on M     a town marked, its name beside (`side left`)  |  river "NAME" on M
+  Where things happen, use a map, never a blob for a country; routes are `path M.a M.b M.c` (then `along SHIP
+  ROUTE`); the camera goes to a place: `cam M.paris zoom 2`.""",
+    "timeline": """  timeline Y0 Y1 [w 12]   an axis of years (500bc, 1347); every year on it is TL.YEAR (`move x to tl.1347`)
+  event YEAR "WORDS" on TL   a card on a stem at its year (kept clear of the others)
+  span Y0 Y1 "WORDS" on TL   a band along the axis  (`in` each on the word that names it)""",
+    "chart": """  chart line K:V K:V ...    a line through real values (1000:42 1300:73 1400:45); `suffix " m"`, `w`, `h`
+  chart bars K:V ...        bars side by side (England:2 France:1.4); `col` upright
+  chart donut K:V ...       shares of a whole; `label "WORDS"` in the middle
+  Parts: one a value (`in pop stagger .4` draws it point by point; `highlight pop[2]`).""",
+    "diagram": """  flow "A>B>C" "B>D:WORDS"   a flow diagram: nodes and arrows laid out in layers (`down`: top to bottom);
+               `NAME*` a key node; words after `:` go on the arrow into that node. Parts: the nodes in order,
+               each with its arrows in (`in fl[0]`, `in fl[1]`...); nodes are FL.NODE (`ring fl.town`)
+  pyramid "TOP" "MIDDLE" "BOTTOM"   levels top first (`inverted`); parts are levels; SOC.LEVEL
+  cycle "A" "B" "C"   round a circle, each arrow on to the next; `label "WORDS"` in the middle""",
+    "paper": """  title "WORDS" [sub "a line"]   a section opening: big words on a highlighter
+  quote "WORDS" [who "who said it"]   a quotation (only words the narration quotes)
+  doc "TITLE" [sub "a line"] [seal]   a page of a document (a charter, a law, a letter); `stamp` it""",
+    "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
+               (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
+}
+KIT_WORDS = {
+    "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast",
+    "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
+    "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall",
+    "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|steps|process|orders",
+    "paper": r"title|quote|saying|\bsaid\b|document|charter|\blaw\b|letter|decree",
+    "labels": r"label|parts? of|named parts|inside",
+}
+
+
+def kit_for(plan: str) -> list[str]:
+    """The kit cards a shot's plan asks for: its `kit:` list, and any piece its words name."""
+    m = re.search(r"kit\s*:\s*([^|]*)", plan, re.I)
+    named = {w.strip().lower() for w in re.split(r"[,;/ ]+", m.group(1))} if m else set()
+    alias = {"flow": "diagram", "pyramid": "diagram", "cycle": "diagram", "quote": "paper", "doc": "paper",
+             "title": "paper", "bars": "chart", "line": "chart", "donut": "chart", "label": "labels"}
+    named = {alias.get(w, w) for w in named}
+    return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
+
+
 STORYBOARD = """You are planning a short animated explainer. Read the narration (its words are numbered) and cut it into
 SHOTS: one idea each (usually 1-2 sentences, 5-10 seconds). For each shot give one line:
-SHOT name | words wA-wB | metaphor: what we SEE that makes the idea clear | things: 3-6 plain things on screen
+SHOT name | words wA-wB | metaphor: what we SEE that makes the idea clear | things: 3-6 plain things on screen | kit: PIECES
 for example:
-SHOT bay | words w0-w14 | metaphor: four dark ships slide into a quiet bay | things: sea, ships, map of Japan, 1853
+SHOT bay | words w0-w14 | metaphor: four dark ships slide into a quiet bay | things: sea, ships, map of Japan, 1853 | kit: map
+KIT (the bigger pieces a shot may use; name those it needs, or none): map (a real map: places, borders of a year,
+routes), timeline (years, events), chart (line, bars, donut from real numbers), flow (how one thing leads to another:
+a flow diagram), pyramid (ranks, orders), cycle (a round of steps), quote (words the narration quotes), doc (a
+charter, a law, a letter), title (a section opening), labels (a picture's parts named).
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
 transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""
@@ -109,7 +157,9 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
                if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
             + "Write the shot's lines.")
-    return SCORE + "\n\n" + GRAMMAR, user
+    kit = kit_for(plan)
+    cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
+    return SCORE + "\n\n" + GRAMMAR + cards, user
 
 
 CRITIC = """You judge frames of an animated explainer, each with its time and the words being said. Point out only

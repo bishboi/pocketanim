@@ -56,6 +56,89 @@ def path_for(kind: str, prompt: str, look: str, model: str | None = None) -> Pat
     return CACHE / f"{kind}-{key(kind, prompt, look, model or DEFAULT_MODEL)}.png"
 
 
+def spots(path: Path) -> dict:
+    """Where a picture's named parts are (`labels` on it): {part: (x, y)}, 0..1 from its top left, as a vision
+    model found them (kept beside the picture: NAME.spots.json)."""
+    f = path.with_suffix(".spots.json")
+    try:
+        return {k: tuple(v) for k, v in json.loads(f.read_text()).items() if v} if f.exists() else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def labelled(score_text: str) -> list[tuple[str, str, str, list[str]]]:
+    """The pictures whose parts a score names (`ent X labels "spire" "portal" on PIC`): (kind, prompt, look, the
+    parts not placed by hand), each picture once."""
+    look, pics, out = "paper", {}, {}
+    for raw in score_text.splitlines():
+        try:
+            toks = shlex.split(raw, comments=True)
+        except ValueError:
+            continue
+        if len(toks) >= 2 and toks[0] == "look":
+            look = toks[1]
+        if len(toks) >= 4 and toks[0] == "ent" and toks[2] in KINDS:
+            pics[toks[1]] = (toks[2], toks[3], look)
+        if len(toks) >= 4 and toks[0] == "ent" and toks[2] == "labels" and "on" in toks:
+            i = toks.index("on")
+            pic = toks[i + 1] if i + 1 < len(toks) else ""
+            if pic in pics:
+                names = [t for t in toks[3:i] if "@" not in t]
+                out.setdefault(pics[pic], [])
+                out[pics[pic]] += [n for n in names if n not in out[pics[pic]]]
+    return [(k, p, lk, names) for (k, p, lk), names in out.items() if names]
+
+
+def find_prompt(names: list[str]) -> tuple[str, str]:
+    system = ("You find things in a picture. For each part named, give where its middle is in the picture, as x and "
+              "y from 0 to 1 (x from the left edge, y from the top edge). Answer only lines `PART | X | Y`, or "
+              "`PART | none` when it is not in the picture.")
+    return system, "PARTS:\n" + "\n".join(n.replace("_", " ") for n in names)
+
+
+def read_spots(text: str, names: list[str]) -> dict:
+    """The answer's lines -> {part key: [x, y]} (none: null), for the parts asked about."""
+    import kit
+    want = {kit.key(n): n for n in names}
+    out = {}
+    for line in text.splitlines():
+        bits = [b.strip(" `*-") for b in line.split("|")]
+        if len(bits) < 2 or kit.key(bits[0]) not in want:
+            continue
+        try:
+            x, y = float(bits[1]), float(bits[2])
+            if x > 1.5 or y > 1.5:              # given in 0..100 or 0..1000
+                k = 100.0 if max(x, y) <= 100 else 1000.0
+                x, y = x / k, y / k
+            out[kit.key(bits[0])] = [min(1.0, max(0.0, x)), min(1.0, max(0.0, y))]
+        except (ValueError, IndexError):
+            out[kit.key(bits[0])] = None
+    return out
+
+
+def keep_spots(path: Path, found: dict) -> None:
+    f = path.with_suffix(".spots.json")
+    try:
+        have = json.loads(f.read_text()) if f.exists() else {}
+    except ValueError:
+        have = {}
+    have.update(found)
+    f.write_text(json.dumps(have))
+
+
+def data_url(path: Path, side: int = 768) -> str:
+    """A picture as a JPEG data URL, at most `side` pixels on its longest side, on the paper colour."""
+    from PIL import Image
+    img = Image.open(path).convert("RGBA")
+    k = min(1.0, side / max(img.size))
+    img = img.resize((round(img.width * k), round(img.height * k)))
+    bg = Image.new("RGB", img.size, (239, 228, 200))
+    bg.paste(img, mask=img.split()[3])
+    buf = io.BytesIO()
+    bg.save(buf, "JPEG", quality=88)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 def wants(score_text: str) -> list[tuple[str, str, str]]:
     """The pictures a score asks for: (kind, prompt, look), each once."""
     look, out = "paper", []

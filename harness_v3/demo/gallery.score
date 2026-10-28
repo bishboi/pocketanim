@@ -1,0 +1,89 @@
+# The kit's gallery: every bigger piece and every mark, one shot each, timed in seconds. Baked to stills to check
+# that each one draws (python engine/timeline.py demo/gallery.score RUN OUT; RUN holds any words.json).
+look editorial
+
+# ---- timeline: years, events kept clear of each other, a span, a marker moved to a year
+shot years at 0,0
+ent head1  label "timeline · event · span" size 0.18 at -4.8,3.4
+ent tl     timeline 1000 1400 w 12 at 0,-0.6
+ent e1     event 1066 "the conquest" on tl
+ent e2     event 1086 "domesday book" on tl
+ent e3     event 1215 "magna carta" on tl
+ent e4     event 1347 "black death" on tl
+ent e5     event 1381 "peasants' revolt" on tl
+ent fam    span 1315 1317 "famine" on tl side down color coral
+ent here   icon map-pin size 0.55 color coral at tl.1000
+t0         cam years
+t0.2       in head1 fade
+t0.3-t1.3  in tl draw
+t1.4       in e1 drop
+t1.8       in e2 drop
+t2.2       in e3 drop
+t2.6       in e4 drop
+t3.0       in e5 drop
+t3.4       in fam fade
+t3.6       in here pop
+t3.8-t5    move here to tl.1347
+
+# ---- charts: a line from real values, bars, a donut
+shot charts at 18,0
+ent ln     chart line 1000:42 1200:62 1300:73 1400:45 suffix " m" w 5.4 h 2.6 at -3.3,1.2
+ent br     chart bars England:2 France:1.4 Italy:1.1 suffix "×" w 5.6 h 2.4 at -3.3,-2.4
+ent dn     chart donut clergy:5 nobles:5 peasants:90 suffix "%" label "society" r 1.4 at 3.9,0.2
+t6         cam charts
+t6.2-t8    in ln stagger .35
+t8-t9      in br stagger .2
+t9-t10.5   in dn stagger .3
+t10.8      highlight ln[2]
+
+# ---- diagrams: a pyramid, a cycle, a flow with branches and words on its arrows
+shot diag at 36,0
+ent soc    pyramid "clergy" "nobles" "peasants" w 4.4 h 3.2 at -4.5,1.4
+ent rot    cycle "wheat" "beans" "fallow" r 1.15 size 0.7 label "3 fields" at -4.5,-2.3
+ent fl     flow "farm>market:sells grain>town*" "market>lord:rent" "town>guild" w 7.4 h 4.4 at 2.8,0
+t12        cam diag
+t12.2-t13.4 in soc stagger .35
+t13.5-t14.8 in rot stagger .3
+t15        in fl[0] pop
+t15.5      in fl[1] fade
+t16        in fl[2] fade
+t16.4      in fl[3] fade
+t16.8      in fl[4] fade
+t17.2      ring fl.town
+
+# ---- paper: a quote, a document with a seal, a title
+shot paper at 54,0
+ent ttl    title "the three orders" sub "part two" size 0.7 at -3.2,2.9
+ent q      quote "Town air makes free." who "a medieval saying" w 6 at -3.0,0.2
+ent charter doc "Charter of the town" sub "anno 1188" seal at 3.9,-0.4
+t18        cam paper
+t18.2      in ttl fade
+t19        in q fade
+t20        in charter drop
+t21        stamp charter "free"
+
+# ---- a picture's parts named, and the marks
+shot marks at 0,-11
+ent cath   photo "a gothic cathedral facade" size 4.2 at -3.2,0.3
+ent cl     labels "spire@0.5,0.08" "rose window@0.5,0.4" "portal@0.5,0.85" "buttress@0.1,0.6" on cath
+ent w1     text "money" size 0.4 at 3.2,2.6
+ent w2     text "labour" size 0.4 at 3.2,1.5
+ent w3     text "rent" size 0.4 at 3.2,0.4
+ent ok     icon wheat badge green size 0.8 at 2.6,-1.2
+ent no     icon swords badge navy size 0.8 at 4.6,-1.2
+ent pile   dots 30 grid 10 shape user color ink at 3.4,-2.9
+t23        cam marks
+t23.2      in cath fade
+t23.6-t25  in cl stagger .3
+t25.2      in w1,w2,w3 fade
+t25.6      highlight w1
+t26        strike w2
+t26.4      box w3
+t26.8      in ok,no pop
+t27        tick ok
+t27.3      cross no
+t27.6      callout ok "grows food" up
+t28        in pile fade
+t28.4      bracket w1,w2,w3 "the old ties"
+t29        spotlight cath
+t31        lift w1

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harness v3</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#13161b; --line:#262b33; --ink:#e7e9ee; --soft:#8b93a1; --accent:#f08a5d;
+          --ok:#52c41a; --run:#4ea1ff; --bad:#ff5d5d; --wait:#5b6370; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.45 Inter, system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); }
+  header b { font-size:15px; } header .soft { color:var(--soft); }
+  .wrap { display:grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 45px); }
+  aside { border-right:1px solid var(--line); padding:12px; overflow:auto; }
+  main { padding:16px; overflow:auto; }
+  button { background:#1d2229; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:5px 10px;
+           font:inherit; cursor:pointer; } button:hover { border-color:#3a414c; } button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#1b0f08; font-weight:600; }
+  input, select, textarea { background:#0f1216; color:var(--ink); border:1px solid var(--line); border-radius:6px;
+           padding:6px 8px; font:inherit; width:100%; }
+  textarea.mono, pre { font:12px/1.4 "JetBrains Mono", ui-monospace, monospace; }
+  .run { padding:8px; border:1px solid var(--line); border-radius:8px; margin-top:8px; cursor:pointer; }
+  .run:hover, .run.sel { border-color:var(--accent); }
+  .run .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px; background:#1d2229; color:var(--soft); }
+  .chip.done { background:#16301a; color:#8ee07a; } .chip.running { background:#122840; color:#8cc2ff; }
+  .chip.failed { background:#3a1414; color:#ff9a9a; } .chip.waiting { background:#1b1f25; color:var(--soft); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .soft { color:var(--soft); }
+  .steps { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:12px 0; }
+  .step { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .step h4 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .step .notes { color:var(--soft); font-size:11px; max-height:90px; overflow:auto; margin-top:6px; white-space:pre-wrap; }
+  .step .err { color:#ff9a9a; font-size:11px; max-height:120px; overflow:auto; white-space:pre-wrap; margin-top:6px; }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-top:8px; }
+  .tabs button { border:none; border-bottom:2px solid transparent; border-radius:0; background:none; color:var(--soft); }
+  .tabs button.on { color:var(--ink); border-bottom-color:var(--accent); }
+  .pane { padding-top:12px; }
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  @media (max-width: 1100px) { .two, .steps { grid-template-columns: 1fr; } }
+  video { width:100%; border-radius:8px; background:#000; }
+  table { width:100%; border-collapse:collapse; } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { color:var(--soft); font-weight:500; font-size:12px; }
+  tr.call { cursor:pointer; } tr.call:hover td { background:#151a20; }
+  pre { background:#0f1216; border:1px solid var(--line); border-radius:6px; padding:8px; white-space:pre-wrap; max-height:340px; overflow:auto; margin:4px 0; }
+  .word { display:inline-block; margin:2px; padding:1px 5px; border-radius:4px; background:#161a20; font-size:12px; }
+  .word i { color:var(--soft); font-style:normal; font-size:10px; margin-left:3px; }
+  .big { font-size:18px; font-weight:700; }
+  .money { color:#ffd27a; }
+  .form { display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; }
+  .form label { color:var(--soft); font-size:12px; } .form .full { grid-column: 1 / -1; }
+  .banner { background:#2a2010; border:1px solid #5a4416; color:#ffd27a; border-radius:8px; padding:8px 10px; margin:8px 0; }
+</style>
+</head>
+<body>
+<header><b>harness v3</b><span class="soft">animated explainers from a score</span><span id="key" class="chip"></span>
+  <span style="flex:1"></span><span class="soft">all runs: <span id="allcost" class="money"></span></span></header>
+<div class="wrap">
+  <aside>
+    <button class="primary" style="width:100%" onclick="showNew()">+ New run</button>
+    <div id="runs"></div>
+  </aside>
+  <main id="main"><p class="soft">Pick a run, or make a new one.</p></main>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd = (v) => v ? "$" + (v < 0.01 ? v.toFixed(5) : v.toFixed(4)) : "$0";
+const secs = (v) => v == null ? "" : (v < 60 ? v.toFixed(1) + " s" : Math.floor(v / 60) + " min " + Math.round(v % 60) + " s");
+let config = {}, sel = null, data = null, tab = "video", open = {}, timer = null, dirty = false;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function loadRuns() {
+  const list = await api("/api/runs");
+  $("#allcost").textContent = usd(list.reduce((k, r) => k + (r.cost || 0), 0));
+  $("#runs").innerHTML = list.map((r) => `<div class="run ${r.id === sel ? "sel" : ""}" onclick="pick('${r.id}')">
+    <div class="t">${esc(r.title)}</div>
+    <div class="row soft"><span class="chip ${r.status}">${r.status}</span><span class="money">${usd(r.cost)}</span>
+      <span>${r.tokens || 0} tok</span>${r.seconds ? `<span>${r.seconds.toFixed(0)} s</span>` : ""}</div></div>`).join("")
+    || `<p class="soft">No runs yet.</p>`;
+}
+
+function pick(id) { sel = id; dirty = false; tab = tab || "video"; refresh(true); loadRuns(); }
+
+async function refresh(force) {
+  if (!sel) return;
+  const d = await api("/api/runs/" + sel);
+  const changed = force || JSON.stringify(d.run) !== JSON.stringify(data?.run) || d.busy !== data?.busy;
+  data = d;
+  if (changed) render();
+  clearTimeout(timer);
+  if (d.busy || d.run.status === "running") timer = setTimeout(() => { refresh(); loadRuns(); }, 1500);
+}
+
+function stepCard(name) {
+  const s = data.run.steps[name] || {};
+  const shots = name === "score" && data.storyboard ? `<div class="row" style="margin-top:6px">${data.storyboard.map((x, k) =>
+    `<button title="score this shot again" onclick="again('score', ${k})" ${data.busy ? "disabled" : ""}>↻ ${k + 1}</button>`).join("")}</div>` : "";
+  return `<div class="step"><h4>${name}</h4>
+    <div class="row"><span class="chip ${s.status || "waiting"}">${s.status || "waiting"}</span>
+      ${s.seconds != null ? `<span class="soft">${secs(s.seconds)}</span>` : ""}
+      ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}</div>
+    ${s.error ? `<div class="err">${esc(s.error)}</div>` : ""}
+    ${(s.notes || []).length ? `<div class="notes">${esc(s.notes.join("\n"))}</div>` : ""}
+    <div class="row" style="margin-top:8px"><button onclick="again('${name}')" ${data.busy ? "disabled" : ""}>run from here</button></div>${shots}</div>`;
+}
+
+function render() {
+  const r = data.run, st = r.settings;
+  const calls = r.calls || [];
+  const byStep = {};
+  for (const c of calls) byStep[c.step] = (byStep[c.step] || 0) + (c.cost || 0);
+  $("#main").innerHTML = `
+    <div class="row"><span class="big">${esc(r.title)}</span><span class="chip ${r.status}">${r.status}</span>
+      <span class="money big">${usd(r.cost)}</span><span class="soft">${r.tokens || 0} tokens · ${calls.length} calls</span></div>
+    <div class="row soft" style="margin-top:4px">model ${esc(st.model)} · voice ${esc(st.voice)} · quality ${st.quality}
+      · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
+      ${r.words ? ` · ${r.words.count} words, ${r.words.seconds.toFixed(1)} s` : ""}</div>
+    ${!config.key && !st.given_score ? `<div class="banner">No OPENROUTER_API_KEY on the server: the storyboard and score steps need it. Set it and run the storyboard step again, or edit the score by hand below.</div>` : ""}
+    <div class="steps">${["voice", "storyboard", "score", "render", "critic"].map(stepCard).join("")}</div>
+    <div class="row soft">cost by step: ${Object.entries(byStep).map(([k, v]) => `${k} <span class="money">${usd(v)}</span>`).join(" · ") || "none yet"}</div>
+    <div class="tabs">${["video", "words", "storyboard", "calls"].map((t) =>
+      `<button class="${tab === t ? "on" : ""}" onclick="tab='${t}';render()">${{video: "Video & score", words: "Narration & words", storyboard: "Storyboard", calls: `Calls (${calls.length})`}[t]}</button>`).join("")}</div>
+    <div class="pane" id="pane"></div>`;
+  pane();
+}
+
+function pane() {
+  const p = $("#pane");
+  if (tab === "video") {
+    p.innerHTML = `<div class="two">
+      <div>${data.video ? `<video controls src="/files/${sel}/video.mp4?v=${data.run.steps.render?.ended || 0}"></video>` : `<p class="soft">No video yet.</p>`}
+        <p class="soft">The score on the right is what the video plays. Change it and save: only the render runs again.</p></div>
+      <div><textarea id="score" class="mono" style="height:62vh" oninput="dirty=true">${esc(data.score || "")}</textarea>
+        <div class="row" style="margin-top:6px"><button class="primary" onclick="saveScore()" ${data.busy ? "disabled" : ""}>Save score and re-render</button>
+        <span class="soft">${data.run.edited ? "edited by hand " + new Date(data.run.edited * 1000).toLocaleTimeString() : ""}</span></div></div></div>`;
+  } else if (tab === "words") {
+    const w = data.words;
+    p.innerHTML = w ? `${w.lines.map((l, i) => `<p><b>${secs(l.start)}–${secs(l.end)}</b> ${esc(l.text)}<br>${
+        w.words.filter((x) => x.line === i).map((x) => `<span class="word">w${x.i} ${esc(x.w)}<i>${x.start.toFixed(2)}</i></span>`).join("")}</p>`).join("")}
+      <audio controls src="/files/${sel}/voice.wav"></audio>` : `<pre>${esc(data.narration)}</pre><p class="soft">Not spoken yet.</p>`;
+  } else if (tab === "storyboard") {
+    p.innerHTML = data.storyboard ? `<table><tr><th>#</th><th>shot</th><th>words</th><th>plan</th><th></th></tr>${data.storyboard.map((s, k) =>
+      `<tr><td>${k + 1}</td><td>${esc(s.name)}</td><td>w${s.a}–w${s.b}</td><td>${esc(s.plan)}</td>
+       <td><button onclick="again('score', ${k})" ${data.busy ? "disabled" : ""}>score again</button></td></tr>`).join("")}</table>`
+      : `<p class="soft">${data.run.settings.given_score ? "The score was given by hand: no storyboard." : "No storyboard yet."}</p>`;
+  } else {
+    const calls = data.run.calls || [];
+    p.innerHTML = calls.length ? `<table><tr><th>step</th><th>call</th><th>model</th><th>status</th><th>tokens in / out</th><th>cost</th><th>time</th></tr>${calls.map((c) =>
+      `<tr class="call" onclick="open['${c.id}']=!open['${c.id}'];pane()"><td>${c.step}</td><td>${esc(c.label)}${c.images ? ` · ${c.images} images` : ""}</td>
+       <td>${esc(c.model)}</td><td><span class="chip ${c.status}">${c.status}</span></td><td>${c.tokens_in ?? ""} / ${c.tokens_out ?? ""}</td>
+       <td class="money">${usd(c.cost)}</td><td>${secs(c.seconds)}</td></tr>
+       ${open[c.id] ? `<tr><td colspan="7">${c.error ? `<pre style="color:#ff9a9a">${esc(c.error)}</pre>` : ""}
+         <div class="soft">system</div><pre>${esc(c.system)}</pre><div class="soft">user</div><pre>${esc(c.user)}</pre>
+         <div class="soft">answer</div><pre>${esc(c.output || "")}</pre></td></tr>` : ""}`).join("")}
+      <tr><th colspan="4">total</th><th>${calls.reduce((k, c) => k + (c.tokens_in || 0), 0)} / ${calls.reduce((k, c) => k + (c.tokens_out || 0), 0)}</th>
+        <th class="money">${usd(data.run.cost)}</th><th>${secs(calls.reduce((k, c) => k + (c.seconds || 0), 0))}</th></tr></table>`
+      : `<p class="soft">No model calls in this run.</p>`;
+  }
+}
+
+async function again(step, shot) {
+  try { await api(`/api/runs/${sel}/step`, {method: "POST", body: JSON.stringify({step, shot})}); refresh(true); loadRuns(); }
+  catch (e) { alert(e.message); }
+}
+
+async function saveScore() {
+  try { await api(`/api/runs/${sel}/score`, {method: "PUT", body: JSON.stringify({text: $("#score").value})}); dirty = false; refresh(true); }
+  catch (e) { alert(e.message); }
+}
+
+function showNew() {
+  sel = null; clearTimeout(timer); loadRuns();
+  const opt = (xs, v) => xs.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  $("#main").innerHTML = `<p class="big">New run</p>
+    <div class="form">
+      <div class="full"><label>Title</label><input id="n-title" placeholder="(the first line, if empty)"></div>
+      <div class="full"><label>Narration: one sentence a line (about 40 s is 80-100 words)</label>
+        <textarea id="n-text" rows="8" placeholder="In 1853, four American warships sailed into Tokyo Bay."></textarea></div>
+      <div><label>Model (storyboard, score, critic)</label><select id="n-model">${opt(config.models, config.default_model)}</select></div>
+      <div><label>Voice</label><select id="n-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
+      <div><label>Quality</label><select id="n-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
+      <div><label>Voice speed (length scale) / pause</label><div class="row" style="flex-wrap:nowrap"><input id="n-speed" value="1.22"><input id="n-pause" value="0.85"></div></div>
+      <div class="full"><label><input type="checkbox" id="n-critic" style="width:auto"> Critic: frames judged by the model after the render</label></div>
+      <div class="full"><label>Score by hand (optional: skips the storyboard and score calls)</label>
+        <textarea id="n-score" class="mono" rows="6" placeholder="shot one at 0,0&#10;ent title text &quot;Hello&quot; size 1 at 0,0&#10;w0 in title write"></textarea></div>
+    </div>
+    ${!config.key ? `<div class="banner">No OPENROUTER_API_KEY on the server: give a score by hand, or set the key and restart the server.</div>` : ""}
+    <p><button class="primary" onclick="create()">Make it</button></p>`;
+}
+
+async function create() {
+  const body = {title: $("#n-title").value, narration: $("#n-text").value, model: $("#n-model").value, voice: $("#n-voice").value,
+    quality: $("#n-q").value, speed: $("#n-speed").value, pause: $("#n-pause").value, critic: $("#n-critic").checked,
+    score: $("#n-score").value.trim() || undefined};
+  try { const r = await api("/api/runs", {method: "POST", body: JSON.stringify(body)}); tab = "video"; pick(r.id); }
+  catch (e) { alert(e.message); }
+}
+
+(async () => {
+  config = await api("/api/config");
+  const k = $("#key");
+  k.textContent = config.key ? "model key set" : "no model key";
+  k.className = "chip " + (config.key ? "done" : "failed");
+  await loadRuns();
+  setInterval(loadRuns, 8000);
+})();
+</script>
+</body>
+</html>

@@ -28,6 +28,8 @@ w58-w62     morph fields works stagger .14
 | `engine/look.py` | The look (palette, fonts) and the primitives. |
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
+| `engine/runs.py` | A run: its settings, its steps (voice, storyboard, score, render, critic) with status, time and cost, every model call with its prompt, answer, tokens and cost (`runs/<id>/run.json`). |
+| `engine/server.py`, `engine/ui.html` | The web app over runs (standard library only). |
 | `engine/pipeline.py` | Narration to video, end to end (`--score` to render a given score; the calls need `OPENROUTER_API_KEY`). |
 | `demo/` | The 40-second demo: its narration and its score. |
 
@@ -36,5 +38,20 @@ w58-w62     morph fields works stagger .14
 ../.venv3/bin/python engine/pipeline.py demo/japan.txt out/japan --score demo/japan.score --quality h
 ```
 
-Not yet: the phone players (the demo is a video), the app (this is a command line), more lands than Japan, and the
+## The app
+
+```
+sudo apt-get install -y libcairo2-dev libpango1.0-dev pkg-config ffmpeg   # once
+./setup.sh                                                                 # once
+export OPENROUTER_API_KEY=...        # for storyboard, score and critic; optional V3_MODEL=provider/model
+../.venv3/bin/python engine/server.py --port 8300                          # then open http://localhost:8300
+```
+
+New run: a title, the narration (one sentence a line), the model, the voice, quality, speed and pause, the critic on
+or off, and (optional) a score written by hand, which skips the storyboard and score calls (no key needed). A run
+shows its five steps with status, time and cost (each can run again from there; a single shot can be scored again),
+the video with its score (edit it and render again), the narration's timed words, the storyboard, and every call with
+its prompt, answer, tokens and cost. The sidebar lists runs with their cost and the total.
+
+Not yet: the phone players (the demo is a video), more lands than Japan, and the
 critic run on a real model (it needs a key).

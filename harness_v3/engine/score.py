@@ -154,11 +154,26 @@ def parse_mods(toks: list[str]) -> tuple[list[str], dict]:
     return args, mods
 
 
+REF = re.compile(r"^([A-Za-z_][\w\-]*)(.*)$")
+
+
+def _renamed(tok: str, alias: dict[str, str]) -> str:
+    """A token's entity names (`a`, `a[2]`, `a,b`, `a.place`) as they are known now (see `parse`)."""
+    out = []
+    for part in tok.split(","):
+        m = REF.match(part)
+        out.append(alias[m.group(1)] + m.group(2) if m and m.group(1) in alias else part)
+    return ",".join(out)
+
+
 def parse(text: str, words: list[dict], seconds: float) -> Score:
     """A score's text read against the narration's words. A line that cannot be read is left out, with a note
-    (the rest plays)."""
+    (the rest plays). Two mends, each said in the notes (the shots are written one call at a time, and a small
+    model forgets): a name made again in a later shot is a new thing (`people` becomes `people_s2` from there on;
+    the earlier one stays where it was), and a shot no camera move goes to gets one, as its first action plays."""
     sc = Score(end=seconds)
     shot: Shot | None = None
+    alias: dict[str, str] = {}
     for n, raw in enumerate(text.splitlines(), 1):
         try:
             toks = shlex.split(raw, comments=True)      # a `#` outside quotes starts a comment
@@ -185,14 +200,50 @@ def parse(text: str, words: list[dict], seconds: float) -> Score:
                 if shot is None:
                     shot = Shot("main", 0.0, 0.0, 1.0, n)
                     sc.shots["main"] = shot
+                toks = toks[:3] + [_renamed(t, alias) for t in toks[3:]]
                 args, mods = parse_mods(toks[3:])
-                sc.ents[toks[1]] = Ent(toks[1], toks[2], args, mods, shot.name, n)
+                name = toks[1]
+                if name in alias and sc.ents[alias[name]].shot != shot.name:
+                    new = f"{name}_{shot.name}"
+                    while new in sc.ents:
+                        new += "_"
+                    sc.notes.append(f"line {n}: {name!r} was made again in shot {shot.name}: a new thing ({new}); "
+                                    f"the one in shot {sc.ents[alias[name]].shot} stays")
+                    alias[name] = new
+                else:
+                    alias.setdefault(name, name)
+                sc.ents[alias[name]] = Ent(alias[name], toks[2], args, mods, shot.name, n)
             else:
                 t0, t1 = _when(head, words, seconds)
+                toks = toks[:2] + [_renamed(t, alias) for t in toks[2:]]
                 verb = toks[1]
                 target = toks[2] if len(toks) > 2 else ""
                 sc.acts.append(Act(t0, t1, verb, target, toks[3:], n, line))
         except (ValueError, IndexError) as e:
             sc.notes.append(f"line {n}: {e}: {line[:80]}")
+    _camera_to_every_shot(sc)
     sc.acts.sort(key=lambda a: a.t0)
     return sc
+
+
+def shot_of(sc: Score, ref: str) -> str | None:
+    """The shot an action's target (or a camera move's) is in."""
+    if ref in sc.shots:
+        return ref
+    m = REF.match(ref.split(",")[0])
+    e = sc.ents.get(m.group(1)) if m else None
+    return e.shot if e else None
+
+
+def _camera_to_every_shot(sc: Score) -> None:
+    shots = list(sc.shots)
+    seen = {shot_of(sc, a.target) for a in sc.acts if a.verb == "cam"}
+    for k, name in enumerate(shots):
+        if name in seen or (k == 0 and not any(a.verb == "cam" for a in sc.acts)):
+            continue
+        mine = [a for a in sc.acts if a.verb != "cam" and shot_of(sc, a.target) == name]
+        if not mine:
+            continue
+        t = min(a.t0 for a in mine)
+        sc.acts.append(Act(t, None, "cam", name, [], sc.shots[name].line, f"cam {name} (added)"))
+        sc.notes.append(f"shot {name} had no camera move: the camera goes there at {t:.1f} s, as it starts")

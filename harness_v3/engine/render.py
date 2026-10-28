@@ -126,6 +126,7 @@ class ScoreScene(MovingCameraScene):
         self.clock = 0.0
         self._paper()
         self._build()
+        self._spread()
         for act in sc.acts:
             try:
                 self._schedule(act)
@@ -181,6 +182,96 @@ class ScoreScene(MovingCameraScene):
             self._make(e)
         for e in later:
             self._make(e)
+
+    # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
+    # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
+    SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots"}
+
+    def _spread(self) -> None:
+        """Things of one shot up at the same time that partly overlap are pushed apart (the later one moves, along
+        the shorter way out, kept on its shot's screen). One inside the other (a label on a box, an icon on its
+        badge) is left: that is meant."""
+        sc = self.SCORE
+        times = self._up_times()
+        for shot in sc.shots.values():
+            ents = [e for e in sc.ents.values() if e.shot == shot.name and e.kind in self.SPREAD
+                    and not e.mods.get("on") and not (isinstance(e.mods.get("at"), str) and e.mods["at"] in self.E)]
+            def holds(big, small) -> bool:
+                return big is not small and self._inside(self.E[small.name], self.E[big.name])
+            # What sits on another (a badge on its box, a label on its card) moves with it, and is not moved itself.
+            riders = {e.name: [x for x in ents if holds(e, x)] for e in ents}
+            ridden = {x.name for xs in riders.values() for x in xs}
+            for _ in range(3):
+                moved = False
+                for j, b in enumerate(ents):
+                    if b.name in ridden:
+                        continue
+                    for a in ents[:j]:
+                        if a.name in ridden or a in riders[b.name] or b in riders[a.name]:
+                            continue
+                        (a0, a1), (b0, b1) = times.get(a.name, (0, 1e9)), times.get(b.name, (0, 1e9))
+                        if a1 <= b0 or b1 <= a0:
+                            continue
+                        push = self._apart(self.E[a.name], self.E[b.name])
+                        if push is None:
+                            continue
+                        group = [self.E[b.name]] + [self.E[x.name] for x in riders[b.name]]
+                        before = self.E[b.name].get_center().copy()
+                        self.E[b.name].shift(push)
+                        self._on_screen(self.E[b.name], shot)
+                        for m in group[1:]:
+                            m.shift(self.E[b.name].get_center() - before)
+                        sc.notes.append(f"{b.name} moved off {a.name} (they overlapped)")
+                        moved = True
+                if not moved:
+                    break
+
+    def _up_times(self) -> dict[str, tuple[float, float]]:
+        """When each entity comes on and goes (by the actions that bring it and take it away)."""
+        t_in: dict[str, float] = {}
+        t_out: dict[str, float] = {}
+        base = lambda ref: [re.sub(r"\[.*", "", x) for x in ref.split(",")]  # noqa: E731
+        for a in self.SCORE.acts:
+            if a.verb == "in":
+                for n in base(a.target):
+                    t_in[n] = min(t_in.get(n, 1e9), a.t0)
+            elif a.verb == "out":
+                for n in base(a.target):
+                    t_out[n] = min(t_out.get(n, 1e9), a.t0)
+            elif a.verb == "morph" and a.args:
+                for n in base(a.target):
+                    t_out[n] = min(t_out.get(n, 1e9), a.t0 + 0.5)
+                for n in base(a.args[0]):
+                    t_in[n] = min(t_in.get(n, 1e9), a.t0 + 0.5)
+        return {n: (t_in.get(n, 0.0), t_out.get(n, 1e9)) for n in self.SCORE.ents}
+
+    @staticmethod
+    def _apart(a, b, gap: float = 0.3):
+        """How far b must move to clear a, or None (apart, or one inside the other)."""
+        al, ar, ab, at = a.get_left()[0], a.get_right()[0], a.get_bottom()[1], a.get_top()[1]
+        bl, br, bb, bt = b.get_left()[0], b.get_right()[0], b.get_bottom()[1], b.get_top()[1]
+        ox, oy = min(ar, br) - max(al, bl), min(at, bt) - max(ab, bb)
+        if ox <= 0 or oy <= 0:
+            return None
+        if ScoreScene._inside(a, b) or ScoreScene._inside(b, a):
+            return None
+        if ox * oy < 0.04 * min((ar - al) * (at - ab), (br - bl) * (bt - bb)):
+            return None                       # a corner touching: let be
+        ca, cb = a.get_center(), b.get_center()
+        if ox < oy:
+            return np.array([(ox + gap) * (1 if cb[0] >= ca[0] else -1), 0.0, 0.0])
+        return np.array([0.0, (oy + gap) * (1 if cb[1] >= ca[1] else -1), 0.0])
+
+    @staticmethod
+    def _inside(small, big, e: float = 0.35) -> bool:
+        return (small.get_left()[0] >= big.get_left()[0] - e and small.get_right()[0] <= big.get_right()[0] + e
+                and small.get_bottom()[1] >= big.get_bottom()[1] - e and small.get_top()[1] <= big.get_top()[1] + e)
+
+    def _on_screen(self, m, shot) -> None:
+        o, hw, hh = np.array([shot.x, shot.y, 0.0]), S.SCREEN_W / shot.zoom / 2 - 0.3, S.SCREEN_H / shot.zoom / 2 - 0.3
+        dx = max(0.0, (o[0] - hw) - m.get_left()[0]) - max(0.0, m.get_right()[0] - (o[0] + hw))
+        dy = max(0.0, (o[1] - hh) - m.get_bottom()[1]) - max(0.0, m.get_top()[1] - (o[1] + hh))
+        m.shift([dx, dy, 0.0])
 
     def _origin(self, shot: str) -> np.ndarray:
         s = self.SCORE.shots.get(shot)

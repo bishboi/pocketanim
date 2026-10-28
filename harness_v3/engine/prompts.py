@@ -34,7 +34,11 @@ TARGET: NAME, NAME[2], NAME[0:3], or A,B,C.
 RULES
 - Nothing is a slide: keep things up and change them (move, morph, count, grow, color) instead of replacing them.
 - Something moves on every phrase; land each action on the word that names it.
-- Bring a new shot in with `cam SHOT` over the first words of its idea; the old shot stays where it was.
+- Start every shot with `cam SHOT` on its first word: the camera only goes where a `cam` line sends it.
+- A name is one thing for the whole video: a thing from the shot before is used by its name (no new `ent` line for
+  it); a new thing gets a new name.
+- Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
+  to put one on another on purpose (a label on its card, an icon on its badge).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences."""
 
@@ -57,7 +61,8 @@ def storyboard_prompt(words: list[dict]) -> tuple[str, str]:
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "") -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
     user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n"
-            + (f"UP FROM THE SHOT BEFORE (its names; reuse them, or move them out): {before}\n" if before else "")
+            + (f"UP FROM THE SHOT BEFORE (use these names, never `ent` them again; or move them out): {before}\n" if before else "")
+            + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
             + "Write the shot's lines.")
     return SCORE + "\n\n" + GRAMMAR, user
 

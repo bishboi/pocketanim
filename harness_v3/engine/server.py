@@ -78,7 +78,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             elif path == "/api/config":
-                self._json({"models": MODELS, "default_model": runs.DEFAULT_MODEL, "voices": VOICES,
+                extra = [m.strip() for m in os.environ.get("V3_MODELS", "").split(",") if m.strip()]
+                models = list(dict.fromkeys([runs.DEFAULT_MODEL, *extra, *MODELS]))
+                self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "voices": VOICES,
                             "key": bool(os.environ.get("OPENROUTER_API_KEY")),
                             "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})
             elif path == "/api/runs":

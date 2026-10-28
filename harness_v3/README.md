@@ -29,6 +29,9 @@ w58-w62     morph fields works stagger .14
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
 | `engine/assets.py` | Pictures a score asks for (`pic`, `photo`), made by an image model through OpenRouter's Image API (`V3_IMAGE_MODEL`), cut out or framed with a soft shadow, kept by their words; flags (`flag jp`) from flag-icons, exact. |
+| `engine/timeline.py` | The video as a timeline a player draws (no MP4): the renderer's own scene played without drawing, each drawn piece recorded (its shape once, then its transform, colours and width; a picture by its corners), keys only where something changes (`player/timeline.json`). |
+| `engine/player.html` | The player: draws a timeline at any time t in a canvas, in step with the voice (the Player tab; `/play/<run>`). |
+| `engine/export.py` | An MP4 made from the player in headless Chromium (chunks at once, the voice laid under), and a frame-by-frame comparison with the render's MP4: mean PSNR, the share of frames that differ, the moments that differ most side by side (the Compare tab). |
 | `engine/runs.py` | A run: its settings, its steps (voice, storyboard, score, render, critic) with status, time and cost, every model call with its prompt, answer, tokens and cost (`runs/<id>/run.json`). |
 | `engine/datalab.py` | A PDF read by Datalab's convert API (JSON blocks, as v2 reads it; `DATALAB_API_KEY`), cached by the PDF's hash: each page's text and the headings. |
 | `engine/books.py` | A book: a PDF uploaded and read by Datalab (its pages' text, and sections from its headings), scripts of chosen pages (one call each, written as short videos), and each video built as a run; the script calls' cost and its videos' runs added up (`books/<id>/book.json`). |
@@ -71,6 +74,11 @@ IBM Plex Mono labels; and the pieces Video1-style explainers are made of: `card 
 of yen banknotes"` (a made cut-out object), `photo "a mountain valley at dawn"` (a made print), `flag us`. Coordinates
 and actions stay free. The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
 call with its cost; a model can be set per step (`V3_MODEL_SCRIPT`, `_STORYBOARD`, `_SCORE`, `_VISION`).
+
+The player: every run gets a timeline step after the render; the Player tab plays the video from it with no MP4
+(a few hundred KB to a few MB, gzipped). **Export MP4 from the player** (Compare tab) makes `player.mp4` from the
+player and compares it with the render frame by frame, so any difference between the two is shown and can be
+fixed; on the demo they agree to 42 dB on average (encoding noise), every frame above 35 dB.
 
 Speed: a video's shots are scored at once (`V3_SCORE_JOBS`, 6), and a video longer than 20 s is rendered in
 chunks at once (`V3_RENDER_JOBS`, half the cores), each chunk playing the timeline up to its start unseen so the

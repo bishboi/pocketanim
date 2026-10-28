@@ -7,6 +7,8 @@ words.json, storyboard.json, video.score, video.mp4, and the critic's frames. Th
     storyboard  one model call: the narration cut into shots
     score       one model call a shot, all at once (or a score given by hand: no call)
     assets      the pictures the score asks for, made by the image model (assets.py) and kept
+    render      the MP4 (render.py)
+    timeline    the same video as a timeline the player draws (timeline.py; player/): no MP4 needed to watch it
     render      the score played on one clock (render.py)
     critic      frames judged by a vision model (optional)
 
@@ -41,7 +43,7 @@ sys.path.insert(0, str(HERE))
 import assets  # noqa: E402
 import prompts  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "assets", "render", "critic"]
+STEPS = ["voice", "storyboard", "score", "assets", "render", "timeline", "critic"]
 # The model each kind of call uses, unless a run says otherwise: V3_MODEL_<STEP>, else V3_MODEL. The score step is
 # where a stronger model shows most (it places and moves everything); the image model makes the pictures.
 MODEL_STEPS = ("storyboard", "score", "critic", "image")
@@ -363,6 +365,64 @@ def _render(run: dict) -> None:
     run["video"] = f"video.mp4?v={int(time.time())}"
 
 
+def _timeline(run: dict) -> None:
+    """The video as a timeline for the player (player/timeline.json, its pictures, the voice)."""
+    d = run_dir(run["id"])
+    p = _proc(run["id"], [sys.executable, str(HERE / "timeline.py"), str(d / "video.score"), str(d), str(d / "player"),
+                          "--quality", run["settings"]["quality"]],
+              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout)[-1500:])
+    info = next((json.loads(l[9:]) for l in p.stdout.splitlines() if l.startswith("timeline:")), {})
+    run["steps"]["timeline"]["notes"] = [f"{info.get('leaves', '?')} pieces, {info.get('pictures', 0)} picture(s), "
+                                         f"{info.get('bytes', 0) / 1e6:.1f} MB (played by the Player tab)"]
+
+
+def export(rid: str) -> None:
+    """An MP4 made from the player (export.py), compared with the render's frame by frame; the report kept on the
+    run (run["export"]), its side-by-side frames beside it."""
+    if rid in _busy:
+        raise RuntimeError("this run is busy: wait for it")
+    d = run_dir(rid)
+    if not (d / "player" / "timeline.json").exists():
+        raise RuntimeError("no timeline yet: run the timeline step first")
+    _busy.add(rid)
+
+    def work():
+        run = load(rid)
+        run["export"] = {"status": "queued"}
+        save(run)
+        got = _slots.acquire(timeout=None)
+        run = load(rid)
+        ex = run["export"] = {"status": "running", "started": time.time()}
+        save(run)
+        try:
+            cmd = [sys.executable, str(HERE / "export.py"), str(d / "player"), str(d / "player.mp4"), "--quality",
+                   run["settings"]["quality"]]
+            if (d / "video.mp4").exists():
+                cmd += ["--compare", str(d / "video.mp4"), "--report", str(d / "compare.json")]
+            p = _proc(rid, cmd)
+            if p.returncode != 0:
+                raise RuntimeError((p.stderr or p.stdout)[-1500:])
+            ex["status"] = "done"
+            if (d / "compare.json").exists():
+                ex["report"] = json.loads((d / "compare.json").read_text())
+        except Stopped:
+            ex["status"] = "stopped"
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            ex.update({"status": "failed", "error": str(e)[:1500]})
+        finally:
+            ex["ended"] = time.time()
+            ex["seconds"] = round(ex["ended"] - ex["started"], 1)
+            save(run)
+            if got:
+                _slots.release()
+            _stop.discard(rid)
+            _busy.discard(rid)
+    threading.Thread(target=work, daemon=True).start()
+
+
 def _critic(run: dict) -> None:
     if not run["settings"].get("critic"):
         run["steps"]["critic"]["notes"] = ["off for this run"]
@@ -386,7 +446,7 @@ def _critic(run: dict) -> None:
 
 
 RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "assets": _assets, "render": _render,
-           "critic": _critic}
+           "timeline": _timeline, "critic": _critic}
 
 
 def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
@@ -489,6 +549,10 @@ def recover() -> list[str]:
             for c in run.get("calls", []):
                 if c.get("status") == "running":
                     c.update({"status": "failed", "error": "the server stopped during this call"})
+            save(run)
+            out.append(run["id"])
+        elif (run.get("export") or {}).get("status") in ("queued", "running") and run["id"] not in _busy:
+            run["export"]["status"] = "stopped"
             save(run)
             out.append(run["id"])
     return out

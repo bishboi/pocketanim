@@ -7,6 +7,8 @@ The API (JSON):
     POST /api/runs                         {title, narration, model, voice, quality, critic, speed, pause, score?}:
                                            a new run, started
     GET  /api/runs/<id>                    the run (settings, steps, calls), its narration, words, storyboard, score
+    POST /api/runs/<id>/export             an MP4 made from the player, compared with the render (run.export)
+    GET  /play/<id>                        the player, playing the run's timeline
     POST /api/runs/<id>/stop               stop a run (its voice or render killed; a queued one dropped)
     POST /api/stop                         stop every run
     POST /api/runs/<id>/step               {step, shot?}: run again from that step (one shot's score with `shot`)
@@ -52,7 +54,8 @@ PAGE = HERE / "ui.html"
 VOICES = sorted(p.stem for p in (HERE.parent / ".cache" / "voices").glob("*.onnx"))
 MODELS = ["anthropic/claude-haiku-4.5", "google/gemini-2.5-flash", "openai/gpt-4.1-mini", "qwen/qwen3-30b-a3b",
           "meta-llama/llama-3.3-70b-instruct"]
-SERVED = {"video.mp4", "voice.wav", "words.json", "storyboard.json", "video.score", "narration.txt", "shots.json"}
+SERVED = {"video.mp4", "voice.wav", "words.json", "storyboard.json", "video.score", "narration.txt", "shots.json",
+          "player.mp4", "compare.json"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -121,10 +124,20 @@ class Handler(BaseHTTPRequestHandler):
                     pictures.append({"kind": kind, "prompt": prompt, "file": p.name if p.exists() else None})
                 self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"), "pictures": pictures,
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
-                            "score": read("video.score"), "video": (d / "video.mp4").exists()})
-            elif m := re.fullmatch(r"/files/([\w-]+)/([\w.]+)", path):
+                            "score": read("video.score"), "video": (d / "video.mp4").exists(),
+                            "player": (d / "player" / "timeline.json").exists(), "player_mp4": (d / "player.mp4").exists()})
+            elif m := re.fullmatch(r"/play/([\w-]+)", path):
+                body = (HERE / "player.html").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif m := re.fullmatch(r"/files/([\w-]+)/player/((?:timeline\.json|voice\.wav|img-[0-9a-f]+\.png))", path):
+                self._file(runs.run_dir(m.group(1)) / "player" / m.group(2))
+            elif m := re.fullmatch(r"/files/([\w-]+)/([\w.\-]+)", path):
                 name = m.group(2)
-                if name not in SERVED and not re.fullmatch(r"critic-[\d.]+\.jpg", name):
+                if name not in SERVED and not re.fullmatch(r"(critic|cmp)-[\d.]+\.jpg", name):
                     return self._json({"error": "not served"}, 404)
                 self._file(runs.run_dir(m.group(1)) / name)
             else:
@@ -135,6 +148,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 500)
 
     def _file(self, p: Path) -> None:
+        if p.suffix == ".json" and "gzip" in (self.headers.get("Accept-Encoding") or "") and p.stat().st_size > 200_000:
+            gz = p.with_name(p.name + ".gz")      # a timeline is large and compresses well: sent compressed
+            if not gz.exists() or gz.stat().st_mtime < p.stat().st_mtime:
+                import gzip
+                gz.write_bytes(gzip.compress(p.read_bytes(), 6))
+            body = gz.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         size = p.stat().st_size
         kind = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
         rng = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range") or "")
@@ -185,6 +211,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"id": run["id"]})
             elif path == "/api/stop":
                 self._json({"stopped": runs.stop_all()})
+            elif m := re.fullmatch(r"/api/runs/([\w-]+)/export", path):
+                runs.export(m.group(1))
+                self._json({"ok": True})
             elif m := re.fullmatch(r"/api/runs/([\w-]+)/stop", path):
                 self._json({"stopped": runs.stop(m.group(1))})
             elif m := re.fullmatch(r"/api/runs/([\w-]+)/step", path):
@@ -242,6 +271,8 @@ def problems() -> list[str]:
         out.append("no icons in .cache/package: run ./setup.sh")
     if not (HERE.parent / ".cache" / "flagpkg" / "package" / "flags").is_dir() or not list((HERE.parent / ".cache" / "fonts").glob("*.ttf")):
         out.append("the kit's fonts or flags are missing: run ./setup.sh")
+    if importlib.util.find_spec("playwright") is None:
+        out.append("playwright is missing (the player's MP4 export): run ./setup.sh")
     if importlib.util.find_spec("cairosvg") is None:
         out.append("cairosvg is missing (flags): run ./setup.sh")
     if not shutil.which("ffmpeg"):

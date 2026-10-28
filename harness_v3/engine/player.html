@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player</title>
+<style>
+  :root { --bg:#0b0d10; --ink:#e7e9ee; --soft:#8b93a1; --line:#262b33; --accent:#f08a5d; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.4 Inter, system-ui, sans-serif; }
+  .stage { position:relative; width:100%; max-width:1280px; margin:0 auto; }
+  canvas { width:100%; height:auto; display:block; background:#000; border-radius:6px; }
+  .bar { display:flex; gap:10px; align-items:center; padding:8px 2px; }
+  .bar button { background:#1d2229; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:4px 12px; font:inherit; cursor:pointer; }
+  .bar input[type=range] { flex:1; accent-color:var(--accent); }
+  .soft { color:var(--soft); }
+  #msg { padding:20px; color:var(--soft); }
+  body.export .bar, body.export #msg { display:none; }
+  body.export canvas { border-radius:0; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="cv"></canvas>
+  <div class="bar"><button id="play">▶</button><input id="seek" type="range" min="0" max="1000" value="0" step="1">
+    <span id="time" class="soft">0:00 / 0:00</span></div>
+  <div id="msg">Loading…</div>
+</div>
+<audio id="au" preload="auto"></audio>
+<script>
+/* The player: draws a video's timeline (timeline.py) at any time t, in step with its voice. Each drawn piece is a
+   shape kept once and moved by an affine map, or a picture placed by its corners; keys are interpolated in a
+   straight line between frames. The same page, opened with ?export=1, gives frames to export.py for an MP4. */
+const qs = new URLSearchParams(location.search);
+// The timeline's folder: ?src=, else the run's player folder when opened as /play/<run>.
+const runId = (location.pathname.match(/^\/play\/([\w-]+)/) || [])[1];
+const SRC = (qs.get("src") || (runId ? `/files/${runId}/player/` : "")).replace(/\/?$/, "/");
+const EXPORT = qs.get("export") === "1";
+if (EXPORT) document.body.classList.add("export");
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d"), au = document.getElementById("au");
+let T = null, leaves = [], images = {}, playing = false, seeking = false;
+
+window.__ready = (async () => {
+  const r = await fetch(SRC + "timeline.json");
+  if (!r.ok) throw new Error("no timeline (" + r.status + ")");
+  T = await r.json();
+  const w = +(qs.get("w") || T.size[0]), h = +(qs.get("h") || T.size[1]);
+  cv.width = w; cv.height = h;
+  leaves = T.leaves.slice().sort((a, b) => a.z - b.z || a.r - b.r);
+  await Promise.all([...new Set(leaves.filter((l) => l.k === "i").map((l) => l.img))].map((name) => new Promise((ok) => {
+    const im = new Image(); im.onload = () => { images[name] = im; ok(); }; im.onerror = () => ok(); im.src = SRC + name;
+  })));
+  if (!EXPORT && T.audio) au.src = SRC + T.audio;
+  document.getElementById("msg").style.display = "none";
+  draw(0);
+  return true;
+})().catch((e) => { document.getElementById("msg").textContent = "Could not load: " + e.message; throw e; });
+
+// ---- keys --------------------------------------------------------------------------------------------------------
+function find(keys, fr) {               // the last key at or before frame fr
+  let lo = 0, hi = keys.length - 1;
+  if (fr <= keys[0][0]) return 0;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (keys[mid][0] <= fr) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+function at(keys, fr) {                 // a key's values at frame fr, in a straight line between two keys
+  const i = find(keys, fr), a = keys[i], b = keys[i + 1];
+  if (!b || fr <= a[0]) return a;
+  const k = (fr - a[0]) / (b[0] - a[0]);
+  const out = new Array(a.length);
+  out[0] = fr;
+  for (let j = 1; j < a.length; j++) out[j] = a[j] + (b[j] - a[j]) * k;
+  return out;
+}
+function alive(l, f) { for (const [a, b] of l.on) if (f >= a && f < b) return true; return false; }
+function shapeAt(l, f) { let s = l.shapes[0]; for (const x of l.shapes) { if (x.f <= f) s = x; else break; } return s; }
+function path(s) {
+  if (s.path) return s.path;
+  const p = new Path2D();
+  for (const sp of s.p) {
+    p.moveTo(sp[1], sp[2]);
+    for (let i = 3; i + 5 < sp.length; i += 6) p.bezierCurveTo(sp[i], sp[i + 1], sp[i + 2], sp[i + 3], sp[i + 4], sp[i + 5]);
+    if (sp[0]) p.closePath();
+  }
+  return (s.path = p);
+}
+const rgba = (r, g, b, a) => `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${Math.max(0, Math.min(1, a))})`;
+
+// ---- a frame -----------------------------------------------------------------------------------------------------
+function draw(fr) {
+  if (!T) return;
+  fr = Math.max(0, Math.min(T.frames - 1, fr));
+  const f = Math.floor(fr), W = cv.width, H = cv.height;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
+  const cam = at(T.camera, fr), s = W / cam[3], tx = W / 2 - cam[1] * s, ty = H / 2 + cam[2] * s;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  for (const l of leaves) {
+    if (!alive(l, f)) continue;
+    if (l.k === "i") {
+      const im = images[l.img]; if (!im) continue;
+      const v = at(l.keys, fr), w = im.naturalWidth, h = im.naturalHeight;
+      if (v[7] <= 0.001) continue;
+      ctx.globalAlpha = Math.min(1, v[7]);
+      ctx.setTransform(s * (v[3] - v[1]) / w, -s * (v[4] - v[2]) / w, s * (v[5] - v[1]) / h, -s * (v[6] - v[2]) / h, s * v[1] + tx, -s * v[2] + ty);
+      ctx.drawImage(im, 0, 0);
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    const sh = shapeAt(l, f); if (!sh || !sh.keys.length) continue;
+    const v = at(sh.keys, Math.max(fr, sh.f));
+    const [, a, b, c, d, e, g, fr_, fg, fb, fa, sr, sg, sb, sa, sw] = v;
+    if (fa <= 0.001 && (sw <= 0 || sa <= 0.001)) continue;
+    // The shape moved into the world (its own map), then drawn through the camera: a line's width is the
+    // renderer's (stroke_width x 0.01 world units) whatever the shape's map is, as it is there.
+    const p = new Path2D();
+    p.addPath(path(sh), new DOMMatrix([a, b, c, d, e, g]));
+    ctx.setTransform(s, 0, 0, -s, tx, ty);
+    if (fa > 0.001) { ctx.fillStyle = rgba(fr_, fg, fb, fa); ctx.fill(p); }
+    if (sw > 0 && sa > 0.001) { ctx.lineWidth = sw * 0.01; ctx.strokeStyle = rgba(sr, sg, sb, sa); ctx.stroke(p); }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (!EXPORT) {
+    const sec = fr / T.fps, tot = T.frames / T.fps, mm = (x) => Math.floor(x / 60) + ":" + String(Math.floor(x % 60)).padStart(2, "0");
+    document.getElementById("time").textContent = mm(sec) + " / " + mm(tot);
+    if (!seeking) document.getElementById("seek").value = Math.round(1000 * fr / T.frames);
+  }
+}
+
+// ---- playing -----------------------------------------------------------------------------------------------------
+let clock0 = 0, from0 = 0;
+function now() { return au.src && !au.paused ? au.currentTime : from0 + (performance.now() - clock0) / 1000; }
+function loop() {
+  if (!playing) return;
+  const t = now();
+  if (t * T.fps >= T.frames - 1) { pause(); draw(T.frames - 1); return; }
+  draw(t * T.fps);
+  requestAnimationFrame(loop);
+}
+function play() {
+  if (!T) return;
+  playing = true; document.getElementById("play").textContent = "❚❚";
+  from0 = au.currentTime || 0; clock0 = performance.now();
+  if (au.src) au.play().catch(() => {});
+  requestAnimationFrame(loop);
+}
+function pause() { playing = false; au.pause(); document.getElementById("play").textContent = "▶"; }
+document.getElementById("play").onclick = () => (playing ? pause() : play());
+const seek = document.getElementById("seek");
+seek.oninput = () => { seeking = true; const t = (+seek.value / 1000) * T.frames / T.fps; au.currentTime = t; from0 = t; clock0 = performance.now(); draw(t * T.fps); };
+seek.onchange = () => { seeking = false; };
+document.addEventListener("keydown", (e) => { if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); } });
+
+// ---- for export.py -----------------------------------------------------------------------------------------------
+window.drawFrame = (f) => { draw(f); return true; };
+window.grab = (q) => cv.toDataURL("image/jpeg", q || 0.92);
+window.info = () => ({ frames: T.frames, fps: T.fps, size: [cv.width, cv.height] });
+</script>
+</body>
+</html>

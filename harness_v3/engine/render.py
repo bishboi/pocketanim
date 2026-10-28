@@ -402,7 +402,13 @@ class ScoreScene(MovingCameraScene):
     DRIFT = 0.005           # the camera's slow push in while no camera move runs (a share of the view a second)
 
     def _tick(self, dt: float) -> None:
-        self.clock += dt
+        # The clock is the frame's own time (frames / fps), not a sum of steps: every engine that plays the score
+        # (the render, its chunks, the timeline for the player) starts each action on the same frame.
+        if dt > 0:
+            self._frame_no = getattr(self, "_frame_no", 0) + 1
+            self.clock = self._frame_no / self.FPS
+        else:
+            self.clock += dt
         t = self.clock
         if dt and not any(isinstance(tw, Call) and getattr(tw, "camera", False) and tw.t0 <= t <= tw.t1 for tw in self.tweens):
             # Never quite still: the view creeps in, as a camera on a slow dolly.

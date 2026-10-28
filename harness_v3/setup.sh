@@ -76,6 +76,8 @@ for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono
 done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \
   && tar xzf flag-icons-7.2.3.tgz -C flagpkg)
+# The player's MP4 export runs the player in headless Chromium (Playwright's own, about 150 MB, once).
+../.venv3/bin/python -m playwright install chromium >/dev/null 2>&1 || echo "could not fetch Chromium for the player export (python -m playwright install chromium)"
 for v in en_US-ryan-high en_US-lessac-high; do
   [ -f ".cache/voices/$v.onnx" ] || (cd .cache/voices && ../../../.venv3/bin/python -m piper.download_voices "$v")
 done

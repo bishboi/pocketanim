@@ -3,3 +3,4 @@ piper-tts
 faster-whisper
 av>=15,<19
 cairosvg
+playwright

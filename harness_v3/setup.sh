@@ -34,18 +34,27 @@ fi
 
 # ---- Python 3.10-3.13 (the voice and Whisper packages have no wheels for newer ones yet)
 step "python"
-PY=""
-for c in python3.12 python3.11 python3.13 python3.10 python3; do
-  if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] <= (3, 13)))'; then
-    PY="$c"; break
-  fi
-done
+ok() { "$1" -c 'import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] <= (3, 13)))' 2>/dev/null; }
+find_py() {
+  PY=""
+  for c in python3.12 python3.11 python3.13 python3.10 python3 \
+           /opt/homebrew/opt/python@3.12/bin/python3.12 /usr/local/opt/python@3.12/bin/python3.12; do
+    if command -v "$c" >/dev/null && ok "$c"; then PY="$(command -v "$c")"; return; fi
+  done
+}
+find_py
+if [ -z "$PY" ] && [ "$(uname)" = "Darwin" ]; then
+  echo "no Python 3.10-3.13 (found $(python3 --version 2>&1)): brew install python@3.12"
+  brew install python@3.12
+  find_py
+fi
 if [ -z "$PY" ]; then
-  echo "Python 3.10-3.13 is needed (found: $(python3 --version 2>&1)). macOS: brew install python@3.12; then run ./setup.sh again"
+  echo "Python 3.10-3.13 is needed (found: $(python3 --version 2>&1)): install python 3.12, then run ./setup.sh again"
   exit 1
 fi
-if [ -x ../.venv3/bin/python ] && ! ../.venv3/bin/python -c 'import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] <= (3, 13)))'; then
-  echo "../.venv3 has an unsupported Python: remove it (rm -r ../.venv3) and run ./setup.sh again"; exit 1
+if [ -x ../.venv3/bin/python ] && ! ok ../.venv3/bin/python; then
+  echo "../.venv3 was made with $(../.venv3/bin/python --version 2>&1), which the voice cannot use: making it again"
+  rm -rf ../.venv3
 fi
 [ -x ../.venv3/bin/python ] || { echo "making ../.venv3 with $($PY --version)"; "$PY" -m venv ../.venv3; }
 ../.venv3/bin/python -m pip install -q --upgrade pip

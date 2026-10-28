@@ -43,7 +43,8 @@ w58-w62     morph fields works stagger .14
 ## The app
 
 ```
-./setup.sh        # once: cairo, pango, ffmpeg, node (Homebrew on macOS, apt on Linux), ../.venv3, icons, voices
+./start.sh        # sets up what is missing (./setup.sh: cairo, pango, ffmpeg, node and Python 3.12 from Homebrew on
+                  # macOS, apt on Linux; ../.venv3; icons; voices), then serves http://localhost:8300
 cp .env.example .env.local           # then fill in OPENROUTER_API_KEY (script, storyboard, score, critic) and
                                      # DATALAB_API_KEY (PDFs); v2's app/.env.local is read too, and exported
                                      # variables win over both

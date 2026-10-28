@@ -51,7 +51,7 @@
   .form { display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; }
   .form label { color:var(--soft); font-size:12px; } .form .full { grid-column: 1 / -1; }
   .side h5 { margin:14px 0 2px; color:var(--soft); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
-  .chip.queued { background:#2a2410; color:#ffd27a; }
+  .chip.queued { background:#2a2410; color:#ffd27a; } .chip.stopped { background:#2a1f2e; color:#d6a8ff; }
   .bookgrid { display:grid; grid-template-columns: minmax(320px, 42%) 1fr; gap:12px; margin-top:12px; }
   @media (max-width: 1100px) { .bookgrid { grid-template-columns: 1fr; } }
   .pdf { width:100%; height:78vh; border:1px solid var(--line); border-radius:8px; background:#fff; }
@@ -73,7 +73,7 @@
       <button style="flex:1" onclick="showNew()">+ New run</button></div>
     <input type="file" id="pdfpick" accept="application/pdf,.pdf" style="display:none" onchange="upload(this.files[0])">
     <h5>Books</h5><div id="books"></div>
-    <h5>Runs</h5><div id="runs"></div></div>
+    <h5 class="row" style="justify-content:space-between">Runs <button id="stopall" style="display:none;padding:2px 8px;font-size:11px" onclick="stopAll()">■ Stop all</button></h5><div id="runs"></div></div>
   </aside>
   <main id="main"><p class="soft">Pick a run, or make a new one.</p></main>
 </div>
@@ -99,6 +99,9 @@ async function loadRuns() {
     <div class="t">📄 ${esc(b.title)}</div>
     <div class="row soft"><span class="chip ${b.status}">${b.status}</span><span class="money">${usd(b.cost)}</span>
       <span>${b.pages} pages</span><span>${b.videos} videos</span></div></div>`).join("") || `<p class="soft">No books yet.</p>`;
+  const live = list.filter((r) => ["running", "queued"].includes(r.status)).length;
+  $("#stopall").style.display = live ? "" : "none";
+  $("#stopall").textContent = `■ Stop all (${live})`;
   $("#runs").innerHTML = list.map((r) => `<div class="run ${r.id === sel ? "sel" : ""}" onclick="pick('${r.id}')">
     <div class="t">${esc(r.title)}</div>
     <div class="row soft"><span class="chip ${r.status}">${r.status}</span><span class="money">${usd(r.cost)}</span>
@@ -138,7 +141,8 @@ function render() {
   for (const c of calls) byStep[c.step] = (byStep[c.step] || 0) + (c.cost || 0);
   $("#main").innerHTML = `
     <div class="row"><span class="big">${esc(r.title)}</span><span class="chip ${r.status}">${r.status}</span>
-      <span class="money big">${usd(r.cost)}</span><span class="soft">${r.tokens || 0} tokens · ${calls.length} calls</span></div>
+      <span class="money big">${usd(r.cost)}</span><span class="soft">${r.tokens || 0} tokens · ${calls.length} calls</span>
+      ${data.busy ? `<button onclick="stopRun()">■ Stop</button>` : ""}</div>
     ${st.book ? `<div class="row soft" style="margin-top:4px">from 📄 <a href="#" style="color:var(--accent)" onclick="pickBook('${st.book.id}');return false">${esc(st.book.title)}</a> · pages ${esc(st.book.pages)} · video ${st.book.video + 1}</div>` : ""}
     <div class="row soft" style="margin-top:4px">model ${esc(st.model)} · voice ${esc(st.voice)} · quality ${st.quality}
       · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
@@ -187,6 +191,15 @@ function callsTable(calls, cost, o, store, redraw) {
     <tr><th colspan="4">total</th><th>${calls.reduce((k, c) => k + (c.tokens_in || 0), 0)} / ${calls.reduce((k, c) => k + (c.tokens_out || 0), 0)}</th>
       <th class="money">${usd(cost)}</th><th>${secs(calls.reduce((k, c) => k + (c.seconds || 0), 0))}</th></tr></table>`
     : `<p class="soft">No model calls yet.</p>`;
+}
+
+async function stopRun() {
+  try { await api(`/api/runs/${sel}/stop`, {method: "POST", body: "{}"}); refresh(true); loadRuns(); } catch (e) { alert(e.message); }
+}
+
+async function stopAll() {
+  if (!confirm("Stop every run that is making or waiting? Model calls already made keep their cost.")) return;
+  try { await api("/api/stop", {method: "POST", body: "{}"}); if (sel) refresh(true); if (bsel) refreshBook(true); loadRuns(); } catch (e) { alert(e.message); }
 }
 
 async function again(step, shot) {

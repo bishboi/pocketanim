@@ -7,6 +7,8 @@ The API (JSON):
     POST /api/runs                         {title, narration, model, voice, quality, critic, speed, pause, score?}:
                                            a new run, started
     GET  /api/runs/<id>                    the run (settings, steps, calls), its narration, words, storyboard, score
+    POST /api/runs/<id>/stop               stop a run (its voice or render killed; a queued one dropped)
+    POST /api/stop                         stop every run
     POST /api/runs/<id>/step               {step, shot?}: run again from that step (one shot's score with `shot`)
     PUT  /api/runs/<id>/score              {text}: the score changed by hand, rendered again
     GET  /files/<id>/<name>                a run's file (the video in byte ranges, so it seeks)
@@ -169,6 +171,10 @@ class Handler(BaseHTTPRequestHandler):
                 run = runs.create(str(b.get("title") or ""), str(b["narration"]), b)
                 runs.start(run["id"], "voice")
                 self._json({"id": run["id"]})
+            elif path == "/api/stop":
+                self._json({"stopped": runs.stop_all()})
+            elif m := re.fullmatch(r"/api/runs/([\w-]+)/stop", path):
+                self._json({"stopped": runs.stop(m.group(1))})
             elif m := re.fullmatch(r"/api/runs/([\w-]+)/step", path):
                 shot = b.get("shot")
                 runs.start(m.group(1), str(b.get("step") or "voice"), int(shot) if shot is not None else None)
@@ -234,6 +240,9 @@ def main() -> None:
     a = ap.parse_args()
     runs.RUNS.mkdir(parents=True, exist_ok=True)
     books.BOOKS.mkdir(parents=True, exist_ok=True)
+    left = runs.recover() + books.recover()
+    if left:
+        print(f"{len(left)} run(s) or book(s) were cut off when the server last stopped: marked stopped")
     for p in problems():
         print("SETUP: " + p)
     if env.LOADED:

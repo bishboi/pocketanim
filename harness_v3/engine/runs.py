@@ -48,6 +48,37 @@ _locks: dict[str, threading.Lock] = {}
 _busy: set[str] = set()
 # How many runs make their video at once (the rest wait, "queued"): voice and render are heavy.
 _slots = threading.Semaphore(int(os.environ.get("V3_PARALLEL", "1")))
+_stop: set[str] = set()                      # runs asked to stop (they stop at the next check)
+_procs: dict[str, subprocess.Popen] = {}     # a run's voice or render, killed when it is stopped
+
+
+class Stopped(Exception):
+    """The run was stopped by hand."""
+
+
+def _check(rid: str | None) -> None:
+    if rid and rid in _stop:
+        raise Stopped("stopped by hand")
+
+
+def _proc(rid: str, cmd: list[str]) -> subprocess.CompletedProcess:
+    """A step's program, killed when its run is stopped (as subprocess.run, output captured)."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    _procs[rid] = p
+    try:
+        while True:
+            try:
+                out, err = p.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                if rid in _stop:
+                    p.kill()
+                    p.communicate()
+                    raise Stopped("stopped by hand") from None
+    finally:
+        _procs.pop(rid, None)
+    _check(rid)                                  # killed by stop() itself
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
 # ---------------------------------------------------------------- the run on disk --------------------------------------
@@ -111,6 +142,7 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
     """One OpenRouter call, recorded on the run (its prompt, answer, tokens, cost, time). A book's calls are kept on
     the book (`saver` writes it)."""
     save = saver or globals()["save"]
+    _check(run.get("id"))
     model = run["settings"]["model"]
     call = {"id": uuid.uuid4().hex[:8], "step": step, "label": label, "model": model, "system": system, "user": user,
             "images": len(images or []), "started": time.time(), "status": "running"}
@@ -168,8 +200,8 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
 def _voice(run: dict) -> None:
     d = run_dir(run["id"])
     s = run["settings"]
-    p = subprocess.run([sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
-                        "--speed", str(s["speed"]), "--pause", str(s["pause"])], capture_output=True, text=True)
+    p = _proc(run["id"], [sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
+                          "--speed", str(s["speed"]), "--pause", str(s["pause"])])
     if p.returncode != 0:
         raise RuntimeError((p.stderr or p.stdout)[-1500:])
     words = json.loads((d / "words.json").read_text())
@@ -235,8 +267,8 @@ def _score(run: dict, only: int | None = None) -> None:
 def _render(run: dict) -> None:
     d = run_dir(run["id"])
     started = time.time()
-    p = subprocess.run([sys.executable, str(HERE / "render.py"), str(d / "video.score"), str(d), str(d / "video.mp4"),
-                        "--quality", run["settings"]["quality"]], capture_output=True, text=True)
+    p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(d / "video.score"), str(d), str(d / "video.mp4"),
+                          "--quality", run["settings"]["quality"]])
     if p.returncode != 0:
         raise RuntimeError((p.stderr or p.stdout)[-1500:])
     notes = [l[6:] for l in p.stdout.splitlines() if l.startswith("note: ")]
@@ -280,12 +312,24 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
         for s in STEPS[STEPS.index(start):]:
             run["steps"][s] = {"status": "waiting"}
         save(run)
-        _slots.acquire()
+        while not _slots.acquire(timeout=0.5):    # waiting its turn; a stop ends the wait
+            if rid in _stop:
+                run["status"] = "stopped"
+                for s in STEPS[STEPS.index(start):]:
+                    run["steps"][s] = {"status": "stopped"}
+                save(run)
+                _stop.discard(rid)
+                _busy.discard(rid)
+                return
         run = load(rid)
         run["status"] = "running"
         try:
             for s in STEPS[STEPS.index(start):]:
                 step = run["steps"][s]
+                if rid in _stop:
+                    step["status"] = "stopped"
+                    run["status"] = "stopped"
+                    continue
                 step.update({"status": "running", "started": time.time()})
                 save(run)
                 try:
@@ -294,6 +338,10 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
                     else:
                         RUNNERS[s](run)
                     step["status"] = "done"
+                except Stopped:
+                    step["status"] = "stopped"
+                    run["status"] = "stopped"
+                    continue
                 except Exception as e:  # noqa: BLE001 -- the step failed: said, and the run stops there
                     step.update({"status": "failed", "error": str(e)[:1500]})
                     traceback.print_exc()
@@ -305,11 +353,51 @@ def go(rid: str, start: str = "voice", shot: int | None = None) -> None:
                     step["cost"] = round(sum(c.get("cost") or 0 for c in run["calls"] if c["step"] == s
                                              and c["started"] >= step["started"]), 6)
                     save(run)
-            run["status"] = "done"
+            if run["status"] != "stopped":
+                run["status"] = "done"
         finally:
             save(run)
             _slots.release()
+            _stop.discard(rid)
             _busy.discard(rid)
+
+
+def stop(rid: str) -> bool:
+    """Stop a run: it ends at once if it is waiting its turn, its voice or render is killed, and a model call in
+    flight is let finish (its cost is kept) but nothing after it runs. False when it was not running."""
+    if rid not in _busy:
+        return False
+    _stop.add(rid)
+    p = _procs.get(rid)
+    if p and p.poll() is None:
+        p.kill()
+    return True
+
+
+def stop_all() -> list[str]:
+    return [rid for rid in list(_busy) if stop(rid)]
+
+
+def recover() -> list[str]:
+    """Runs the server was making when it stopped (left "running" or "queued") are marked stopped, so they can be
+    run again from a step."""
+    out = []
+    for p in RUNS.glob("*/run.json"):
+        try:
+            run = json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if run.get("status") in ("running", "queued", "new") and run["id"] not in _busy:
+            run["status"] = "stopped"
+            for st in run["steps"].values():
+                if st.get("status") in ("running", "waiting"):
+                    st["status"] = "stopped"
+            for c in run.get("calls", []):
+                if c.get("status") == "running":
+                    c.update({"status": "failed", "error": "the server stopped during this call"})
+            save(run)
+            out.append(run["id"])
+    return out
 
 
 def start(rid: str, step: str = "voice", shot: int | None = None) -> None:

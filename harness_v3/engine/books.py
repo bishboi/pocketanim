@@ -305,3 +305,30 @@ def view(bid: str) -> dict:
     return {"book": book, "busy": bid in _busy, "videos": made,
             "total": {"cost": round((book.get("cost") or 0) + rc + made["cost"], 6),
                       "tokens": (book.get("tokens") or 0) + made["tokens"]}}
+
+
+def recover() -> list[str]:
+    """Books the server was reading or scripting when it stopped: the read failed (read it again), the script
+    failed (write it again)."""
+    out = []
+    for p in BOOKS.glob("*/book.json"):
+        try:
+            book = json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        hit = False
+        if book.get("status") == "reading":
+            book["status"] = "failed"
+            book["read"] |= {"status": "failed", "error": "the server stopped while it was reading: read it again"}
+            hit = True
+        for sc in book.get("scripts", []):
+            if sc.get("status") == "running":
+                sc.update({"status": "failed", "error": "the server stopped while it was writing: write it again"})
+                hit = True
+        for c in book.get("calls", []):
+            if c.get("status") == "running":
+                c.update({"status": "failed", "error": "the server stopped during this call"})
+        if hit:
+            save(book)
+            out.append(book["id"])
+    return out

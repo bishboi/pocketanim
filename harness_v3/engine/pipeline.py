@@ -42,7 +42,8 @@ def chat(system: str, user: str, model: str, images: list[str] | None = None, ma
     if not key:
         raise SystemExit("OPENROUTER_API_KEY is not set: give a score with --score, or set the key")
     content = [{"type": "text", "text": user}] + [{"type": "image_url", "image_url": {"url": i}} for i in images or []]
-    body = {"model": model, "max_tokens": max_tokens, "temperature": 0.4,
+    body = {"model": model, "max_tokens": max_tokens + 8000, "temperature": 0.4,
+            "reasoning": {"effort": os.environ.get("V3_REASONING", "low"), "exclude": True},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content if images else user}]}
     req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
@@ -51,7 +52,10 @@ def chat(system: str, user: str, model: str, images: list[str] | None = None, ma
     with urllib.request.urlopen(req, timeout=180) as r:
         out = json.loads(r.read())
     USAGE.append({"model": model, **(out.get("usage") or {})})
-    return out["choices"][0]["message"]["content"]
+    text = (out["choices"][0]["message"].get("content") or "").strip()
+    if not text:
+        raise SystemExit(f"{model} gave no answer (finish: {out['choices'][0].get('finish_reason')})")
+    return text
 
 
 def storyboard(words: list[dict], model: str) -> list[dict]:

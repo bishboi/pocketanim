@@ -179,7 +179,7 @@ function pane() {
 function callsTable(calls, cost, o, store, redraw) {
   return calls.length ? `<table><tr><th>step</th><th>call</th><th>model</th><th>status</th><th>tokens in / out</th><th>cost</th><th>time</th></tr>${calls.map((c) =>
     `<tr class="call" onclick="${store}['${c.id}']=!${store}['${c.id}'];${redraw}"><td>${c.step}</td><td>${esc(c.label)}${c.images ? ` · ${c.images} images` : ""}</td>
-     <td>${esc(c.model)}</td><td><span class="chip ${c.status}">${c.status}</span></td><td>${c.tokens_in ?? ""} / ${c.tokens_out ?? ""}</td>
+     <td>${esc(c.model)}</td><td><span class="chip ${c.status}">${c.status}</span></td><td>${c.tokens_in ?? ""} / ${c.tokens_out ?? ""}${c.reasoning_tokens ? ` <span class="soft">(${c.reasoning_tokens} thinking)</span>` : ""}</td>
      <td class="money">${usd(c.cost)}</td><td>${secs(c.seconds)}</td></tr>
      ${o[c.id] ? `<tr><td colspan="7">${c.error ? `<pre style="color:#ff9a9a">${esc(c.error)}</pre>` : ""}
        <div class="soft">system</div><pre>${esc(c.system)}</pre><div class="soft">user</div><pre>${esc(c.user)}</pre>

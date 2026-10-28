@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -39,6 +40,10 @@ import prompts  # noqa: E402
 STEPS = ["voice", "storyboard", "score", "render", "critic"]
 DEFAULT_MODEL = os.environ.get("V3_MODEL", "anthropic/claude-haiku-4.5")
 SHOT_STEP = 18.0
+# Room for a reasoning model's thinking on top of each call's answer (only the tokens used are paid for), and how
+# hard it thinks: V3_REASONING=minimal|low|medium|high, or none to send nothing.
+ROOM = int(os.environ.get("V3_ROOM", "8000"))
+REASONING = os.environ.get("V3_REASONING", "low").strip().lower()
 _locks: dict[str, threading.Lock] = {}
 _busy: set[str] = set()
 # How many runs make their video at once (the rest wait, "queued"): voice and render are heavy.
@@ -116,19 +121,38 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
         if not key:
             raise RuntimeError("OPENROUTER_API_KEY is not set: set the key and run this step again")
         content = [{"type": "text", "text": user}] + [{"type": "image_url", "image_url": {"url": i}} for i in images or []]
-        body = {"model": model, "max_tokens": max_tokens, "temperature": 0.4, "usage": {"include": True},
+        body = {"model": model, "max_tokens": max_tokens + ROOM, "temperature": 0.4, "usage": {"include": True},
                 "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": content if images else user}]}
+        if REASONING != "none":  # a reasoning model thinks briefly (ignored by the others)
+            body["reasoning"] = {"effort": REASONING, "exclude": True}
         req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                                           "User-Agent": "harness-v3/1.0", "HTTP-Referer": "https://github.com/bishboi/pocketanim",
                                           "X-Title": "harness v3"})
-        with urllib.request.urlopen(req, timeout=240) as r:
-            out = json.loads(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                out = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            said = e.read()[:600].decode(errors="replace")
+            try:
+                said = json.loads(said).get("error", {}).get("message") or said
+            except Exception:  # noqa: BLE001 -- not JSON: said as it came
+                pass
+            raise RuntimeError(f"OpenRouter refused the call ({e.code}): {said}") from e
+        if out.get("error"):
+            raise RuntimeError(f"OpenRouter: {out['error'].get('message') or out['error']}")
         usage = out.get("usage") or {}
-        text = out["choices"][0]["message"]["content"] or ""
+        choice = (out.get("choices") or [{}])[0]
+        text = ((choice.get("message") or {}).get("content") or "").strip()
+        thought = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
         call.update({"output": text, "tokens_in": usage.get("prompt_tokens"), "tokens_out": usage.get("completion_tokens"),
-                     "cost": usage.get("cost"), "status": "done"})
+                     "reasoning_tokens": thought, "finish": choice.get("finish_reason"), "cost": usage.get("cost"),
+                     "status": "done"})
+        if not text:
+            raise RuntimeError(f"{model} gave no answer (finish: {choice.get('finish_reason')}"
+                               + (f"; {thought} tokens spent reasoning" if thought else "")
+                               + "): try again, another model, or V3_REASONING=low/none")
         return text
     except Exception as e:
         call.update({"status": "failed", "error": str(e)[:500]})

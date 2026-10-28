@@ -66,7 +66,7 @@ cp requirements.txt ../.venv3/requirements.installed   # start.sh sets up again 
 # ---- icons and voices
 step "icons and voices"
 mkdir -p .cache/voices
-[ -d .cache/package ] || (cd .cache && npm pack lucide-static@0.454.0 >/dev/null && tar xzf lucide-static-0.454.0.tgz)
+[ -d .cache/package ] || (cd .cache && npm pack --silent lucide-static@0.454.0 >/dev/null 2>&1 && tar xzf lucide-static-0.454.0.tgz)
 for v in en_US-ryan-high en_US-lessac-high; do
   [ -f ".cache/voices/$v.onnx" ] || (cd .cache/voices && ../../../.venv3/bin/python -m piper.download_voices "$v")
 done

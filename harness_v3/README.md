@@ -56,7 +56,7 @@ one call writes those pages as a few short videos (how many and how long, and no
 set). Each video's title and narration can be edited; **Build this video** (or **Build all not built**) makes each
 one a run, one at a time (`V3_PARALLEL=2` for more). The book shows read, script and videos with their time and
 cost (Datalab's own cost for the read, when its result gives one), the script calls with their prompts, tokens and cost, and each video's run status, cost and player. The book's
-figures are not used yet (Datalab's result, with its pictures, is kept in `books/<id>/datalab.json`).
+figures are not used yet (its blocks are kept in `books/<id>/datalab.json`; the full result, pictures included, in `.cache/datalab/`).
 
 A run by hand: **New run** takes a title, the narration (one sentence a line), the model, the voice, quality, speed and pause, the critic on
 or off, and (optional) a score written by hand, which skips the storyboard and score calls (no key needed). A run

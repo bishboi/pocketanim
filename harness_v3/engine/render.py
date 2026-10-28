@@ -172,6 +172,8 @@ class ScoreScene(MovingCameraScene):
             # A chunk plays the timeline up to its start, undrawn, frame by frame as the whole video would: what
             # it shows from there is the same frame for frame, so the chunks join without a seam.
             self._tick(1.0 / self.FPS)
+        self._drawing = (0, f1 - f0, max(1, (f1 - f0) // 100))    # (drawn, to draw, say every)
+        print(f"progress: 0/{f1 - f0} frames drawn", flush=True)
         self.wait((f1 - f0 - 0.5) / self.FPS)   # exactly f1 - f0 frames
 
     # ------------------------------------------------------------ the canvas -------------------------------------------
@@ -402,6 +404,13 @@ class ScoreScene(MovingCameraScene):
     DRIFT = 0.005           # the camera's slow push in while no camera move runs (a share of the view a second)
 
     def _tick(self, dt: float) -> None:
+        drawing = getattr(self, "_drawing", None)
+        if drawing and dt > 0:
+            n, total, every = drawing
+            n += 1
+            self._drawing = (n, total, every)
+            if n % every == 0 or n >= total - 1:
+                print(f"progress: {min(n + 1, total)}/{total} frames drawn", flush=True)
         # The clock is the frame's own time (frames / fps), not a sum of steps: every engine that plays the score
         # (the render, its chunks, the timeline for the player) starts each action on the same frame.
         if dt > 0:
@@ -951,6 +960,7 @@ def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span
         return sc.notes
     jobs = jobs or jobs_default()
     if jobs <= 1 or total < 20 * fps:
+        print(f"drawing {total} frames in one process", flush=True)
         _one(sc, words, voice_dir, out, quality)
         return sc.notes
     parts = out.parent / ".parts"
@@ -958,15 +968,43 @@ def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span
     parts.mkdir(parents=True)
     (parts / "video.score").write_text(score_text)
     cuts = [round(total * k / jobs) for k in range(jobs + 1)]
-    procs = []
+    print(f"drawing {total} frames in {jobs} chunks at once", flush=True)
+    procs, done, outs = [], [0] * jobs, [([], []) for _ in range(jobs)]
     for k in range(jobs):
         cmd = [sys.executable, __file__, str(parts / "video.score"), str(voice_dir), str(parts / f"part{k}.mp4"),
                "--quality", quality, "--frames", f"{cuts[k]}:{cuts[k + 1]}", "--nosound", "--media", str(parts / f"media{k}")]
-        procs.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-    outs = [p.communicate() for p in procs]
+        procs.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+                                      env={**os.environ, "PYTHONUNBUFFERED": "1"}))
+
+    def pump(k: int, stream, buf: list) -> None:
+        for line in iter(stream.readline, ""):
+            m = re.match(r"^progress: (\d+)/(\d+)", line)
+            if m:
+                done[k] = int(m.group(1))
+            else:
+                buf.append(line)
+        stream.close()
+
+    import threading
+    readers = [threading.Thread(target=pump, args=(k, p.stdout, outs[k][0]), daemon=True) for k, p in enumerate(procs)]
+    readers += [threading.Thread(target=pump, args=(k, p.stderr, outs[k][1]), daemon=True) for k, p in enumerate(procs)]
+    for t in readers:
+        t.start()
+    import time as _time
+    last = -1
+    while any(p.poll() is None for p in procs):
+        _time.sleep(0.5)
+        if sum(done) != last:
+            last = sum(done)
+            print(f"progress: {last}/{total} frames drawn", flush=True)
+    for t in readers:
+        t.join(timeout=5)
+    outs = [("".join(o), "".join(e)) for o, e in outs]
     for p, (o, e) in zip(procs, outs):
         if p.returncode != 0:
             raise RuntimeError(f"a chunk of the render failed:\n{(e or o)[-1500:]}")
+    print(f"progress: {total}/{total} frames drawn", flush=True)
+    print("joining the chunks and laying the voice under them", flush=True)
     notes = [l[6:] for l in outs[0][0].splitlines() if l.startswith("note: ")]
     said = []
     for o, e in outs:

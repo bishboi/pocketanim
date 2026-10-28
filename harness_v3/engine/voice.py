@@ -45,7 +45,9 @@ def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -
     lead = int(0.3 * model.config.sample_rate) * width
     frames += b"\0" * lead
     at = 0.3
-    for line in lines:
+    print(f"speaking {len(lines)} lines ({voice})", flush=True)
+    for k, line in enumerate(lines):
+        print(f"progress: {k}/{len(lines)} lines spoken", flush=True)
         chunk = bytearray()
         rate = model.config.sample_rate
         for audio in model.synthesize(line, syn_config=config):
@@ -132,6 +134,8 @@ def main() -> None:
     lines = [l.strip() for l in Path(a.narration).read_text().splitlines() if l.strip()]
     wav = out / "voice.wav"
     spans = speak(lines, wav, a.voice, a.pause, a.speed)
+    print(f"progress: {len(lines)}/{len(lines)} lines spoken", flush=True)
+    print("hearing every word's time (Whisper; its model is fetched the first time)", flush=True)
     words = timed_words(wav, lines, spans)
     seconds = spans[-1][1] + 0.6
     (out / "words.json").write_text(json.dumps({

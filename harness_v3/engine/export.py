@@ -78,10 +78,13 @@ def chunk(data: Path, out: Path, f0: int, f1: int, quality: str) -> None:
             page.wait_for_function("window.__ready !== undefined")
             page.evaluate("window.__ready")
             tfps = page.evaluate("info().fps")
+            every = max(1, (f1 - f0) // 100)
             for f in range(f0, f1):
                 page.evaluate(f"drawFrame({f * tfps / fps})")       # the timeline's frame at this video frame's time
                 url = page.evaluate("grab(0.93)")
                 enc.stdin.write(base64.b64decode(url.split(",", 1)[1]))
+                if (f - f0) % every == 0 or f == f1 - 1:
+                    print(f"progress: {f - f0 + 1}/{f1 - f0} frames", flush=True)
             b.close()
     finally:
         enc.stdin.close()
@@ -122,13 +125,38 @@ def export(data: Path, out: Path, quality: str = "m", jobs: int | None = None) -
     shutil.rmtree(parts, ignore_errors=True)
     parts.mkdir(parents=True)
     cuts = [round(total * k / jobs) for k in range(jobs + 1)]
+    print(f"drawing {total} frames from the player in {jobs} chunk(s) at once", flush=True)
     procs = [subprocess.Popen([sys.executable, __file__, str(data), str(parts / f"part{k}.mp4"), "--quality", quality,
                                "--frames", f"{cuts[k]}:{cuts[k + 1]}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              text=True) for k in range(jobs)]
-    outs = [p.communicate() for p in procs]
-    for p, (o, e) in zip(procs, outs):
+                              text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"}) for k in range(jobs)]
+    done, errs = [0] * jobs, [[] for _ in range(jobs)]
+
+    def pump(k: int, stream, buf) -> None:
+        for line in iter(stream.readline, ""):
+            m = re.match(r"^progress: (\d+)/(\d+)", line)
+            if m:
+                done[k] = int(m.group(1))
+            elif buf is not None:
+                buf.append(line)
+        stream.close()
+
+    readers = [threading.Thread(target=pump, args=(k, p.stdout, None), daemon=True) for k, p in enumerate(procs)]
+    readers += [threading.Thread(target=pump, args=(k, p.stderr, errs[k]), daemon=True) for k, p in enumerate(procs)]
+    for t in readers:
+        t.start()
+    import time
+    last = -1
+    while any(p.poll() is None for p in procs):
+        time.sleep(0.5)
+        if sum(done) != last:
+            last = sum(done)
+            print(f"progress: {last}/{total} frames drawn by the player", flush=True)
+    for t in readers:
+        t.join(timeout=5)
+    for k, p in enumerate(procs):
         if p.returncode != 0:
-            raise RuntimeError(f"a chunk of the player export failed:\n{(e or o)[-1500:]}")
+            raise RuntimeError(f"a chunk of the player export failed:\n{''.join(errs[k])[-1500:]}")
+    print("joining the chunks and laying the voice under them", flush=True)
     (parts / "list.txt").write_text("".join(f"file 'part{k}.mp4'\n" for k in range(jobs)))
     cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(parts / "list.txt")]
     voice = data / (tl.get("audio") or "voice.wav")
@@ -199,6 +227,7 @@ def main() -> None:
     export(Path(a.data), Path(a.out), a.quality, a.jobs)
     print(f"wrote {a.out}")
     if a.compare:
+        print("comparing the player's MP4 with the render's, frame by frame", flush=True)
         rep = compare(Path(a.compare), Path(a.out), Path(a.report).parent if a.report else Path(a.out).parent)
         if a.report:
             Path(a.report).write_text(json.dumps(rep, indent=1))

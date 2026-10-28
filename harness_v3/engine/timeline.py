@@ -248,11 +248,16 @@ class BakeScene(R.ScoreScene):
         pass
 
     def wait(self, duration=None, *a, **k):
+        self._drawing = None                    # (the renderer's drawing progress: nothing is drawn here)
         fps = self.FPS
+        step = max(1, self.TOTAL // 200)
+        print(f"recording {self.TOTAL} frames ({self.TOTAL / fps:.0f} s at {fps} fps)", flush=True)
         for f in range(self.TOTAL):
             if f:
                 self._tick(1.0 / fps)
             self.RECORDER.frame(f, self)
+            if f % step == 0 or f == self.TOTAL - 1:
+                print(f"progress: {f + 1}/{self.TOTAL} frames recorded", flush=True)
 
 
 def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") -> dict:
@@ -265,6 +270,7 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
     for old in out_dir.glob("img-*.png"):
         old.unlink()
     rec = Recorder(out_dir)
+    print("playing the score (the renderer's scene, not drawn)", flush=True)
     BakeScene.SCORE, BakeScene.WORDS, BakeScene.WAV = sc, words, None
     BakeScene.FRAMES, BakeScene.SOUND, BakeScene.FPS, BakeScene.TOTAL, BakeScene.RECORDER = (0, total), False, fps, total, rec
     with tempconfig({"pixel_width": w, "pixel_height": h, "frame_rate": fps, "disable_caching": True,
@@ -276,6 +282,7 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
     if (voice_dir / "voice.wav").exists():
         shutil.copyfile(voice_dir / "voice.wav", out_dir / "voice.wav")
     import look
+    print(f"writing timeline.json: {len(rec.order)} pieces, {len(rec.pictures)} picture(s)", flush=True)
     data = {"version": 1, "fps": fps, "frames": total, "size": [w, h], "frame_width": S.SCREEN_W,
             "bg": look.L["bg"], "audio": "voice.wav", "camera": rec.camera_keys(),
             "leaves": [leaf.out() for leaf in rec.order], "notes": sc.notes}

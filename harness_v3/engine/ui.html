@@ -31,6 +31,10 @@
   .steps { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:12px 0; }
   iframe.player { width:100%; aspect-ratio: 16 / 10.4; border:0; border-radius:8px; background:#0b0d10; }
   .cmp img { width:100%; border-radius:6px; display:block; }
+  .prog { margin-top:6px; } .prog .track { height:6px; background:#1d2229; border-radius:99px; overflow:hidden; }
+  .prog .fill { height:100%; background:var(--run); transition: width .4s; } .prog .txt { font-size:11px; color:var(--soft); margin-top:3px; }
+  details.log summary { cursor:pointer; color:var(--soft); font-size:11px; margin-top:6px; }
+  details.log pre { font-size:10.5px; max-height:180px; }
   .pics { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
   .pic { background:#EFE4C8; border-radius:8px; padding:8px; color:#1D1C1A; font-size:11px; }
   .pic img { width:100%; height:140px; object-fit:contain; display:block; }
@@ -107,6 +111,9 @@ async function loadRuns() {
     <div class="row soft"><span class="chip ${b.status}">${b.status}</span><span class="money">${usd(b.cost)}</span>
       <span>${b.pages} pages</span><span>${b.videos} videos</span></div></div>`).join("") || `<p class="soft">No books yet.</p>`;
   const live = list.filter((r) => ["running", "queued"].includes(r.status)).length;
+  // the run on the page started elsewhere (a book's build, another tab): follow it
+  const mine = list.find((r) => r.id === sel);
+  if (mine && ["running", "queued"].includes(mine.status) && data && data.run.status !== mine.status) refresh();
   $("#stopall").style.display = live ? "" : "none";
   $("#stopall").textContent = `■ Stop all (${live})`;
   $("#runs").innerHTML = list.map((r) => `<div class="run ${r.id === sel ? "sel" : ""}" onclick="pick('${r.id}')">
@@ -121,11 +128,43 @@ function pick(id) { bsel = null; clearTimeout(btimer); sel = id; dirty = false; 
 async function refresh(force) {
   if (!sel) return;
   const d = await api("/api/runs/" + sel);
-  const changed = force || JSON.stringify(d.run) !== JSON.stringify(data?.run) || d.busy !== data?.busy;
+  const changed = force || !data || core(d.run) !== core(data.run) || d.busy !== data.busy;
+  const live = !changed && JSON.stringify(d.run) !== JSON.stringify(data.run);
   data = d;
   if (changed) render();
+  else if (live) {
+    const st = $("#steps"); if (st) st.innerHTML = stepCards();
+    const ep = $("#exprog"); if (ep) ep.innerHTML = exportLive();
+  }
   clearTimeout(timer);
   if (d.busy || d.run.status === "running" || ["queued", "running"].includes(d.run.export?.status)) timer = setTimeout(() => { refresh(); loadRuns(); }, 1500);
+}
+
+// A step's progress (frames drawn or recorded) and the last lines it said.
+function progress(box) {
+  const pr = box && box.progress;
+  if (!pr) return "";
+  const pc = pr.total ? Math.min(100, 100 * pr.done / pr.total) : 0;
+  return `<div class="prog"><div class="track"><div class="fill" style="width:${pc.toFixed(1)}%"></div></div>
+    <div class="txt">${pr.done} / ${pr.total} ${esc(pr.what || "")} · ${pc.toFixed(0)}%${pr.eta != null ? ` · about ${secs(pr.eta)} left` : ""}</div></div>`;
+}
+function logOf(box, key) {
+  const lines = (box && box.log) || [];
+  if (!lines.length) return "";
+  const k = sel + ":" + key;
+  return `<details class="log" ${openLogs[k] ? "open" : ""} ontoggle="openLogs['${k}']=this.open"><summary>log (${lines.length} lines)</summary>
+    <pre>${esc(lines.join("\n"))}</pre></details>`;
+}
+const openLogs = {};
+
+function stepCards() { return (config.steps || ["voice", "storyboard", "score", "assets", "timeline", "render", "critic"]).map(stepCard).join(""); }
+
+// The run without what changes every second while a step runs (its progress and log): when only those change,
+// only the step cards and the export's progress are drawn again (the player and the score editor stay as they are).
+function core(run) {
+  const strip = (b) => { if (!b) return b; const { progress, log, ...rest } = b; return rest; };
+  const steps = {}; for (const [k, v] of Object.entries(run.steps || {})) steps[k] = strip(v);
+  return JSON.stringify({ ...run, steps, export: strip(run.export) });
 }
 
 function stepCard(name) {
@@ -136,8 +175,10 @@ function stepCard(name) {
     <div class="row"><span class="chip ${s.status || "waiting"}">${s.status || "waiting"}</span>
       ${s.seconds != null ? `<span class="soft">${secs(s.seconds)}</span>` : ""}
       ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}</div>
+    ${s.status === "running" ? progress(s) : ""}
     ${s.error ? `<div class="err">${esc(s.error)}</div>` : ""}
     ${(s.notes || []).length ? `<div class="notes">${esc(s.notes.join("\n"))}</div>` : ""}
+    ${logOf(s, name)}
     <div class="row" style="margin-top:8px"><button onclick="again('${name}')" ${data.busy ? "disabled" : ""}>run from here</button></div>${shots}</div>`;
 }
 
@@ -155,7 +196,7 @@ function render() {
       · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
       ${r.words ? ` · ${r.words.count} words, ${r.words.seconds.toFixed(1)} s` : ""}</div>
     ${!config.key && !st.given_score ? `<div class="banner">No OPENROUTER_API_KEY on the server: the storyboard and score steps need it. Set it and run the storyboard step again, or edit the score by hand below.</div>` : ""}
-    <div class="steps">${(config.steps || ["voice", "storyboard", "score", "assets", "render", "critic"]).map(stepCard).join("")}</div>
+    <div class="steps" id="steps">${stepCards()}</div>
     <div class="row soft">cost by step: ${Object.entries(byStep).map(([k, v]) => `${k} <span class="money">${usd(v)}</span>`).join(" · ") || "none yet"}</div>
     <div class="tabs">${["video", "player", "compare", "words", "storyboard", "pictures", "calls"].map((t) =>
       `<button class="${tab === t ? "on" : ""}" onclick="tab='${t}';render()">${{video: "Video & score", player: "Player", compare: "Compare", words: "Narration & words", storyboard: "Storyboard", pictures: `Pictures (${(data.pictures || []).length})`, calls: `Calls (${calls.length})`}[t]}</button>`).join("")}</div>
@@ -192,6 +233,7 @@ function pane() {
       <div class="row"><button class="primary" onclick="exportPlayer()" ${data.busy || !data.player ? "disabled" : ""}>Export MP4 from the player</button>
         ${ex.status ? `<span class="chip ${ex.status}">${ex.status}</span>` : ""}${ex.seconds ? `<span class="soft">${secs(ex.seconds)}</span>` : ""}
         <span class="soft">Made in headless Chromium from the player, then compared frame by frame with the render's MP4.</span></div>
+      <div id="exprog">${exportLive()}</div>
       ${ex.error ? `<pre style="color:#ff9a9a">${esc(ex.error)}</pre>` : ""}
       ${rep ? `<p>Mean difference: <b>${rep.mean_psnr} dB</b> PSNR (above 40: the same to the eye; 30-40: small differences; under 30: visible) ·
         frames under 35 dB: <b>${(rep.under_35db * 100).toFixed(1)}%</b> · under 30 dB: <b>${(rep.under_30db * 100).toFixed(1)}%</b></p>` : ""}
@@ -237,6 +279,11 @@ async function stopRun() {
 async function stopAll() {
   if (!confirm("Stop every run that is making or waiting? Model calls already made keep their cost.")) return;
   try { await api("/api/stop", {method: "POST", body: "{}"}); if (sel) refresh(true); if (bsel) refreshBook(true); loadRuns(); } catch (e) { alert(e.message); }
+}
+
+function exportLive() {
+  const ex = data.run.export || {};
+  return (["running", "queued"].includes(ex.status) ? progress(ex) : "") + logOf(ex, "export");
 }
 
 async function exportPlayer() {

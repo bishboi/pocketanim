@@ -85,26 +85,74 @@ def _check(rid: str | None) -> None:
         raise Stopped("stopped by hand")
 
 
-def _proc(rid: str, cmd: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
-    """A step's program, killed when its run is stopped (as subprocess.run, output captured)."""
+def _proc(rid: str, cmd: list[str], env: dict | None = None, on_line=None) -> subprocess.CompletedProcess:
+    """A step's program, killed when its run is stopped (as subprocess.run, output captured). Its output is read as
+    it comes, each line given to `on_line` (progress and log)."""
     # Its own process group: a stop kills it and what it started (a render's chunks).
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-                         env={**os.environ, **(env or {})})
+                         bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", **(env or {})})
     _procs[rid] = p
+    out: list[str] = []
+    err: list[str] = []
+
+    def pump(stream, buf):
+        for line in iter(stream.readline, ""):
+            buf.append(line)
+            if on_line:
+                try:
+                    on_line(line.rstrip("\n"))
+                except Exception:  # noqa: BLE001 -- a progress line that cannot be read is let be
+                    pass
+        stream.close()
+
+    readers = [threading.Thread(target=pump, args=(p.stdout, out), daemon=True),
+               threading.Thread(target=pump, args=(p.stderr, err), daemon=True)]
+    for t in readers:
+        t.start()
     try:
-        while True:
-            try:
-                out, err = p.communicate(timeout=0.5)
-                break
-            except subprocess.TimeoutExpired:
-                if rid in _stop:
-                    _kill(p)
-                    p.communicate()
-                    raise Stopped("stopped by hand") from None
+        while p.poll() is None:
+            time.sleep(0.3)
+            if rid in _stop:
+                _kill(p)
+                p.wait()
+                raise Stopped("stopped by hand")
+        for t in readers:
+            t.join(timeout=5)
     finally:
         _procs.pop(rid, None)
     _check(rid)                                  # killed by stop() itself
-    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+    return subprocess.CompletedProcess(cmd, p.returncode, "".join(out), "".join(err))
+
+
+PROGRESS = re.compile(r"^progress: (\d+)/(\d+)\s*(.*)$")
+NOISE = re.compile(r"^\s*$|Manim Community|^\s*(INFO|WARNING)\s|scene_file_writer|^\s+[\w'{}:,\-]+\s*$|Some options were not")
+
+
+def follow(run: dict, box: dict):
+    """An `on_line` for _proc: progress lines become box["progress"] {done, total, what, eta}, the rest the last
+    lines of box["log"]; the run is saved now and then, so the page shows it moving."""
+    state = {"saved": 0.0, "t0": None, "d0": 0}
+
+    def on_line(line: str) -> None:
+        m = PROGRESS.match(line)
+        with _mut:
+            if m:
+                done, total = int(m.group(1)), int(m.group(2))
+                now = time.time()
+                if state["t0"] is None or done < state["d0"]:
+                    state["t0"], state["d0"] = now, done
+                rate = (done - state["d0"]) / max(1e-6, now - state["t0"])
+                eta = (total - done) / rate if rate > 0 and done > state["d0"] else None
+                box["progress"] = {"done": done, "total": total, "what": m.group(3) or "frames",
+                                   "eta": round(eta) if eta is not None else None}
+            elif not NOISE.search(line):
+                log = box.setdefault("log", [])
+                log.append(line[:300])
+                del log[:-40]
+            if time.time() - state["saved"] > 0.8:
+                state["saved"] = time.time()
+                save(run)
+    return on_line
 
 
 # ---------------------------------------------------------------- the run on disk --------------------------------------
@@ -239,9 +287,9 @@ def _voice(run: dict) -> None:
     d = run_dir(run["id"])
     s = run["settings"]
     p = _proc(run["id"], [sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
-                          "--speed", str(s["speed"]), "--pause", str(s["pause"])])
+                          "--speed", str(s["speed"]), "--pause", str(s["pause"])], on_line=follow(run, run["steps"]["voice"]))
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or p.stdout)[-1500:])
+        raise RuntimeError(_tail(p))
     words = json.loads((d / "words.json").read_text())
     run["words"] = {"seconds": words["seconds"], "count": len(words["words"])}
     run["steps"]["voice"]["notes"] = [f"{len(words['lines'])} lines, {len(words['words'])} words, {words['seconds']:.1f} s"]
@@ -360,13 +408,20 @@ def _render(run: dict) -> None:
     p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(d / "video.score"), str(d), str(d / "video.mp4"),
                           "--quality", run["settings"]["quality"]],
               # the pictures are found by the image model they were made with
-              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
+              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL},
+              on_line=follow(run, run["steps"]["render"]))
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or p.stdout)[-1500:])
+        raise RuntimeError(_tail(p))
     notes = [l[6:] for l in p.stdout.splitlines() if l.startswith("note: ")]
     notes += [l for l in p.stderr.splitlines() if l.startswith("score line")]
     run["steps"]["render"]["notes"] = notes[:40] or [f"rendered in {time.time() - started:.0f} s"]
     run["video"] = f"video.mp4?v={int(time.time())}"
+
+
+def _tail(p: subprocess.CompletedProcess) -> str:
+    """A failed program's own words: its error, without the progress lines."""
+    lines = [l for l in (p.stderr or p.stdout).splitlines() if not PROGRESS.match(l)]
+    return "\n".join(lines)[-1500:]
 
 
 def _timeline(run: dict) -> None:
@@ -374,9 +429,10 @@ def _timeline(run: dict) -> None:
     d = run_dir(run["id"])
     p = _proc(run["id"], [sys.executable, str(HERE / "timeline.py"), str(d / "video.score"), str(d), str(d / "player"),
                           "--quality", run["settings"]["quality"]],
-              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
+              env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL},
+              on_line=follow(run, run["steps"]["timeline"]))
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or p.stdout)[-1500:])
+        raise RuntimeError(_tail(p))
     info = next((json.loads(l[9:]) for l in p.stdout.splitlines() if l.startswith("timeline:")), {})
     run["steps"]["timeline"]["notes"] = [f"{info.get('leaves', '?')} pieces, {info.get('pictures', 0)} picture(s), "
                                          f"{info.get('bytes', 0) / 1e6:.1f} MB (played by the Player tab)"]
@@ -405,7 +461,7 @@ def export(rid: str) -> None:
                    run["settings"]["quality"]]
             if (d / "video.mp4").exists():
                 cmd += ["--compare", str(d / "video.mp4"), "--report", str(d / "compare.json")]
-            p = _proc(rid, cmd)
+            p = _proc(rid, cmd, on_line=follow(run, ex))
             if p.returncode != 0:
                 raise RuntimeError((p.stderr or p.stdout)[-1500:])
             ex["status"] = "done"

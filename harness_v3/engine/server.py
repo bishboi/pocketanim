@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/config":
                 extra = [m.strip() for m in os.environ.get("V3_MODELS", "").split(",") if m.strip()]
                 models = list(dict.fromkeys([runs.DEFAULT_MODEL, *extra, *MODELS]))
-                self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "voices": VOICES,
+                self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "problems": problems(), "voices": VOICES,
                             "key": bool(os.environ.get("OPENROUTER_API_KEY")),
                             "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})
             elif path == "/api/runs":
@@ -207,6 +207,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 400)
 
 
+def problems() -> list[str]:
+    """What is missing from the setup (./setup.sh makes it), said once at start."""
+    import importlib.util
+    import shutil
+    out = []
+    if not (3, 10) <= sys.version_info[:2] <= (3, 13):
+        out.append(f"this Python is {sys.version.split()[0]}; the voice needs 3.10-3.13: "
+                   "rm -r ../.venv3 && brew install python@3.12 && ./setup.sh")
+    missing = [m for m in ("manim", "piper", "faster_whisper") if importlib.util.find_spec(m) is None]
+    if missing:
+        out.append(f"Python packages missing ({', '.join(missing)}): run ./setup.sh")
+    if not VOICES:
+        out.append("no voices in .cache/voices: run ./setup.sh")
+    if not (HERE.parent / ".cache" / "package" / "icons").is_dir():
+        out.append("no icons in .cache/package: run ./setup.sh")
+    if not shutil.which("ffmpeg"):
+        out.append("ffmpeg is not on the PATH (macOS: brew install ffmpeg)")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8300)
@@ -214,6 +234,8 @@ def main() -> None:
     a = ap.parse_args()
     runs.RUNS.mkdir(parents=True, exist_ok=True)
     books.BOOKS.mkdir(parents=True, exist_ok=True)
+    for p in problems():
+        print("SETUP: " + p)
     if env.LOADED:
         print("settings read from " + ", ".join(env.LOADED))
     print(f"harness_v3 on http://{a.host}:{a.port}" + ("" if os.environ.get("OPENROUTER_API_KEY")

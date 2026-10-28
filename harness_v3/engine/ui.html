@@ -387,6 +387,7 @@ async function dropScript(sid) {
   k.textContent = config.key ? "model key set" : "no model key";
   k.className = "chip " + (config.key ? "done" : "failed");
   k.insertAdjacentHTML("afterend", `<span class="chip ${config.datalab ? "done" : "failed"}">${config.datalab ? "Datalab key set" : "no Datalab key"}</span>`);
+  if (config.problems?.length) $("#main").insertAdjacentHTML("afterbegin", `<div class="banner"><b>Setup is not complete:</b><br>${config.problems.map(esc).join("<br>")}</div>`);
   await loadRuns();
   setInterval(loadRuns, 8000);
 })();

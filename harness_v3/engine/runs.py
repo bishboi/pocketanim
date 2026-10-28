@@ -144,8 +144,10 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
 def _voice(run: dict) -> None:
     d = run_dir(run["id"])
     s = run["settings"]
-    subprocess.run([sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
-                    "--speed", str(s["speed"]), "--pause", str(s["pause"])], check=True, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
+                        "--speed", str(s["speed"]), "--pause", str(s["pause"])], capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout)[-1500:])
     words = json.loads((d / "words.json").read_text())
     run["words"] = {"seconds": words["seconds"], "count": len(words["words"])}
     run["steps"]["voice"]["notes"] = [f"{len(words['lines'])} lines, {len(words['words'])} words, {words['seconds']:.1f} s"]

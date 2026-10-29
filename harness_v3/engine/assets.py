@@ -355,35 +355,65 @@ def prompt_for(kind: str, prompt: str, look: str) -> str:
     return f"{prompt.strip().rstrip('.')}. {STYLE.get(look, STYLE['paper'])}. {HOW[kind]}"
 
 
+# The optional settings each image model refused, learned from its answers ({model: {setting}}): sent no more to it.
+# Some models take only the prompt and the shape (FLUX: "does not support: output_format, quality, background").
+OPTIONAL = ("output_format", "quality", "background", "aspect_ratio", "n")
+_refused: dict[str, set] = {}
+
+
+def _refusal(said: str) -> set:
+    """The settings a refusal names as not supported (`does not support: output_format, quality, background`)."""
+    m = re.search(r"(?:does not|doesn't|do not) support[s]?\s*:?\s*(.+)", said, re.I)
+    if not m:
+        return set()
+    names = set(re.findall(r"[a-z_]+", m.group(1).lower()))
+    return {n for n in names if n in OPTIONAL}
+
+
 def _image(model: str, prompt: str, aspect: str, transparent: bool = False):
-    """One Image API call: the picture (PIL, RGBA) and the call's usage (cost, tokens)."""
+    """One Image API call: the picture (PIL, RGBA) and the call's usage (cost, tokens). A setting the model says it does
+    not support is left out and the call made again (and not sent to that model again)."""
     key_ = os.environ.get("OPENROUTER_API_KEY")
     if not key_:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
-    body = {"model": model, "prompt": prompt, "n": 1, "output_format": "png", "aspect_ratio": aspect,
-            "quality": os.environ.get("V3_IMAGE_QUALITY", "medium")}
+    want = {"n": 1, "output_format": "png", "aspect_ratio": aspect, "quality": os.environ.get("V3_IMAGE_QUALITY", "medium")}
     if transparent:
-        body["background"] = "transparent"     # where the model can; else we cut it out ourselves
-    req = urllib.request.Request("https://openrouter.ai/api/v1/images", data=json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {key_}", "Content-Type": "application/json",
-                                          "User-Agent": "harness-v3/1.0", "HTTP-Referer": "https://github.com/bishboi/pocketanim",
-                                          "X-Title": "harness v3"})
-    try:
-        with urllib.request.urlopen(req, timeout=300) as r:
-            out = json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        said = e.read()[:600].decode(errors="replace")
+        want["background"] = "transparent"     # where the model can; else we cut it out ourselves
+    for _ in range(3):
+        body = {"model": model, "prompt": prompt,
+                **{k: v for k, v in want.items() if k not in _refused.get(model, set())}}
+        req = urllib.request.Request("https://openrouter.ai/api/v1/images", data=json.dumps(body).encode(),
+                                     headers={"Authorization": f"Bearer {key_}", "Content-Type": "application/json",
+                                              "User-Agent": "harness-v3/1.0",
+                                              "HTTP-Referer": "https://github.com/bishboi/pocketanim", "X-Title": "harness v3"})
         try:
-            said = json.loads(said).get("error", {}).get("message") or said
-        except Exception:  # noqa: BLE001
-            pass
-        raise RuntimeError(f"the image model refused ({e.code}): {said}") from e
+            with urllib.request.urlopen(req, timeout=300) as r:
+                out = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            said = e.read()[:600].decode(errors="replace")
+            try:
+                said = json.loads(said).get("error", {}).get("message") or said
+            except Exception:  # noqa: BLE001
+                pass
+            drop = _refusal(said) - _refused.get(model, set())
+            if e.code == 400 and drop & set(body):
+                _refused.setdefault(model, set()).update(drop)     # asked again without them
+                continue
+            raise RuntimeError(f"the image model refused ({e.code}): {said}") from e
+    else:
+        raise RuntimeError(f"the image model kept refusing its settings: {sorted(_refused.get(model, set()))}")
     if out.get("error"):
         raise RuntimeError(f"the image model: {out['error'].get('message') or out['error']}")
     data = (out.get("data") or [{}])[0]
     raw = data.get("b64_json")
-    if not raw and data.get("url", "").startswith("data:"):
-        raw = data["url"].split(",", 1)[1]
+    url = data.get("url") or ""
+    if not raw and url.startswith("data:"):
+        raw = url.split(",", 1)[1]
+    if not raw and url.startswith("http"):         # some models answer with a link to the picture
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "harness-v3/1.0"}),
+                                    timeout=120) as r:
+            return _open(r.read()), out.get("usage") or {}
     if not raw:
         raise RuntimeError(f"the image model gave no picture: {str(out)[:300]}")
     return _open(base64.b64decode(raw)), out.get("usage") or {}

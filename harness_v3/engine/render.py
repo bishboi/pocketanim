@@ -103,7 +103,10 @@ class Alpha:
     def __init__(self, m):
         self.m = m
         self.base = []
+        managed = getattr(m, "managed_ids", set())     # a person's face parts: it fades them itself (refade)
         for x in leaves(m):
+            if id(x) in managed:
+                continue
             try:
                 self.base.append((x, float(x.get_fill_opacity()), float(x.get_stroke_opacity())))
             except Exception:  # noqa: BLE001
@@ -121,6 +124,8 @@ class Alpha:
                 continue
             x.set_fill(opacity=f * a, family=False)
             x.set_stroke(opacity=s * a, family=False)
+        if hasattr(self.m, "refade"):
+            self.m.refade(a)
 
 
 class Tween:

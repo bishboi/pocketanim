@@ -4,7 +4,7 @@ limbs, hands and shoes, a soft shadow at their feet) posed over time.
     ent ann person [wear shirt|tunic|robe|habit|dress|gown|coat|suit|armor|apron|toga|uniform|lab|overalls|vest]
                    [color C] [hair short|long|bob|bun|ponytail|curly|spiky|bald[-black|brown|blonde|red|grey|white]]
                    [beard | longbeard] [mustache] [skin fair|light|tan|brown|dark]
-                   [mood happy|laugh|calm|sad|angry|surprised|worried|scared|think|proud]
+                   [mood FACE (MOODS below)] [stubble]
                    [hat top|bowler|cap|beret|straw|cowboy|crown|helmet|tricorn|mitre|turban|hood|veil|chef|hardhat|
                         wreath|headscarf]
                    [tool book|scroll|quill|coin|bag|sword|shield|staff|spear|flag|sign|hammer|pickaxe|torch|lantern|
@@ -35,23 +35,59 @@ HIP, TORSO, NECK, HEAD = 0.41, 0.25, 0.03, 0.115
 UPPER, FORE, THIGH, SHIN = 0.14, 0.14, 0.215, 0.195
 
 REST = {"lean": 0.0, "fa1": 0.14, "fa2": 0.22, "ba1": -0.12, "ba2": -0.06, "fl1": 0.07, "fl2": 0.0, "bl1": -0.07,
-        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0,
-        # the face: how it smiles (-1 frown .. 1 grin), brows raised (-1 .. 1), brows drawn in (-1 sad .. 1 cross),
-        # eyes shut (0 .. 1: a blink), where the eyes look (-1 down .. 1 up)
-        "smile": 0.7, "brow": 0.0, "frown": 0.0, "blink": 0.0, "gaze": 0.0}
+        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0, "blink": 0.0}
+# The face, every part a number the pose eases (so one look turns into another as it plays):
+#   smile -1 frown .. 1 grin; smirk -1..1 (one corner up); wavy 0..1 (an uneasy, wobbly mouth); grin 0..1 (open, a
+#   D); tongue 0..1 (out, in the grin); mouth 0..1 (open round: talking, surprise)
+#   brow -1 low .. 1 raised; frown -1 (inner ends up: sad) .. 1 (drawn in: cross); lids 0 open .. 1 shut (heavy
+#   lids: smug, suspicious, sleepy); gaze -1 down .. 1 up; side -1 .. 1 (the eyes slide away from / toward the way it
+#   faces: a side-eye)
+#   eyes drawn otherwise: xeyes (x x: dazed), squint (> <: pain, effort), joy (^ ^: delight), shades (sunglasses)
+#   on the head: sweat (a drop: nerves), anger (a bolt), blush (/// on the cheeks), tears
+FACE = {"smile": 0.2, "smirk": 0.0, "wavy": 0.0, "grin": 0.0, "tongue": 0.0, "mouth": 0.0, "brow": 0.0, "frown": 0.0,
+        "lids": 0.1, "gaze": 0.0, "side": 0.0, "xeyes": 0.0, "squint": 0.0, "joy": 0.0, "shades": 0.0,
+        "sweat": 0.0, "anger": 0.0, "blush": 0.0, "tears": 0.0}
+REST.update(FACE)
 KEYS = tuple(REST)
-FACE_KEYS = ("smile", "brow", "frown", "mouth", "gaze")
-# An expression: the face's keys (`mood` sets one to begin with, `emote P NAME` eases into one).
-MOODS = {"happy": {"smile": 0.8, "brow": 0.15, "frown": 0.0, "mouth": 0.0, "gaze": 0.0},
-         "laugh": {"smile": 1.0, "brow": 0.4, "frown": -0.1, "mouth": 0.65, "gaze": 0.1},
-         "calm": {"smile": 0.25, "brow": 0.0, "frown": 0.0, "mouth": 0.0, "gaze": 0.0},
-         "sad": {"smile": -0.85, "brow": 0.25, "frown": -0.8, "mouth": 0.0, "gaze": -0.5},
-         "angry": {"smile": -0.5, "brow": -0.3, "frown": 1.0, "mouth": 0.0, "gaze": 0.0},
-         "surprised": {"smile": 0.0, "brow": 1.0, "frown": 0.0, "mouth": 0.7, "gaze": 0.0},
-         "worried": {"smile": -0.45, "brow": 0.55, "frown": -0.6, "mouth": 0.0, "gaze": 0.0},
-         "scared": {"smile": -0.6, "brow": 0.9, "frown": -0.7, "mouth": 0.45, "gaze": 0.0},
-         "think": {"smile": -0.1, "brow": 0.35, "frown": 0.35, "mouth": 0.0, "gaze": 1.0},
-         "proud": {"smile": 0.6, "brow": -0.1, "frown": 0.0, "mouth": 0.0, "gaze": 0.3}}
+FACE_KEYS = tuple(FACE)
+
+
+def _mood(**k) -> dict:
+    return {**FACE, **k}
+
+
+# Expressions (`mood NAME` to begin with, `emote P NAME` to ease into one as it plays).
+MOODS = {
+    "happy": _mood(smile=0.85, brow=0.15, lids=0.05),
+    "calm": _mood(smile=0.25, lids=0.25),
+    "joy": _mood(joy=1, smile=0.9, blush=0.5, brow=0.3),
+    "laugh": _mood(joy=1, grin=1, brow=0.45),
+    "excited": _mood(grin=1, smile=1, brow=0.7, lids=0.0, blush=0.3),
+    "playful": _mood(grin=1, tongue=1, smirk=0.3, lids=0.15, brow=0.3),
+    "proud": _mood(smile=0.7, lids=0.35, gaze=0.45, brow=0.2),
+    "smug": _mood(smile=0.5, smirk=1, lids=0.55, brow=0.55, frown=0.2),
+    "cool": _mood(shades=1, smirk=0.8, smile=0.4),
+    "sad": _mood(smile=-0.85, frown=-0.9, brow=0.3, lids=0.35, gaze=-0.45),
+    "crying": _mood(smile=-0.9, frown=-1, brow=0.4, lids=0.3, tears=1, wavy=0.3, gaze=-0.3),
+    "angry": _mood(smile=-0.55, frown=1, brow=-0.45, lids=0.35, anger=1),
+    "furious": _mood(smile=-0.8, frown=1, brow=-0.6, lids=0.3, anger=1, mouth=0.45),
+    "annoyed": _mood(smile=-0.3, wavy=0.4, frown=0.35, lids=0.55, side=0.6),
+    "suspicious": _mood(smile=-0.1, frown=0.45, brow=-0.2, lids=0.5, side=1),
+    "surprised": _mood(smile=0.0, brow=1, lids=0.0, mouth=0.6),
+    "shocked": _mood(smile=0.0, brow=1, lids=0.0, mouth=0.95, sweat=1),
+    "scared": _mood(smile=-0.3, wavy=1, brow=0.9, frown=-0.7, lids=0.0, sweat=1),
+    "worried": _mood(smile=-0.3, wavy=0.7, brow=0.55, frown=-0.6),
+    "nervous": _mood(smile=0.0, wavy=1, brow=0.3, sweat=1, side=-0.7),
+    "embarrassed": _mood(smile=0.0, wavy=0.8, blush=1, brow=0.4, side=-0.8, gaze=-0.3, sweat=0.5),
+    "confused": _mood(smile=0.0, wavy=0.6, brow=0.6, frown=0.2, side=0.3, sweat=0.3),
+    "think": _mood(smile=0.0, smirk=0.4, brow=0.3, frown=0.3, gaze=1, side=0.5),
+    "dazed": _mood(xeyes=1, wavy=1, smile=0.0),
+    "pained": _mood(squint=1, smile=-0.7, frown=0.5, sweat=0.6),
+    "sleepy": _mood(lids=0.85, smile=0.0, mouth=0.15, brow=-0.1),
+    "disgusted": _mood(smile=-0.5, wavy=0.6, frown=0.6, lids=0.4, side=-0.4),
+}
+MOODS.update({"neutral": MOODS["calm"], "cry": MOODS["crying"], "shy": MOODS["embarrassed"], "thinking": MOODS["think"],
+              "fear": MOODS["scared"], "mad": MOODS["angry"], "glad": MOODS["happy"], "sly": MOODS["smug"]})
 
 SKIN = {"fair": "#F6DCC4", "light": "#EFC9A6", "tan": "#D9A274", "brown": "#A8714A", "dark": "#6E4429"}
 HAIR = {"black": "#2A2320", "brown": "#6B4226", "blonde": "#D9AA4E", "red": "#B4532A", "grey": "#A9A49B",
@@ -161,6 +197,7 @@ class Person(VGroup):
         self.rigid: list[tuple] = []            # (shape, its points where its part's own frame is, the part)
         self.rest = dict(REST)
         self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
+        self.alpha_now = 1.0                    # how far it has faded in (render.Alpha tells it: refade)
         if old:
             self.rest["lean"] = 0.1
 
@@ -229,21 +266,7 @@ class Person(VGroup):
         if mods.get("beard") or mods.get("longbeard"):
             long = bool(mods.get("longbeard")) or old
             self.add(rigid(_beard(hair, ink, ow, R, long), "face"))
-        mood = str(mods.get("mood") or "happy").lower()
-        self.eyes = VGroup(*(Ellipse(width=0.028, height=0.036, fill_color=ink, fill_opacity=1, stroke_width=0)
-                             for _ in range(2)))
-        self.brows = VGroup(*(Line([0, 0, 0], [0.03, 0, 0], stroke_color=_shade(hair, 0.55), stroke_width=ow * 1.4)
-                              for _ in range(2)))
-        self.smile = VMobject(stroke_color=ink, stroke_width=ow * 1.1, fill_opacity=0)
-        self.smile.set_points_smoothly([np.array([x, -0.047, 0.0]) for x in (-0.026, -0.009, 0.009, 0.026)])
-        self.add(self.eyes, self.brows, self.smile)
-        self.add(rigid(_face(mood, ink, ow, R), "face"))
-        if mods.get("mustache"):
-            self.add(rigid(_blob([(-0.03, -0.03), (0.0, -0.022), (0.03, -0.03), (0.034, -0.042), (0.0, -0.036),
-                                  (-0.034, -0.042)], hair, ink, ow * 0.6), "face"))
-        self.mouth = Ellipse(width=0.044, height=0.012, fill_color="#7A2E2A", fill_opacity=1, stroke_color=ink,
-                             stroke_width=ow * 0.6)
-        self.add(self.mouth)
+        self._build_face(ink, ow, skin, hair, hair_s, mods)
         self.add(rigid(hf, "head"))
         # -- the front arm, with what its hand holds ----------------------------------------------------------------
         self.tool = _tool(str(mods.get("tool") or ("cane" if old else "")).lower(), ink, ow, k)
@@ -258,6 +281,165 @@ class Person(VGroup):
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
+
+    # -- the face -----------------------------------------------------------------------------------------------------
+    def _build_face(self, ink, ow, skin, hair, hair_s, mods) -> None:
+        """Eyes (whites, pupils, lids), and the other eyes they may become (x x, > <, ^ ^, sunglasses); brows; the
+        mouths (a curve that smiles, frowns and smirks; a wavy one; an open one; a grin with a tongue); sweat, an anger
+        bolt, blush, tears. What shows of each is set by the pose (set_pose), so faces turn into one another."""
+        dark = "#5A1F1F"
+        self.fixed: list[tuple] = []            # (shape, its points about its own middle, where it goes)
+        self.feats: list[tuple] = []            # (shape, its own fill and line opacity, how much of it shows)
+
+        def fixed(m, where):
+            for x in m.family_members_with_points():
+                self.fixed.append((x, x.points[:, :2].copy(), where))
+            return m
+
+        def feat(m, weight):
+            if not len(m.points) and not m.submobjects:      # (posed later: given points now, so it is known)
+                m.set_points_as_corners([np.array([-0.01, 0.0, 0.0]), np.array([0.01, 0.0, 0.0]),
+                                         np.array([0.0, 0.01, 0.0])])
+            for x in m.family_members_with_points():
+                self.feats.append((x, float(x.get_fill_opacity()), float(x.get_stroke_opacity()), weight))
+            return m
+
+        def normal(p):
+            return 1 - min(1.0, max(p["xeyes"], p["squint"], p["joy"], p["shades"]))
+
+        def open_m(p):
+            k = min(1.0, max(0.0, (p["mouth"] - 0.06) / 0.2))
+            return k * k * (3 - 2 * k)
+        self.whites, self.pupils, self.lids, self.brows = [], [], [], []
+        for i in range(2):
+            w_ = feat(fixed(Ellipse(width=0.036, height=0.044, fill_color="#FFFFFF", fill_opacity=1, stroke_color=ink,
+                                    stroke_width=ow * 0.9), ("eye", i)), normal)
+            pu = feat(fixed(Circle(radius=0.0105, fill_color=ink, fill_opacity=1, stroke_width=0), ("pupil", i)), normal)
+            shine = feat(fixed(Circle(radius=0.0035, fill_color="#FFFFFF", fill_opacity=1, stroke_width=0)
+                               .move_to([0.004, 0.004, 0]), ("pupil", i)), normal)
+            lid = feat(VMobject(fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.9), normal)
+            self.whites.append(w_)
+            self.pupils.append(pu)
+            self.lids.append(lid)
+            self.add(w_, pu, shine, lid)
+        for i in range(2):                      # the other eyes, in the same places
+            s_ = 1 if i == 0 else -1            # (which way is toward the middle)
+            x = VGroup(Line([-0.014, 0.014, 0], [0.014, -0.014, 0]), Line([-0.014, -0.014, 0], [0.014, 0.014, 0]))
+            x.set_stroke(ink, ow * 1.2)
+            sq = VMobject(stroke_color=ink, stroke_width=ow * 1.2, fill_opacity=0)
+            sq.set_points_as_corners([np.array([-s_ * 0.014, 0.013, 0]), np.array([s_ * 0.014, 0.0, 0]),
+                                      np.array([-s_ * 0.014, -0.013, 0])])
+            jy = _stroke(_arc(0, -0.012, 0.017, 20, 160, 9), ink, ow * 1.2)
+            self.add(feat(fixed(x, ("eye", i)), lambda p: p["xeyes"]), feat(fixed(sq, ("eye", i)), lambda p: p["squint"]),
+                     feat(fixed(jy, ("eye", i)), lambda p: p["joy"]))
+        shades = VGroup(Ellipse(width=0.046, height=0.034, fill_color="#1D1C1A", fill_opacity=1, stroke_width=0).shift([-0.026, 0, 0]),
+                        Ellipse(width=0.046, height=0.034, fill_color="#1D1C1A", fill_opacity=1, stroke_width=0).shift([0.026, 0, 0]),
+                        Line([-0.004, 0.006, 0], [0.004, 0.006, 0], stroke_color="#1D1C1A", stroke_width=ow * 1.2),
+                        Circle(radius=0.005, fill_color="#FFFFFF", fill_opacity=0.8, stroke_width=0).shift([-0.032, 0.008, 0]),
+                        Circle(radius=0.005, fill_color="#FFFFFF", fill_opacity=0.8, stroke_width=0).shift([0.02, 0.008, 0]))
+        self.add(feat(fixed(shades, ("eyes", 0)), lambda p: p["shades"]))
+        brow_c = _shade(hair, 0.5) if hair_s not in ("bald", "none") else ink
+        for i in range(2):
+            b = Line([0, 0, 0], [0.03, 0, 0], stroke_color=brow_c, stroke_width=ow * 1.6)
+            self.brows.append(b)
+            self.add(b)
+        # the mouths
+        self.smile = feat(VMobject(stroke_color=ink, stroke_width=ow * 1.2, fill_opacity=0),
+                          lambda p: 1 - min(1.0, max(p["wavy"], p["grin"], open_m(p))))
+        self.wavy = feat(VMobject(stroke_color=ink, stroke_width=ow * 1.1, fill_opacity=0),
+                         lambda p: p["wavy"] * (1 - p["grin"]) * (1 - open_m(p)))
+        self.mouth = feat(Ellipse(width=0.04, height=0.012, fill_color=dark, fill_opacity=1, stroke_color=ink,
+                                  stroke_width=ow * 0.7), lambda p: open_m(p) * (1 - p["grin"]))
+        grin = VGroup(_poly(_arc(0, 0.0, 0.03, 180, 360, 12), dark, ink, ow * 0.9),
+                      Line([-0.03, 0.0, 0], [0.03, 0.0, 0], stroke_color="#FFFFFF", stroke_width=ow * 1.4))
+        tongue = _blob([(-0.012, -0.012), (0.0, -0.042), (0.014, -0.012)], "#E07A7A", ink, ow * 0.7)
+        self.add(self.smile, self.wavy, self.mouth, feat(fixed(grin, ("mouth", 0)), lambda p: p["grin"]),
+                 feat(fixed(tongue, ("mouth", 0)), lambda p: p["grin"] * p["tongue"]))
+        # on the head
+        drop = _blob([(0.0, 0.022), (0.012, -0.004), (0.0, -0.016), (-0.012, -0.004)], "#9FD3F0", ink, ow * 0.8)
+        bolt = _poly([(0.0, 0.03), (0.02, 0.03), (0.006, 0.008), (0.02, 0.008), (-0.008, -0.03), (0.002, -0.004),
+                      (-0.012, -0.004)], "#F7C514", ink, ow * 0.7)
+        blush = VGroup(*(Line([x - 0.006, -0.032, 0], [x + 0.004, -0.018, 0]) for x in (-0.06, -0.05, -0.04, 0.04, 0.05, 0.06)))
+        blush.set_stroke("#E0607A", ow * 1.0)
+        tears = VGroup(*(_blob([(s_ * 0.025, -0.002), (s_ * 0.031, -0.04), (s_ * 0.025, -0.05), (s_ * 0.019, -0.04)],
+                               "#9FD3F0", ink, ow * 0.6) for s_ in (-1, 1)))
+        self.add(feat(fixed(drop, ("side", 0)), lambda p: p["sweat"]), feat(fixed(bolt, ("bolt", 0)), lambda p: p["anger"]),
+                 feat(fixed(blush, ("face", 0)), lambda p: p["blush"]), feat(fixed(tears, ("face", 0)), lambda p: p["tears"]))
+        if mods.get("stubble"):
+            dots = VGroup(*(Dot([x, y, 0], radius=0.003, color=_shade(hair, 0.7)) for x in np.linspace(-0.07, 0.07, 9)
+                            for y in (-0.06, -0.075, -0.09) if x * x / 0.0064 + (y + 0.02) ** 2 / 0.0064 < 1.0))
+            self.add(fixed(dots, ("face", 0)))
+        if mods.get("mustache"):
+            self.add(fixed(_blob([(-0.03, -0.03), (0.0, -0.022), (0.03, -0.03), (0.034, -0.042), (0.0, -0.036),
+                                  (-0.034, -0.042)], hair, ink, ow * 0.6), ("face", 0)))
+        self.add(fixed(_face("", ink, ow, HEAD), ("face", 0)))
+        self.managed_ids = {id(x) for x, *_ in self.feats}
+
+    def refade(self, a: float) -> None:
+        """As it fades (render.Alpha): the face's parts at their own share of it."""
+        self.alpha_now = a
+        self._show_face(self.pose)
+
+    def _show_face(self, p: dict) -> None:
+        a = self.alpha_now
+        for x, fo, so, weight in self.feats:
+            k = max(0.0, min(1.0, weight(p))) * a
+            x.set_fill(opacity=fo * k, family=False)
+            x.set_stroke(opacity=so * k, family=False)
+
+    def _pose_face(self, p: dict, o, ex, ey, face, f: float, turn: float) -> None:
+        def Wv(pts):                            # body frame -> the world, many points at once
+            pts = np.asarray(pts, dtype=float)
+            return o + np.outer(pts[:, 0], ex) + np.outer(pts[:, 1] - 0.5, ey)
+        squeeze = 1 - 0.45 * abs(turn)
+        eyes = [face + np.array([(i - 0.5) * 0.054 * squeeze, 0.02 + 0.006 * p["gaze"]]) for i in range(2)]
+        look = np.array([0.0065 * p["side"] * f, 0.007 * p["gaze"]])
+        where = {("eye", 0): eyes[0], ("eye", 1): eyes[1], ("pupil", 0): eyes[0] + look,
+                 ("pupil", 1): eyes[1] + look, ("eyes", 0): face + np.array([0.0, 0.02]),
+                 ("mouth", 0): face + np.array([0.004 * p["smirk"] * f, -0.052]),
+                 ("side", 0): face + np.array([-0.075 * f, 0.075]), ("bolt", 0): face + np.array([0.06 * f, 0.1]),
+                 ("face", 0): face}
+        for x, base, at in self.fixed:
+            b = base.copy()
+            if at[0] in ("side", "bolt"):
+                b[:, 0] *= f
+            x.points = Wv(b + where[at])
+        # lids: the skin over the top of each eye, down to `lids` (and a blink), tilted by `frown` (cross: the inner
+        # end low; sad: the outer end low)
+        shut = max(0.0, min(1.0, p["lids"] + p["blink"]))
+        a_, b_ = 0.018, 0.022
+        for i, (lid, c) in enumerate(zip(self.lids, eyes)):
+            inner = 1.0 if i == 0 else -1.0
+            h = b_ * (1 - 2 * shut) if shut > 0.01 else b_ * 1.02
+            t0 = math.asin(max(-0.999, min(0.999, h / b_)))
+            ang = np.linspace(t0, math.pi - t0, 12)
+            pts = [(a_ * 1.08 * math.cos(t), b_ * 1.08 * math.sin(t)) for t in ang]
+            pts = pts + [pts[0]]
+            tilt = -0.35 * p["frown"] * inner
+            ca, sa = math.cos(tilt), math.sin(tilt)
+            pts = [(c[0] + ca * x - sa * y, c[1] + sa * x + ca * y) for x, y in pts]
+            lid.set_points_as_corners(list(Wv(pts)))
+        # brows: over each eye, raised by `brow`, the inner end drawn down by `frown` (up when sad); lower with the lids
+        for i, (b, c) in enumerate(zip(self.brows, eyes)):
+            inner = 1.0 if i == 0 else -1.0
+            by = c[1] + 0.033 + 0.014 * p["brow"] - 0.008 * max(0.0, p["lids"] - 0.3)
+            tilt = 0.014 * p["frown"]
+            b.put_start_and_end_on(Wv([[c[0] - inner * 0.02, by + tilt * 0.3]])[0],
+                                   Wv([[c[0] + inner * 0.02, by - tilt]])[0])
+        # mouths
+        sm = max(-1.0, min(1.0, p["smile"]))
+        sk = 0.014 * p["smirk"] * f
+        w_ = 0.027 * (1 + 0.25 * abs(sm))
+        my = face[1] - 0.052
+        self.smile.set_points_smoothly([np.array([q[0], q[1], 0.0]) for q in Wv([
+            (face[0] - w_, my + 0.013 * sm - sk), (face[0] - w_ / 3, my - 0.008 * sm - sk * 0.3),
+            (face[0] + w_ / 3, my - 0.008 * sm + sk * 0.3), (face[0] + w_, my + 0.013 * sm + sk)])])
+        self.wavy.set_points_smoothly([np.array([q[0], q[1], 0.0]) for q in Wv([
+            (face[0] + x, my + 0.006 * math.sin(k * 2.2)) for k, x in enumerate(np.linspace(-0.028, 0.028, 6))])])
+        mh = max(0.004, 0.008 + 0.042 * max(0.0, min(1.0, p["mouth"])))
+        base = Ellipse(width=0.04, height=mh).move_to([face[0], my - 0.002, 0])
+        self.mouth.points = Wv(base.points[:, :2])
+        self._show_face(p)
 
     def _retag(self, m, part) -> None:
         ids = {id(x) for x in m.family_members_with_points()}
@@ -332,30 +514,7 @@ class Person(VGroup):
             P, M = frames[part]
             body = base @ M.T + P
             x.points = o + np.outer(body[:, 0], ex) + np.outer(body[:, 1] - 0.5, ey)
-        u = self.unit()
-        blink = max(0.0, min(1.0, p.get("blink", 0.0)))
-        gz = 0.008 * p.get("gaze", 0.0)
-        for i, (e, b) in enumerate(zip(self.eyes, self.brows)):   # the eyes slide round the head as it turns
-            eyx = (i - 0.5) * 0.05 * (1 - 0.45 * abs(turn))
-            e.stretch_to_fit_height(max(0.003, 0.036 * (1 - 0.92 * blink)) * u)
-            e.move_to(W(face + np.array([eyx, 0.02 + gz])))
-            # a brow over each eye: raised by `brow`, its inner end drawn down by `frown` (up when sad)
-            inner = 1.0 if eyx < 0 else -1.0                    # which way is toward the middle
-            by = 0.056 + 0.016 * p.get("brow", 0.0)
-            tilt = 0.014 * p.get("frown", 0.0)
-            a_ = face + np.array([eyx - inner * 0.019, by + tilt * 0.3])
-            b_ = face + np.array([eyx + inner * 0.019, by - tilt])
-            b.put_start_and_end_on(W(a_), W(b_))
-        sm = max(-1.0, min(1.0, p.get("smile", 0.0)))
-        w_ = 0.027 * (1 + 0.25 * abs(sm))
-        self.smile.set_points_smoothly([W(face + np.array([x, -0.05 + y])) for x, y in
-                                        ((-w_, 0.013 * sm), (-w_ / 3, -0.008 * sm), (w_ / 3, -0.008 * sm),
-                                         (w_, 0.013 * sm))])
-        mh = max(0.004, 0.006 + 0.04 * max(0.0, min(1.0, p["mouth"]))) * self.unit()
-        self.mouth.stretch_to_fit_height(mh)
-        self.mouth.set_stroke(opacity=1.0 if p["mouth"] > 0.08 else 0.0)
-        self.mouth.set_fill(opacity=1.0 if p["mouth"] > 0.08 else 0.0)
-        self.mouth.move_to(W(face + np.array([0.0, -0.045])))
+        self._pose_face(p, o, ex, ey, face, f, turn)
         self.hand.move_to(W(fh))
 
 

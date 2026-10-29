@@ -334,12 +334,14 @@ function modelFields(p) {
   const one = (k, label) => `<div><label>${label}</label><input id="${p}-m-${k}" list="models" value="${esc(sm[k] || "")}" placeholder="(the model above)"></div>`;
   return `<details class="models"><summary>Models per step (the score step gains most from a stronger model)</summary>
     <div class="form" style="margin-top:6px">${one("storyboard", "Storyboard")}${one("score", "Score")}${one("critic", "Critic (vision)")}
-    <div><label>Image model (pictures)</label><input id="${p}-m-image" list="models" value="${esc(sm.image || "")}"></div></div></details>`;
+    <div><label>Image model (pictures, photos)</label><input id="${p}-m-image" list="models" value="${esc(sm.image || "")}"></div>
+    <div><label>Small image model (objects, icons)</label><input id="${p}-m-image_small" list="models" value="${esc(sm.image_small || "")}" placeholder="(the image model)"></div>
+    <div><label>Labelled image model</label><input id="${p}-m-image_labeled" list="models" value="${esc(sm.image_labeled || "")}" placeholder="(the image model)"></div></div></details>`;
 }
 
 function readModels(p) {
   const out = {};
-  for (const k of ["storyboard", "score", "critic", "image"]) { const el = $(`#${p}-m-${k}`); if (el && el.value.trim()) out[k] = el.value.trim(); }
+  for (const k of ["storyboard", "score", "critic", "image", "image_small", "image_labeled"]) { const el = $(`#${p}-m-${k}`); if (el && el.value.trim()) out[k] = el.value.trim(); }
   return out;
 }
 

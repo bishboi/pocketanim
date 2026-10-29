@@ -83,6 +83,14 @@ is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.par
 name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
 fills the `w`/`h` it is given (12 x 6.6 by default).
 
+Three image models, each set in `.env.local` (or per run in the app): `V3_IMAGE_MODEL` for pictures (photos,
+backdrops, portraits), `V3_IMAGE_MODEL_SMALL` for small cut-out things and icons (`pic`, six to a sheet: a smaller,
+cheaper model does), `V3_IMAGE_MODEL_LABELED` for a picture whose parts a `labels` entity names (its parts must show
+clearly: a stronger model); a blank one is the image model. A picture is kept by its words, look and kind, with the
+model that made it beside it (NAME.model.txt); pictures kept before under a model's own key are moved over, not made
+again. Searching Wikimedia Commons for real pictures is off unless `V3_IMAGE_SEARCH=1`; when off, a picture asked for
+from the archive is made from the same words.
+
 Pictures are asked for well and cheaply: before any is made, one call to the score's model rewrites each picture's
 few words into an exact prompt from the narration and its shot (what, of when and where, materials, pose; kept
 beside the picture as NAME.prompt.txt; `V3_IMAGE_REFINE=0` turns it off), and small cut-out objects (`pic`) are asked

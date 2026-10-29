@@ -49,7 +49,9 @@ STEPS = ["voice", "storyboard", "score", "assets", "timeline", "render", "critic
 RENDER_MP4 = os.environ.get("V3_RENDER_MP4", "0").strip().lower() in ("1", "true", "yes", "on")
 # The model each kind of call uses, unless a run says otherwise: V3_MODEL_<STEP>, else V3_MODEL. The score step is
 # where a stronger model shows most (it places and moves everything); the image model makes the pictures.
-MODEL_STEPS = ("storyboard", "score", "critic", "image")
+MODEL_STEPS = ("storyboard", "score", "critic", "image", "image_small", "image_labeled")
+# The image models' settings in the environment (blank small/labelled: the image model).
+IMAGE_ENV = {"image": "V3_IMAGE_MODEL", "image_small": "V3_IMAGE_MODEL_SMALL", "image_labeled": "V3_IMAGE_MODEL_LABELED"}
 
 
 def step_models(given: dict | None = None) -> dict:
@@ -57,7 +59,7 @@ def step_models(given: dict | None = None) -> dict:
     given = given or {}
     out = {}
     for st in MODEL_STEPS:
-        env = os.environ.get("V3_IMAGE_MODEL" if st == "image" else f"V3_MODEL_{st.upper()}", "").strip()
+        env = os.environ.get(IMAGE_ENV.get(st, f"V3_MODEL_{st.upper()}"), "").strip()
         if st == "critic":
             env = env or os.environ.get("V3_MODEL_VISION", "").strip()
         out[st] = (given.get(st) or "").strip() or env or (assets.DEFAULT_MODEL if st == "image" else "")
@@ -361,14 +363,26 @@ def _assets(run: dict) -> None:
     import look
     d = run_dir(run["id"])
     text = (d / "video.score").read_text()
-    model = (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL
+    models = image_models(run)
+    model = models["image"]
+    labelled = assets.labelled_pictures(text)
+
+    def model_for(kind: str, prompt: str) -> str:
+        """Labelled pictures the labelled model; small cut-out things the small model; the rest the image model."""
+        if (kind, prompt) in labelled:
+            return models["image_labeled"]
+        return models["image_small"] if kind == "pic" else model
     wants = [(k, p, lk if lk in look.LOOKS else "paper") for k, p, lk in assets.wants(text)]
-    todo = [w for w in wants if not assets.path_for(w[0], w[1], w[2], model).exists()]
+    # (pictures kept under the old keys, a model's own file each, are moved to the keys now: nothing is made again)
+    todo = [w for w in wants if not assets.adopt(w[0], w[1], w[2], [model_for(w[0], w[1]), *models.values(),
+                                                                         assets.DEFAULT_MODEL])]
     notes = [f"{len(wants)} picture(s) asked for, {len(wants) - len(todo)} kept from before"]
+    if not assets.SEARCH and any(assets.is_archive(w[1]) for w in todo):
+        notes.append("image search is off (V3_IMAGE_SEARCH=0): pictures asked for from the archive are made")
 
     said = _better_words(run, text, todo) if todo else {}
 
-    def record(label: str, user: str) -> dict:
+    def record(label: str, user: str, model: str = model) -> dict:
         call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": label, "model": model, "system": "(image)",
                 "user": user, "images": 0, "started": time.time(), "status": "running"}
         with _mut:
@@ -386,12 +400,13 @@ def _assets(run: dict) -> None:
     def make(item):
         kind, prompt, lk = item
         _check(run["id"])
-        if assets.is_archive(prompt):
+        if assets.is_archive(prompt) and assets.SEARCH:
             return _from_archive(run, kind, prompt)
-        words = said.get((kind, prompt))
-        call = record(f"{kind}: {prompt[:60]}", assets.prompt_for(kind, words or prompt, lk))
+        words = said.get((kind, prompt)) or (assets.archive_query(prompt) if assets.is_archive(prompt) else None)
+        mine = model_for(kind, prompt)
+        call = record(f"{kind}: {prompt[:60]}", assets.prompt_for(kind, words or prompt, lk), mine)
         try:
-            path, usage = assets.generate(kind, prompt, lk, model, words)
+            path, usage = assets.generate(kind, prompt, lk, mine, words)
             done(call, status="done", output=path.name, cost=usage.get("cost"), tokens_in=usage.get("prompt_tokens"),
                  tokens_out=usage.get("completion_tokens"))
             return None
@@ -403,11 +418,11 @@ def _assets(run: dict) -> None:
         """Small objects on one sheet, cut apart; one not cut cleanly is made on its own."""
         _check(run["id"])
         lk = chunk[0][2]
-        pairs = [(p, said.get(("pic", p)) or p) for _, p, _ in chunk]
+        pairs = [(p, said.get(("pic", p)) or (assets.archive_query(p) if assets.is_archive(p) else p)) for _, p, _ in chunk]
         prompt = assets.sheet_prompt([w for _, w in pairs], lk)[0]
-        call = record(f"pic sheet ({len(chunk)}): " + "; ".join(p[:24] for p, _ in pairs), prompt)
+        call = record(f"pic sheet ({len(chunk)}): " + "; ".join(p[:24] for p, _ in pairs), prompt, models["image_small"])
         try:
-            made, missed, usage = assets.generate_sheet(pairs, lk, model)
+            made, missed, usage = assets.generate_sheet(pairs, lk, models["image_small"])
             done(call, status="done", output=f"{len(made)} of {len(chunk)} cut from one sheet", cost=usage.get("cost"),
                  tokens_in=usage.get("prompt_tokens"), tokens_out=usage.get("completion_tokens"))
         except Exception as e:  # noqa: BLE001 -- the sheet failed: each made on its own
@@ -419,7 +434,8 @@ def _assets(run: dict) -> None:
     # Small objects go on sheets (V3_IMAGE_SHEET a sheet, of one look); scenes, archive pictures and a lone object
     # are made one by one.
     sheets: list[tuple[int, int]] = []
-    small = [w for w in todo if w[0] == "pic" and not assets.is_archive(w[1])] if assets.SHEET > 1 else []
+    small = [w for w in todo if w[0] == "pic" and (w[0], w[1]) not in labelled
+             and not (assets.is_archive(w[1]) and assets.SEARCH)] if assets.SHEET > 1 else []
     single = [w for w in todo if w not in small]
     chunks = []
     for lk in dict.fromkeys(w[2] for w in small):
@@ -433,7 +449,8 @@ def _assets(run: dict) -> None:
             futs = [pool.submit(make_sheet, c) for c in chunks] + [pool.submit(make, w) for w in single]
             got = [f.result() for f in futs]
         failed = [f for g in got for f in ([g] if isinstance(g, str) else g or [])]
-        notes.append(f"{len(todo) - len(failed)} made with {model}")
+        names = {"image": "pictures", "image_small": "small things", "image_labeled": "labelled"}
+        notes.append(f"{len(todo) - len(failed)} made (" + ", ".join(f"{names[k]}: {v}" for k, v in models.items()) + ")")
         if sheets:
             notes.append(f"{sum(n for n, _ in sheets)} small object(s) asked for on {len(sheets)} sheet(s); "
                          f"{sum(k for _, k in sheets)} cut cleanly, the rest made one by one")
@@ -442,12 +459,20 @@ def _assets(run: dict) -> None:
     run["steps"]["assets"]["notes"] = notes
 
 
+def image_models(run: dict) -> dict:
+    """The run's three image models: {"image", "image_small", "image_labeled"} (a blank one: the image model)."""
+    m = run["settings"].get("models") or {}
+    main = m.get("image") or assets.DEFAULT_MODEL
+    return {"image": main, "image_small": m.get("image_small") or assets.SMALL_MODEL or main,
+            "image_labeled": m.get("image_labeled") or assets.LABELED_MODEL or main}
+
+
 def _better_words(run: dict, text: str, todo: list) -> dict:
     """One call (the score's model) rewrites each picture's few words into the exact picture wanted, from the
     narration and its shot's plan: {(kind, the score's words): the image model's words}. V3_IMAGE_REFINE=0: off."""
     if os.environ.get("V3_IMAGE_REFINE", "1") == "0":
         return {}
-    items = [(k, p) for k, p, _ in todo if not assets.is_archive(p)]
+    items = [(k, p) for k, p, _ in todo if not (assets.is_archive(p) and assets.SEARCH)]
     if not items:
         return {}
     plans = assets.shots_of(text)
@@ -516,7 +541,7 @@ def _find_parts(run: dict, text: str, image_model: str) -> list[str]:
     notes = []
     vision = (run["settings"].get("models") or {}).get("critic") or run["settings"]["model"]
     for kind, prompt, lk, names in assets.labelled(text):
-        p = assets.path_for(kind, prompt, lk if lk in look.LOOKS else "paper", image_model)
+        p = assets.path_for(kind, prompt, lk if lk in look.LOOKS else "paper")
         if not p.exists():
             continue
         import kit

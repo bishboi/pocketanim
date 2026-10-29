@@ -36,6 +36,14 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / ".cache" / "assets"
 FLAGS = ROOT / ".cache" / "flagpkg" / "package" / "flags" / "4x3"
 DEFAULT_MODEL = os.environ.get("V3_IMAGE_MODEL", "google/gemini-2.5-flash-image")
+# Three kinds of picture, a model each (blank: V3_IMAGE_MODEL): pictures (photos, backdrops, portraits); small things
+# (cut-out objects and icons, made six to a sheet: a smaller, cheaper model does); pictures whose parts are labelled
+# (they must show each named part clearly: a stronger model).
+SMALL_MODEL = os.environ.get("V3_IMAGE_MODEL_SMALL", "").strip()
+LABELED_MODEL = os.environ.get("V3_IMAGE_MODEL_LABELED", "").strip()
+# Pictures from Wikimedia Commons (`photo commons "..."`): off unless V3_IMAGE_SEARCH=1; when off, such a picture is
+# made by the image model from the same words.
+SEARCH = os.environ.get("V3_IMAGE_SEARCH", "0").strip() == "1"
 KINDS = ("pic", "photo")
 
 # The house style each look asks the image model for (appended to every prompt).
@@ -58,9 +66,43 @@ def key(kind: str, prompt: str, look: str, model: str) -> str:
 
 
 def path_for(kind: str, prompt: str, look: str, model: str | None = None) -> Path:
+    """Where a picture is kept: by its kind, words and look (the model that made it is kept beside it, NAME.model.txt,
+    so the render finds it whichever of the image models made it). `model` is not used (kept for old callers)."""
     if is_archive(prompt):                  # a picture from the archive is the same whatever the look or model
         return CACHE / f"commons-{key(kind, archive_query(prompt), 'commons', 'commons')}.png"
-    return CACHE / f"{kind}-{key(kind, prompt, look, model or DEFAULT_MODEL)}.png"
+    return CACHE / f"{kind}-{key(kind, prompt, look, '')}.png"
+
+
+def old_path(kind: str, prompt: str, look: str, model: str) -> Path:
+    """Where a picture was kept before the model left the key (each model's own file)."""
+    return CACHE / f"{kind}-{key(kind, prompt, look, model)}.png"
+
+
+def adopt(kind: str, prompt: str, look: str, models) -> bool:
+    """A picture kept under an old key (made by one of `models`) moved to its key now, with what is beside it."""
+    new = path_for(kind, prompt, look)
+    if new.exists() or is_archive(prompt):
+        return new.exists()
+    for m in dict.fromkeys(x for x in models if x):
+        old = old_path(kind, prompt, look, m)
+        if old.exists():
+            CACHE.mkdir(parents=True, exist_ok=True)
+            old.replace(new)
+            for ext in (".spots.json", ".prompt.txt"):
+                if old.with_suffix(ext).exists():
+                    old.with_suffix(ext).replace(new.with_suffix(ext))
+            keep_model(new, m)
+            return True
+    return False
+
+
+def keep_model(p: Path, model: str) -> None:
+    p.with_suffix(".model.txt").write_text(model)
+
+
+def made_with(p: Path) -> str | None:
+    f = p.with_suffix(".model.txt")
+    return f.read_text().strip() if f.exists() else None
 
 
 def is_archive(prompt: str) -> bool:
@@ -92,8 +134,9 @@ def labelled(score_text: str) -> list[tuple[str, str, str, list[str]]]:
             continue
         if len(toks) >= 2 and toks[0] == "look":
             look = toks[1]
-        if len(toks) >= 4 and toks[0] == "ent" and toks[2] in KINDS:
-            pics[toks[1]] = (toks[2], toks[3], look)
+        if len(toks) >= 4 and toks[0] == "ent" and toks[2] in KINDS + ("backdrop",):
+            words = f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]
+            pics[toks[1]] = ("photo" if toks[2] == "backdrop" else toks[2], words, look)
         if len(toks) >= 4 and toks[0] == "ent" and toks[2] == "labels" and "on" in toks:
             i = toks.index("on")
             pic = toks[i + 1] if i + 1 < len(toks) else ""
@@ -102,6 +145,24 @@ def labelled(score_text: str) -> list[tuple[str, str, str, list[str]]]:
                 out.setdefault(pics[pic], [])
                 out[pics[pic]] += [n for n in names if n not in out[pics[pic]]]
     return [(k, p, lk, names) for (k, p, lk), names in out.items() if names]
+
+
+def labelled_pictures(score_text: str) -> set[tuple[str, str]]:
+    """Every picture a `labels` entity is put on: (kind, the score's words), as `wants` gives them."""
+    pics, out = {}, set()
+    for raw in score_text.splitlines():
+        try:
+            toks = shlex.split(raw, comments=True)
+        except ValueError:
+            continue
+        if len(toks) >= 4 and toks[0] == "ent" and toks[2] in KINDS + ("backdrop",):
+            words = f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]
+            pics[toks[1]] = ("photo" if toks[2] == "backdrop" else toks[2], words)
+        if len(toks) >= 4 and toks[0] == "ent" and toks[2] == "labels" and "on" in toks:
+            i = toks.index("on")
+            if i + 1 < len(toks) and toks[i + 1] in pics:
+                out.add(pics[toks[i + 1]])
+    return out
 
 
 def find_prompt(names: list[str]) -> tuple[str, str]:
@@ -335,10 +396,11 @@ def generate(kind: str, prompt: str, look: str, model: str | None = None, said: 
     model = model or DEFAULT_MODEL
     img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", kind == "pic")
     done = cutout(img) if kind == "pic" else framed(img)
-    p = path_for(kind, prompt, look, model)
+    p = path_for(kind, prompt, look)
     CACHE.mkdir(parents=True, exist_ok=True)
     done.save(p)
     keep_said(p, said)
+    keep_model(p, model)
     return p, usage
 
 
@@ -419,9 +481,10 @@ def generate_sheet(items: list[tuple[str, str]], look: str, model: str | None = 
         if cut is None:
             missed.append(words)
             continue
-        p = path_for("pic", words, look, model)
+        p = path_for("pic", words, look)
         cut.save(p)
         keep_said(p, said if said != words else None)
+        keep_model(p, model)
         made[words] = p
     return made, missed, usage
 
@@ -464,7 +527,8 @@ def shots_of(score_text: str) -> dict:
 
 def refine_prompt(items: list[tuple[str, str, str]], narration: str) -> tuple[str, str]:
     """(kind, the score's words, its shot's plan) for each picture -> the call that writes better words."""
-    rows = "\n".join(f"{i + 1} | {kind} | {words} | shot: {plan[:160]}" for i, (kind, words, plan) in enumerate(items))
+    rows = "\n".join(f"{i + 1} | {kind} | {archive_query(words) if is_archive(words) else words} | shot: {plan[:160]}"
+                     for i, (kind, words, plan) in enumerate(items))
     return REFINE, f"NARRATION:\n{narration[:6000]}\n\nPICTURES (ID | kind | asked for | shot):\n{rows}"
 
 

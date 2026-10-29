@@ -117,11 +117,11 @@ class Handler(BaseHTTPRequestHandler):
                     return p.read_text() if p.exists() else None
                 words = json.loads(read("words.json") or "null")
                 score_text = read("video.score") or ""
-                image_model = (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL
                 pictures = []
                 for kind, prompt, lk in assets.wants(score_text):
-                    p = assets.path_for(kind, prompt, lk if lk in ("editorial", "paper") else "paper", image_model)
-                    pictures.append({"kind": kind, "prompt": prompt, "file": p.name if p.exists() else None})
+                    p = assets.path_for(kind, prompt, lk if lk in ("editorial", "paper") else "paper")
+                    pictures.append({"kind": kind, "prompt": prompt, "file": p.name if p.exists() else None,
+                                     "model": assets.made_with(p) if p.exists() else None})
                 self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"), "pictures": pictures,
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
                             "score": read("video.score"), "video": (d / "video.mp4").exists(),

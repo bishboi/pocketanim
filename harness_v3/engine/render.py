@@ -1141,6 +1141,8 @@ class ScoreScene(MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_in_out_sine))
 
     def _morph(self, na, ma, nb, mb, t0, t1) -> None:
+        if has_picture(ma) or has_picture(mb):
+            return self._swap(na, ma, nb, mb, t0, t1)
         state = {}
 
         def start():
@@ -1167,6 +1169,41 @@ class ScoreScene(MovingCameraScene):
             whole = self.E[nb]
             if whole is not mb and whole not in self.mobjects:
                 self.add(whole)
+        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_cubic))
+
+    def _swap(self, na, ma, nb, mb, t0, t1) -> None:
+        """One thing becoming another where a picture is in it (no points to blend): the first goes to the second's
+        place and size as it fades, the second comes on over it."""
+        st = {}
+
+        def start():
+            self._show(na, ma)
+            if id(self.E[nb]) not in self.up:
+                self._show(nb, mb)
+            st["a"], st["b"] = self._alpha(ma), self._alpha(mb)
+            st["a0"] = st["a"].now
+            st["b"].set(0.0)
+            st["c0"], st["c1"] = ma.get_center().copy(), mb.get_center().copy()
+            st["k"] = 1.0
+            st["k1"] = max(mb.width / max(ma.width, 1e-3), 0.05)
+            st["at"] = np.zeros(3)
+
+        def step(a):
+            d = (st["c1"] - st["c0"]) * a
+            ma.shift(d - st["at"])
+            st["at"] = d
+            k = 1 + (st["k1"] - 1) * a
+            ma.scale(k / st["k"])
+            st["k"] = k
+            st["a"].set(st["a0"] * (1 - a))
+            st["b"].set(min(1.0, a * 1.4))
+
+        def stop():
+            if ma is self.E.get(na):
+                self.remove(ma)
+                self.up.discard(id(ma))
+            ma.scale(1 / st["k"])
+            ma.shift(-st["at"])
         self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_cubic))
 
     def _color(self, m, c, t0, t1) -> None:

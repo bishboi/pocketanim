@@ -78,8 +78,10 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6,
                "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8,
                "walk": 2.0, "point": 0.6, "wave": 1.6, "talk": 2.0, "carry": 0.8, "sit": 0.7, "stand": 0.6,
-               "turn": 0.4, "bring": 1.4, "chapter": 0.1}
-PERSON_VERBS = ("walk", "point", "wave", "talk", "carry", "sit", "stand", "turn")
+               "turn": 0.4, "bring": 1.4, "chapter": 0.1, "run": 1.2, "cheer": 1.4, "shrug": 1.0,
+               "think": 1.6, "bow": 1.2, "jump": 0.7, "nod": 0.8}
+PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
+                "bow", "jump", "nod")
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -474,6 +476,8 @@ class ScoreScene(MovingCameraScene):
             o = self._origin(e.shot)
             e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
 
+        if e.kind == "person":
+            e.mods.setdefault("_name", e.name)      # its looks picked from its name when the score does not say
         def one():
             return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot),
                               find=lambda n: self.E.get(n))
@@ -1223,7 +1227,41 @@ class ScoreScene(MovingCameraScene):
             zs = [x.z_index for x in m.get_family()] or [0]
             z = max(zs)
             how = "draw"
-            if kind in ("ring", "circle"):
+            hand = self.texture and kind in ("ring", "circle", "mark", "underline", "strike", "box", "tick", "cross",
+                                             "highlight")
+            key = f"{name}{kind}{t0:.2f}"
+            if hand:                            # drawn by a pen, one stroke (feel.py)
+                pen_w = look.STROKE * 1.15
+                if kind in ("ring", "circle"):
+                    mk = feel.scribble_ring(c0[0], c0[1], w, h, key)
+                elif kind in ("mark", "underline"):
+                    mk = feel.scribble_underline(ul[0], dr[0], dr[1] - 0.13, key)
+                elif kind == "strike":
+                    mk = feel.scribble_strike(ul[0], dr[0], c0[1], key)
+                elif kind == "box":
+                    mk = feel.scribble_box(ul[0] - 0.16, dr[1] - 0.14, dr[0] + 0.16, ul[1] + 0.14, key)
+                    pen_w = look.STROKE * 0.85
+                elif kind == "tick":
+                    s = max(0.45, min(0.8, h * 0.6))
+                    mk = feel.scribble_tick(dr[0] + 0.3, c0[1], s, key)
+                    pen_w = look.STROKE * 1.3
+                elif kind == "cross":
+                    mk = feel.scribble_cross(c0[0], c0[1], max(0.5, min(w, h) * 0.75) / 2, key)
+                    pen_w = look.STROKE * 1.4
+                else:                           # highlight: a marker's band, swept on
+                    if h > 0.9:
+                        mk = feel.scribble_highlight(ul[0] - 0.15, dr[0] + 0.15, dr[1] - 0.12, ul[1] + 0.12, key)
+                        mk.set_fill(c, opacity=0.3)
+                    else:
+                        mk = feel.scribble_highlight(ul[0] - 0.15, dr[0] + 0.15, dr[1] + 0.02, dr[1] + h * 0.66 + 0.06, key)
+                        mk.set_fill(c, opacity=0.6)
+                    mk.set_stroke(width=0)
+                    z = min(zs) - 3
+                    how = "sweep"
+                if kind != "highlight":
+                    mk.set_stroke(c, width=pen_w, opacity=0.95)
+                    mk.set_fill(opacity=0)
+            elif kind in ("ring", "circle"):
                 mk = Ellipse(width=w + 0.6, height=h + 0.45, stroke_color=c, stroke_width=look.STROKE)
                 mk.rotate(-0.08).move_to(c0)
             elif kind in ("mark", "underline"):
@@ -1272,17 +1310,20 @@ class ScoreScene(MovingCameraScene):
                     mk.add(look.label(words, 0.15, "ink").next_to(mk[0], RIGHT, buff=0.15))
             else:
                 raise ValueError(f"no mark {kind!r}")
-            if self.texture and kind in ("ring", "circle", "mark", "underline", "box", "strike"):
-                feel.wobbled(mk, 0.02, name + kind)     # drawn by hand
             mk.set_z_index(z + 2)
             self.marks.setdefault(name, []).append(mk)
             self.follows.append([mk, core, core.get_center().copy(), None])
             self.add(mk)
             state["mk"] = mk
             if how == "draw":
-                anim = Create(mk) if kind not in ("callout", "bracket") else Create(mk, lag_ratio=0.3)
+                anim = Create(mk) if kind not in ("callout", "bracket", "box", "cross") else \
+                    Create(mk, lag_ratio=0.3 if kind != "box" else 0.85)
                 anim.begin()
                 state["anim"] = anim
+                if hand and kind not in ("cross", "box"):    # the pen's nib at the head of the stroke
+                    nib = Dot(radius=0.05, color=c).set_z_index(z + 3)
+                    state["nib"] = nib
+                    self.add(nib)
             elif how == "sweep":
                 state["w"], state["left"] = mk.width, mk.get_left().copy()
                 mk.stretch_to_fit_width(0.01).move_to(state["left"] + RIGHT * 0.005)
@@ -1294,6 +1335,9 @@ class ScoreScene(MovingCameraScene):
             mk = state["mk"]
             if "anim" in state:
                 state["anim"].interpolate(a)
+                if "nib" in state:
+                    if len(mk.points):           # the head of the stroke drawn so far
+                        state["nib"].move_to(mk.points[-1])
             elif "w" in state:
                 mk.stretch_to_fit_width(max(0.01, state["w"] * a))
                 mk.move_to(state["left"] + RIGHT * mk.width / 2)
@@ -1307,6 +1351,8 @@ class ScoreScene(MovingCameraScene):
             if "anim" in state:
                 state["anim"].interpolate(1)
                 state["anim"].finish()
+            if "nib" in state:
+                self.remove(state["nib"])
         rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, feel.pen if self.texture else rate_functions.ease_in_out_sine)
         self.tweens.append(Call(t0, t1, start, step, stop, rate))
 
@@ -1568,7 +1614,7 @@ class ScoreScene(MovingCameraScene):
         dur = max(t1 - t0, 0.05)
         st = {}
         blend = min(0.35, dur / 2)
-        back = v in ("wave", "talk")            # a wave or a talk ends where it began
+        back = v in ("wave", "talk", "cheer", "shrug", "bow", "jump", "nod")   # these end where they began
 
         def eased(tt: float) -> float:
             k = min(1.0, tt / blend) if blend > 0 else 1.0
@@ -1583,7 +1629,7 @@ class ScoreScene(MovingCameraScene):
                 p[key] = st["p0"][key] + (target[key] - st["p0"][key]) * k
             m.set_pose(p)
 
-        if v == "walk":
+        if v in ("walk", "run"):
             def start():
                 st["p0"] = dict(m.pose)
                 st["f0"] = m.feet().copy()
@@ -1596,9 +1642,9 @@ class ScoreScene(MovingCameraScene):
                 pos = st["f0"] + (st["f1"] - st["f0"]) * rate_functions.ease_in_out_sine(a)
                 m.shift(pos - m.feet())
                 gone = float(np.linalg.norm(pos - st["f0"]))
-                phase = gone / max(0.3 * m.unit(), 1e-3) * math.pi / 2
+                phase = gone / max((0.42 if v == "run" else 0.3) * m.unit(), 1e-3) * math.pi / 2
                 ramp = min(1.0, tt / 0.25, max(0.0, (dur - tt) / 0.25))
-                target = P.mix(P.REST, P.walk_pose(phase), ramp)
+                target = P.mix(m.rest, P.walk_pose(phase, v == "run"), ramp)
                 keys = legs + (() if getattr(m, "carrying", False) else arms)
                 p = dict(m.pose)
                 for key in keys:
@@ -1647,11 +1693,38 @@ class ScoreScene(MovingCameraScene):
                 self._talk_bubble(name, m, words, t0, t1)
         elif v in ("sit", "stand"):
             def step(a):
-                target = P.sit_pose(m.seat is not None) if v == "sit" else dict(P.REST)
+                target = P.sit_pose(m.seat is not None) if v == "sit" else dict(m.rest)
                 target["face"], target["mouth"] = st["p0"]["face"], st["p0"]["mouth"]
                 if v == "stand" and getattr(m, "carrying", False):
                     target.update({k: P.carry_pose()[k] for k in arms})
                 pose_to(target, legs + arms, a * dur)
+        elif v in P.GESTURES:
+            gesture = P.GESTURES[v]
+            back = v != "think" and back
+
+            def step(a):
+                tt = a * dur
+                target = {**st["p0"], **gesture}
+                if v == "cheer":                # a little bounce while the arms are up
+                    target["bob"] = 0.03 * abs(math.sin(tt * 7.0))
+                    keys = tuple(gesture) + ("bob",)
+                else:
+                    keys = tuple(gesture)
+                pose_to(target, keys, tt)
+        elif v == "jump":
+            def step(a):
+                hop = math.sin(math.pi * a)
+                p = dict(m.pose)
+                p["bob"] = 0.22 * hop
+                for key, val in (("fl1", 0.5), ("fl2", -0.3), ("bl1", 0.3), ("bl2", -0.4), ("fa1", 2.2), ("fa2", 2.4),
+                                 ("ba1", 2.0), ("ba2", 2.3)):
+                    p[key] = st["p0"][key] + (val - st["p0"][key]) * hop
+                m.set_pose(p)
+        elif v == "nod":
+            def step(a):
+                p = dict(m.pose)
+                p["nod"] = 0.22 * math.sin(a * math.pi * 4) * (1 - a)
+                m.set_pose(p)
         elif v == "turn":
             def step(a):
                 face = -1.0 if (act.args and act.args[0] == "left") else 1.0 if act.args else -st["p0"]["face"]

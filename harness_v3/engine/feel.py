@@ -176,3 +176,100 @@ def parallax_weight(dist: float, screen_w: float) -> float:
     if x <= 0 or x >= 1:
         return 0.0
     return math.sin(math.pi * x) ** 1.5
+
+
+# ---------------------------------------------------------------- marks drawn by hand --------------------------------
+# A pen's marks on the page: one stroke each, drawn in the order the pen goes (render.py draws them with `pen`).
+
+def _path(points):
+    from manim import VMobject
+    m = VMobject()
+    pts = [np.array([x, y, 0.0]) for x, y in points]
+    m.set_points_smoothly(pts)
+    return m
+
+
+def scribble_ring(cx: float, cy: float, w: float, h: float, name: str):
+    """A ring drawn round a thing with one stroke: a little more than once round, loose, its end past its start."""
+    rng = np.random.default_rng(seed(name))
+    a0 = rng.uniform(math.radians(100), math.radians(150))
+    turn = rng.uniform(1.12, 1.2) * math.tau
+    rx, ry = w / 2 + 0.28, h / 2 + 0.22
+    tilt = rng.uniform(-0.08, 0.04)
+    p1, p2 = rng.uniform(0, math.tau, 2)
+    pts = []
+    n = 46
+    for i in range(n + 1):
+        t = i / n
+        a = a0 - turn * t                      # clockwise, as most hands go
+        grow = 1.0 + 0.09 * t - 0.03            # a spiral: the stroke ends outside where it began
+        wob = 1.0 + 0.035 * math.sin(2 * a + p1) + 0.02 * math.sin(3 * a + p2)
+        x, y = rx * grow * wob * math.cos(a), ry * grow * wob * math.sin(a)
+        pts.append((cx + x * math.cos(tilt) - y * math.sin(tilt), cy + x * math.sin(tilt) + y * math.cos(tilt)))
+    return _path(pts)
+
+
+def scribble_underline(x0: float, x1: float, y: float, name: str):
+    """A swift underline: a slight bow, a little faster at the end, flicked up as the pen leaves."""
+    rng = np.random.default_rng(seed(name))
+    sag = rng.uniform(0.02, 0.05)
+    rise = rng.uniform(-0.03, 0.04)
+    pts = []
+    L = x1 - x0 + 0.2
+    for i in range(14):
+        t = i / 13
+        pts.append((x0 - 0.12 + L * t, y - sag * math.sin(math.pi * t) + rise * t))
+    pts.append((x1 + 0.2, y + rise + 0.07))    # the flick
+    return _path(pts)
+
+
+def scribble_strike(x0: float, x1: float, y: float, name: str):
+    rng = np.random.default_rng(seed(name))
+    pts = [(x0 - 0.12 + (x1 - x0 + 0.24) * t, y + 0.03 * math.sin(t * 9 + rng.uniform(0, 3)) + (t - 0.5) * 0.06)
+           for t in np.linspace(0, 1, 12)]
+    return _path(pts)
+
+
+def scribble_box(x0: float, y0: float, x1: float, y1: float, name: str):
+    """A box drawn as four quick strokes, each a little bowed and running past the corners."""
+    from manim import VGroup
+    rng = np.random.default_rng(seed(name))
+    j = lambda: rng.uniform(-0.035, 0.035)  # noqa: E731
+    o = 0.09
+    sides = [((x0 - o, y1 + j()), (x1 + o, y1 + j())), ((x1 + j(), y1 + o), (x1 + j(), y0 - o)),
+             ((x1 + o, y0 + j()), (x0 - o, y0 + j())), ((x0 + j(), y0 - o), (x0 + j(), y1 + o))]
+    g = VGroup()
+    for (ax, ay), (bx, by) in sides:
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        nx, ny = -(by - ay), bx - ax
+        k = rng.uniform(-0.012, 0.012)
+        g.add(_path([(ax, ay), (mx + nx * k, my + ny * k), (bx, by)]))
+    return g
+
+
+def scribble_tick(x: float, y: float, s: float, name: str):
+    pts = [(x, y + s * 0.05), (x + s * 0.3, y - s * 0.38), (x + s * 0.55, y + s * 0.08), (x + s * 1.0, y + s * 0.62)]
+    return _path(pts)
+
+
+def scribble_cross(cx: float, cy: float, s: float, name: str):
+    from manim import VGroup
+    rng = np.random.default_rng(seed(name))
+    a = _path([(cx - s, cy + s), (cx + rng.uniform(-0.05, 0.05), cy + rng.uniform(-0.04, 0.04)), (cx + s * 1.08, cy - s * 1.05)])
+    b = _path([(cx + s * 1.02, cy + s * 1.06), (cx, cy + rng.uniform(-0.04, 0.04)), (cx - s * 1.05, cy - s)])
+    return VGroup(a, b)
+
+
+def scribble_highlight(x0: float, x1: float, y0: float, y1: float, name: str):
+    """A highlighter's stroke: a band with rough, slanted ends and edges that are not quite straight."""
+    from manim import VMobject
+    rng = np.random.default_rng(seed(name))
+    top = [(x0 + (x1 - x0) * t, y1 + rng.uniform(-0.025, 0.025)) for t in np.linspace(0, 1, 8)]
+    bot = [(x1 - (x1 - x0) * t, y0 + rng.uniform(-0.025, 0.025)) for t in np.linspace(0, 1, 8)]
+    top[0] = (x0 + 0.06, y1)
+    bot[-1] = (x0 - 0.04, y0)
+    top[-1] = (x1 + 0.05, y1)
+    bot[0] = (x1 - 0.06, y0)
+    m = VMobject()
+    m.set_points_as_corners([np.array([x, y, 0.0]) for x, y in top + bot + [top[0]]])
+    return m

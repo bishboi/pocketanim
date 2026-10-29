@@ -135,13 +135,18 @@ KIT = {
   quote "WORDS" [who "who said it"]   a quotation (only words the narration quotes)
   doc "TITLE" [sub "a line"] [seal]   a page of a document (a charter, a law, a letter); `stamp` it
   formula "6CO_2 + 6H_2O -> C_6H_12O_6"   a formula (_ below, ^ above, -> an arrow)""",
-    "people": """  person [hat top|cap|crown|helmet|hood] [tool book|staff|spear|flag|sign|hammer|quill|coin] [seat]
-               [color C] [face left] [size H]   a stick figure drawn with a pen, standing at its feet's place
-  walk P to X,Y|ENT|M.place   (legs swing, it faces the way it goes)  |  point P at T  |  wave P  |  talk P "WORDS"
-  (mouth moves; a bubble only for words the narration quotes)  |  carry P THING (it goes into the hands and goes
-  where they go)  |  sit P  |  stand P  |  turn P left|right
-  People act out what the voice says (a merchant walks to the market, a monk points at the book): 1-3 a shot,
-  ground y about -2.6, at least 2.5 apart.""",
+    "people": """  person [wear shirt|tunic|robe|habit|dress|gown|coat|suit|armor|apron|toga|uniform|lab|overalls|vest]
+               [hat top|bowler|cap|beret|straw|cowboy|crown|helmet|tricorn|mitre|turban|hood|veil|chef|hardhat|wreath|
+               headscarf] [hair short|long|bob|bun|ponytail|curly|spiky|bald(-black|brown|blonde|red|grey|white)]
+               [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark] [mood happy|sad|angry|surprised|calm]
+               [tool book|scroll|quill|coin|bag|sword|shield|staff|spear|flag|sign|hammer|pickaxe|torch|lantern|basket|
+               cane|pointer|briefcase] [color C] [seat] [old] [kid] [face left] [size H]
+               a little drawn figure, dressed for who they are (a monk: wear habit hat hood; a king: wear gown hat
+               crown; a merchant: wear coat hat top tool bag), standing with its feet at its place
+  walk P to X,Y|ENT|M.place | run P to ... | point P at T | wave P | talk P "WORDS" (mouth moves; a bubble only
+  for words the narration quotes) | carry P THING (it goes into the hands) | sit P | stand P | turn P left|right
+  | cheer P | shrug P | think P | bow P | jump P | nod P
+  People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart.""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }

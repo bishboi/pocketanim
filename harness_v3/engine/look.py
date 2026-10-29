@@ -490,7 +490,7 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = _kit2(kind, args, mods, size, c, locate, find)
     elif kind == "person":
         import people
-        m = people.person(mods, size or 1.8, c)
+        m = people.person(mods, size or 2.2, c)
     elif kind == "phrase":
         m = phrase(args[0] if args else "", size or 0.5, float(mods.get("w", 9.0)), c, bool(mods.get("bold")),
                    bool(mods.get("serif")))

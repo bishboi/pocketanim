@@ -94,7 +94,8 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
         "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None,
-        "hat": "s", "tool": "s", "seat": None, "face": "s"}
+        "hat": "s", "tool": "s", "seat": None, "face": "s", "wear": "s", "hair": "s", "beard": None,
+        "longbeard": None, "mustache": None, "skin": "s", "mood": "s", "old": None, "kid": None}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")

@@ -30,6 +30,8 @@ w58-w62     morph fields works stagger .14
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
 | `engine/assets.py` | Pictures a score asks for (`pic`, `photo`), made by an image model through OpenRouter's Image API (`V3_IMAGE_MODEL`), cut out or framed with a soft shadow, kept by their words; flags (`flag jp`) from flag-icons, exact. |
 | `engine/kit.py` | The bigger pieces (after v2's kit): timeline / event / span, chart (line, bars, donut), flow (a flow diagram laid out in layers), pyramid, cycle, quote, doc, title, and labels on a picture. Each is one `ent`, placed freely; its parts are what the actions bring on (`in fl[1]`), its places are `NAME.KEY` (`tl.1347`, `fl.town`). `demo/gallery.score` shows every one. |
+| `engine/kit2.py` | More pieces: science and maths (numberline, plot, triangle, molecule, equation, circuit), data and civics (race, parliament, market, climate, scatter and area charts), storytelling (quiz, lens, split, clock, odometer, clipping), maps (shade, march, inset, globe, layers). `who` and `polaroids` are drawn in look.py (they hold pictures). |
+| `engine/sound.py` | The soundtrack: the voice with small sounds where things happen (a pop, a scratch, a thud, a chime, a buzz, a whoosh, a page's rustle; all made from numbers) and a quiet music bed ducked under the voice (`music calm|warm|tense|none` in a score, or `V3_MUSIC`; `sound off`, or `V3_SOUND=0`). The timeline, the player, the export and the render all play it. |
 | `engine/geo.py` | Real maps' data: countries, coasts, seas, rivers and towns from Natural Earth; the states of a year from historical-basemaps (A. Ourednik, GPL-3.0; fetched when first asked for); places by name (towns, old names such as Constantinople, sites of the past, seas, else OpenStreetMap, cached). In `.cache/geo`. |
 | `engine/layout.py` | The layout check (the `layout` step, after the pictures): the score's things built with their real sizes, and what covers what without meaning to, runs off its screen or a map, or is empty said by shot, with every thing's size. Shots with problems go back to the score's model once (`V3_LAYOUT_FIX`), then are checked again; a score given by hand is only checked. |
 | `engine/timeline.py` | The video as a timeline a player draws (no MP4): the renderer's own scene played without drawing, each drawn piece recorded (its shape once, then its transform, colours and width; a picture by its corners), keys only where something changes (`player/timeline.json`). |
@@ -131,6 +133,16 @@ C_6H_12O_6"`, `backdrop "a snowy forest"` (a softened photo behind a shot), `wea
 and in view), `portrait "Edward III" sub "1312 to 1377" img "commons:..."`, `bubble "words" on PERSON`, and a map's
 `compass` and `scale` bar. Verbs: `pan PHOTO` (a slow push into a still), `type T`, `fill SHAPE 60`, `connect A B
 "words"`, `follow T` (the camera keeps a moving thing in view), `tip`.
+
+More pieces (`engine/kit2.py`; all in the gallery): `numberline -5 5` (`nl.3` a place), `plot "x^2 - 2" -3 3` (`pl.2`
+the curve at x = 2), `triangle A:0,0 B:3,0 C:1,2 sides angles`, `molecule H2O`, `equation "2x + 3 = 7" "2x = 4"
+"x = 2"`, `circuit "battery>bulb>switch"`, `race "1900|1950|2000" UK:12|8|5 USA:8|14|20` (`count rc 2000`),
+`parliament A:303 B:52`, `market` (`grow mk 1` moves demand), `climate J:14:20 ...`, `chart scatter` / `chart area`,
+`quiz "Which came first?" "A" "B" answer 1`, `lens "@0.6,0.4" on PIC`, `split "before" "after"`, `clock 9`
+(`count clk 17`), `odometer 0` (`count od 1455`), `clipping "HEADLINE"`, `who "NAME" sub "years" where "place"`,
+`polaroids "a" "b" "c"`, `shade "WHAT" on MAP France:30 ...`, `march MAP.a MAP.b`, `inset on MAP`, `globe 10,50`,
+`layers "crust" "mantle" ... round`. Verbs: `era MAP 1500` (borders change to that year's), `glow T`,
+`cam SHOT via page|tear|whip`.
 
 Placing a thing against another: `below X`, `above X`, `left X`, `right X` (X a thing or a part of a piece:
 `below fl.economic`; `gap G`): it is put against X's edge with its real size, whatever that turns out to be. A

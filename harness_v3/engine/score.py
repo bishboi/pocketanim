@@ -75,6 +75,8 @@ class Score:
     acts: list[Act] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     end: float = 0.0
+    music: str | None = None        # `music calm|warm|tense|none` (sound.py)
+    sound: bool | None = None       # `sound off`: no small sounds
 
 
 # What a modifier is followed by (its value's shape).
@@ -85,7 +87,8 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "to": "s", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "flag": "s", "img": "s", "sub": "s",
         "map": "s", "year": "i", "names": None, "rivers": None, "outline": None, "side": "s", "who": "s",
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
-        "n": "i", "below": "s", "above": "s", "left": "s", "right": "s"}
+        "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
+        "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")
@@ -190,6 +193,10 @@ def parse(text: str, words: list[dict], seconds: float) -> Score:
         try:
             if head == "look":
                 sc.look = toks[1]
+            elif head == "music":
+                sc.music = toks[1] if len(toks) > 1 else "calm"
+            elif head == "sound":
+                sc.sound = (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0")
             elif head == "shot":
                 _, mods = parse_mods(toks[2:])
                 if "at" in mods:

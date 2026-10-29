@@ -40,7 +40,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, ImageMobject, Line, Mobject, Rectangle,
-                   RoundedRectangle,
+                   RoundedRectangle, Polygon,
                    MovingCameraScene, ReplacementTransform, VGroup, VMobject, Write, config, rate_functions,
                    tempconfig)
 from manim.utils.color import ManimColor, interpolate_color
@@ -50,20 +50,20 @@ import score as S
 
 LEAD = 0.18             # an action lands on its word: it starts this much before it
 # Kinds drawn on another piece (`on NAME` / `map NAME`), where they stand on it.
-ON_PARENT = ("region", "pin", "river", "event", "span", "labels", "bubble")
+ON_PARENT = ("region", "pin", "river", "event", "span", "labels", "bubble", "lens", "shade", "inset")
 # The marks a verb draws, and each one's colour when none is said.
 MARKS = {"ring": "coral", "circle": "coral", "mark": "coral", "underline": "coral", "highlight": "accent",
          "strike": "red", "box": "coral", "tick": "green", "cross": "red", "stamp": "red", "callout": "ink"}
 SIDES = ("left", "right", "up", "down")
 # Putting a thing against another (`below X`...), and what goes beside a piece's part when put `at` it.
 REL = ("below", "above", "left", "right")
-PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart"}
+PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart", "layers", "circuit"}
 BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait"}
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
                "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
                "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
                "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6,
-               "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0}
+               "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8}
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -221,7 +221,7 @@ class ScoreScene(MovingCameraScene):
         ents = list(sc.ents.values())
         # What stands on another piece (a map's regions, a timeline's events, a picture's labels) and paths are drawn
         # after what they name.
-        paths = [e for e in ents if e.kind == "path" or e.kind in ON_PARENT]
+        paths = [e for e in ents if e.kind in ("path", "march") or e.kind in ON_PARENT]
         last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path" and e.kind not in ON_PARENT)]
         rel = [e for e in ents if any(isinstance(e.mods.get(k), str) for k in REL)
                or (isinstance(e.mods.get("at"), str) and e.mods["at"].split(".", 1)[0] in sc.ents and e not in paths)]
@@ -250,8 +250,10 @@ class ScoreScene(MovingCameraScene):
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
     SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots", "pic", "photo", "flag", "card", "tag",
               "label", "timeline", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "compare", "table",
-              "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "portrait", "tree"}
-    HOLDERS = {"rect", "circle", "blob", "card", "photo"}
+              "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "portrait", "tree",
+              "numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market",
+              "climate", "quiz", "clock", "odometer", "clipping", "layers", "globe", "who", "polaroids"}
+    HOLDERS = {"rect", "circle", "blob", "card", "photo", "split"}
 
     def _holder(self, e: S.Ent) -> bool:
         """A shape that things are put on: a box, a disc, a region, an icon on its badge."""
@@ -447,7 +449,7 @@ class ScoreScene(MovingCameraScene):
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
         on_map = e.kind in ON_PARENT        # drawn where it stands on its map, timeline or picture
-        if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather") and not on_map
+        if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather", "march") and not on_map
                 and (m.width > 12 or m.height > 7)):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
         if e.mods.get("on") and len(m.submobjects) > 1 and not on_map:
@@ -469,7 +471,7 @@ class ScoreScene(MovingCameraScene):
             # Kept on its screen as it is placed, before anything is drawn on it (its regions and pins follow).
             self._on_screen(m, self.SCORE.shots[e.shot])
         # A region sits under what is on it; a map under its regions, a pin over them.
-        layer = int(e.mods.get("layer", -5 if e.kind == "backdrop" else -2 if e.kind == "map"
+        layer = int(e.mods.get("layer", -5 if e.kind == "backdrop" else -3 if e.kind == "split" else -2 if e.kind == "map"
                                else -1 if e.kind in ("blob", "islands", "region", "river")
                                else 1 if e.kind in ("pin", "labels", "bubble") else 4 if e.kind == "weather" else 0))
         if e.kind == "backdrop" and e.mods.get("opacity") is None:
@@ -688,6 +690,16 @@ class ScoreScene(MovingCameraScene):
             for (name, m) in self._targets(act.target):
                 if isinstance(m, kit.Balance):
                     self._tip(m, way, t0, t1)
+        elif v == "era":
+            # A map's states as they stood in another year, crossfaded in (empires rising and falling).
+            (name, m), = self._targets(act.target)[:1]
+            if not isinstance(m, look.GeoMap):
+                raise ValueError("era is a map's: `era MAP YEAR`")
+            self._era(name, m, int(float(act.args[0])), t0, t1)
+        elif v == "glow":
+            colour = look.col(next((a for a in act.args if a in look.L), "accent"))
+            for (name, m) in self._targets(act.target):
+                self._glow(name, m, colour, t0, t1)
         elif v == "spotlight":
             self._spotlight(act.target, float(self._opt(act, "dim", 0.22)), t0, t1)
         elif v == "bracket":
@@ -1191,6 +1203,76 @@ class ScoreScene(MovingCameraScene):
                     p.move_to(c0 + np.array([xx, yy, 0.0]))
             self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, step, None, rate_functions.linear))
 
+    def _era(self, name, m, year: int, t0, t1) -> None:
+        import geo
+        state = {}
+
+        def start():
+            new = VGroup()
+            for _, g in geo.states(year, m.bounds):
+                new.add(*m.shape_mob(g, fill=None, stroke=look.col("grey") if "grey" in look.L else look.col("soft"),
+                                     width=1.5, screen=True))
+            new.set_z_index(max(x.z_index for x in m.get_family()) + 1)
+            self.marks.setdefault(name, []).append(new)
+            self.follows.append([new, m, m.get_center().copy(), None])
+            self.add(new)
+            state["new"], state["old"] = Alpha(new), self._alpha(m[2])
+            state["o0"] = state["old"].now
+            state["new"].set(0.0)
+
+        def step(a):
+            state["new"].set(a)
+            state["old"].set(state["o0"] * (1 - a))
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.smooth))
+
+    def _glow(self, name, m, c, t0, t1) -> None:
+        """A soft light behind a thing (rings of the colour, fainter outward); it stays and follows the thing."""
+        state = {}
+
+        def start():
+            core = getattr(m, "core", m)
+            r = max(core.width, core.height) / 2
+            halo = VGroup(*(Circle(radius=r * (1.0 + 0.12 * k), fill_color=c, fill_opacity=0.09, stroke_width=0)
+                            for k in range(7))).move_to(core)
+            halo.set_z_index(min(x.z_index for x in m.get_family()) - 2)
+            self.marks.setdefault(name, []).append(halo)
+            self.follows.append([halo, core, core.get_center().copy(), None])
+            self.add(halo)
+            state["al"] = Alpha(halo)
+            state["al"].set(0.0)
+        self.tweens.append(Call(t0, t1, start, lambda a: state["al"].set(a), None, rate_functions.smooth))
+
+    def _sheet(self, how: str, t0, t1) -> None:
+        """A sheet of paper drawn across the screen while the camera moves under it (a page turned; `tear`: its edges
+        torn), so one place gives way to the next."""
+        f = self.camera.frame
+        rng = np.random.default_rng(int(t0 * 1000) % 9973)
+        h = 1.0
+        if how == "tear":
+            left = [[-0.55 + rng.uniform(-0.03, 0.03), y, 0] for y in np.linspace(0.6, -0.6, 22)]
+            right = [[0.55 + rng.uniform(-0.03, 0.03), y, 0] for y in np.linspace(-0.6, 0.6, 22)]
+            sheet = Polygon(*left, *right, fill_color=look.col("card"), fill_opacity=1, stroke_color=look.col("sand"),
+                            stroke_width=2)
+        else:
+            sheet = VGroup(Rectangle(width=1.1, height=1.2, fill_color=look.col("card"), fill_opacity=1, stroke_width=0),
+                           Rectangle(width=0.03, height=1.2, fill_color=look.L["ink"], fill_opacity=0.12,
+                                     stroke_width=0).shift(LEFT * 0.565))
+        sheet.set_z_index(950)
+        state = {"w": 1.0}
+
+        def start():
+            self.add(sheet)
+
+        def step(a):
+            w = f.width
+            sheet.scale(w / state["w"])
+            state["w"] = w
+            sheet.move_to(f.get_center() + RIGHT * w * 1.15 * (1 - 2 * a))
+
+        def stop():
+            self.remove(sheet)
+        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.linear))
+
     def _spotlight(self, target: str, dim: float, t0, t1) -> None:
         """Everything else up in the target's shot veiled (`lift` brings a thing back)."""
         names = {n for n, _ in self._targets(target)}
@@ -1279,7 +1361,17 @@ class ScoreScene(MovingCameraScene):
             f.move_to(state["c0"] + (state["c1"] - state["c0"]) * a)
             # The width eases in log space, so a zoom feels even.
             f.set_width(math.exp(math.log(state["w0"]) + (math.log(state["w1"]) - math.log(state["w0"])) * a))
-        tw = Call(max(0.0, t0), t1, start, step, None, rate_functions.ease_in_out_sine)
+        via = self._opt(act, "via", None, str)
+        if via in ("page", "tear"):
+            t1 = max(t1, max(0.0, t0) + 1.1)          # the sheet needs a moment to cross
+            self._sheet(via, max(0.0, t0), t1)
+            rate = rate_functions.ease_in_out_cubic   # the move made while the sheet hides it
+        elif via == "whip":
+            t1 = max(0.0, t0) + min(t1 - max(0.0, t0), 0.45)
+            rate = rate_functions.ease_in_out_expo if hasattr(rate_functions, "ease_in_out_expo") else rate_functions.smooth
+        else:
+            rate = rate_functions.ease_in_out_sine
+        tw = Call(max(0.0, t0), t1, start, step, None, rate)
         tw.camera = True
         self.tweens.append(tw)
 
@@ -1312,6 +1404,18 @@ class ScoreScene(MovingCameraScene):
 RES = {"h": (1920, 1080, 30), "m": (1280, 720, 30), "l": (854, 480, 15)}
 
 
+def _soundtrack(sc, voice_dir: Path) -> Path:
+    """The voice with the score's small sounds and music under it (sound.py), else the voice alone."""
+    try:
+        import sound
+        out = voice_dir / "soundtrack.wav"
+        sound.mix(sc, voice_dir / "voice.wav", out)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print(f"soundtrack not made ({e}): the voice alone", file=sys.stderr)
+        return voice_dir / "voice.wav"
+
+
 def frames_of(seconds: float, fps: int) -> int:
     return int(round(seconds * fps))
 
@@ -1325,7 +1429,7 @@ def jobs_default() -> int:
 def _one(sc: S.Score, words: dict, voice_dir: Path, out: Path, quality: str, frames=None, sound=True,
          media: Path | None = None) -> None:
     ScoreScene.SCORE, ScoreScene.WORDS = sc, words
-    ScoreScene.WAV = str(voice_dir / "voice.wav")
+    ScoreScene.WAV = str(_soundtrack(sc, voice_dir) if sound else voice_dir / "voice.wav")
     ScoreScene.FRAMES, ScoreScene.SOUND = frames, sound
     w, h, fps = RES[quality]
     ScoreScene.FPS = fps
@@ -1404,7 +1508,7 @@ def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span
         print(l, file=sys.stderr)
     (parts / "list.txt").write_text("".join(f"file 'part{k}.mp4'\n" for k in range(jobs)))
     subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(parts / "list.txt"),
-                    "-i", str(voice_dir / "voice.wav"), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
+                    "-i", str(_soundtrack(sc, voice_dir)), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
                     "-b:a", "160k", str(out)], check=True)
     shutil.rmtree(parts, ignore_errors=True)
     return notes

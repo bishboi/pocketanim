@@ -158,3 +158,91 @@ t54        in ship,sea fade
 t54.5      connect kingp mp "rules"
 t55-t57    along ship sea
 t55-t57    follow ship zoom 2
+
+# ---- science and maths: number line, plot, triangle, molecule, equation, circuit
+shot science at 18,-22
+ent nl     numberline -5 5 w 6 at -3.4,3.0
+ent mark   icon map-pin size 0.45 color coral at nl.-2
+ent pl     plot "x^2 - 2" -3 3 w 4.2 h 3.0 at -4.0,-0.6
+ent dot    circle r 0.1 fill coral at pl.-3
+ent tri    triangle A:0,0 B:3,0 C:0.8,2.2 sides angles at 0.9,-0.5
+ent h2o    molecule H2O size 0.8 at 4.8,2.6
+ent eq     equation "2x + 3 = 7" "2x = 4" "x = 2" size 0.3 at 4.8,0.5
+ent ci     circuit "battery>bulb>switch" w 3.2 h 1.6 at 4.6,-2.6
+t59        cam science
+t59.2      in nl draw
+t59.4      in mark pop
+t59.6      move mark to nl.3
+t60        in pl[0] fade
+t60.3-t61.3 in pl[1] draw
+t60.3      in dot pop
+t60.4-t61.4 move dot to pl.2
+t61.4-t62.4 in tri stagger .2
+t62        in h2o stagger .1
+t62.6-t63.6 in eq stagger .3
+t63.6      highlight eq[2]
+t63.8-t64.6 in ci stagger .15
+t64.6      glow ci.bulb gold
+
+# ---- data and civics: race, parliament, market, climate, scatter, area
+shot civics at 36,-22
+ent rc     race "1900|1950|2000" UK:12|8|5 USA:8|14|20 India:2|4|18 w 6 h 2.4 at -3.4,2.0
+ent parl   parliament Gold:303 Teal:52 Coral:100 Navy:88 r 1.7 majority at -3.6,-1.8
+ent mk     market w 3.6 h 2.6 at 1.5,1.2
+ent cl     climate J:14:20 F:17:25 M:23:15 A:29:10 M:33:15 J:34:70 J:31:210 A:30:250 S:29:120 O:26:15 N:20:5 D:15:10 w 3.4 h 1.8 at 1.6,-2.3
+ent sc     chart scatter 1:2 2:3 3:5 4:4 5:7 w 2.2 h 1.6 at 5.4,1.4
+ent ar     chart area 1000:42 1300:73 1400:45 w 2.4 h 1.4 at 5.4,-2.0
+t66        cam civics
+t66.2      in rc fade
+t66.4-t68.4 count rc 2000
+t66.6      in parl stagger .2
+t67        in mk stagger .2
+t68-t69    grow mk 0.8
+t68        in cl stagger .05
+t68.5      in sc stagger .05
+t69        in ar stagger .3
+
+# ---- storytelling: quiz, lens, clock, odometer, clipping, split, who, polaroids
+shot story at 54,-22
+ent qz     quiz "Which came first?" "Jikji" "Gutenberg Bible" answer 1 w 6 at -3.4,1.9
+ent wood   photo "a printing press woodcut" size 3.0 at -4.8,-2.0
+ent ln     lens "@0.6,0.4" on wood zoom 3 r 0.8
+ent clk    clock 9 r 0.8 at 1.0,2.6
+ent od     odometer 0 digits 4 size 0.4 at 3.6,2.6
+ent clip   clipping "Press reaches Venice" date "1469" w 3.0 h 2.1 at 0.6,-1.9
+ent per    who "Johannes Gutenberg" sub "c. 1400 to 1468" where "Mainz" size 1.2 at 3.3,0.6
+ent pol    polaroids "Mainz cathedral" "a medieval print shop" "a printed bible" size 1.0 at 4.6,-2.4
+t71        cam story
+t71.2      in qz[0] fade
+t71.6      in qz[1] pop
+t71.8      in qz[2] pop
+t72.6      in qz[3] fade
+t72.8      in wood fade
+t73        in ln stagger .2
+t73.2      in clk fade
+t73.4-t74.4 count clk 17
+t73.4      in od fade
+t73.4-t75  count od 1455
+t74        in clip drop
+t74.4      in per fade
+t74.8      in pol stagger .2
+
+# ---- maps: era, shade, march, inset, globe, layers; a page turn
+shot maps2 at 0,-33
+ent em2    map "-10,34,40,60" year 1100 w 7.4 h 4.4 at -2.6,1.2
+ent lit    shade "printed books, millions" on em2 France:30 Italy:45 Spain:12 Germany:40 England:8
+ent ins    inset on em2
+ent arm    march em2.paris em2.vienna em2.constantinople width 1.2
+ent gl     globe 12,45 r 1.6 at 4.8,1.6
+ent earth  layers "crust" "mantle" "outer core" "inner core" round r 1.4 at 4.8,-2.0
+ent soil   layers "topsoil" "subsoil" "bedrock" w 3.6 h 1.8 at -2.6,-2.6
+t76        cam maps2 via page
+t77        in em2 fade
+t77.4      in ins fade
+t77.8      era em2 1500
+t79.2      in lit stagger .1
+t80-t81.2  in arm draw
+t80        in gl fade
+t80.6      in earth stagger .2
+t81        in soil stagger .2
+t82        cam scene via tear

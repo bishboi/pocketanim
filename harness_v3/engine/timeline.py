@@ -279,12 +279,20 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
         scene.setup()
         scene.construct()
     shutil.rmtree(out_dir / ".media", ignore_errors=True)
+    audio = "voice.wav"
     if (voice_dir / "voice.wav").exists():
         shutil.copyfile(voice_dir / "voice.wav", out_dir / "voice.wav")
+        try:                                    # the voice with its small sounds and music under it (sound.py)
+            import sound
+            told = sound.mix(sc, voice_dir / "voice.wav", out_dir / "soundtrack.wav")
+            audio = "soundtrack.wav"
+            print(f"soundtrack: {told['sounds']} sound(s), music {told['music'] or 'off'}", flush=True)
+        except Exception as e:  # noqa: BLE001 -- the voice alone
+            print(f"soundtrack not made ({e}): the voice alone", flush=True)
     import look
     print(f"writing timeline.json: {len(rec.order)} pieces, {len(rec.pictures)} picture(s)", flush=True)
     data = {"version": 1, "fps": fps, "frames": total, "size": [w, h], "frame_width": S.SCREEN_W,
-            "bg": look.L["bg"], "audio": "voice.wav", "camera": rec.camera_keys(),
+            "bg": look.L["bg"], "audio": audio, "camera": rec.camera_keys(),
             "leaves": [leaf.out() for leaf in rec.order], "notes": sc.notes}
     text = json.dumps(data, separators=(",", ":"))
     (out_dir / "timeline.json").write_text(text)

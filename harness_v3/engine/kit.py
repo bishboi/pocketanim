@@ -273,6 +273,9 @@ def chart(args: list[str], mods: dict, c=None) -> VGroup:
         return _donut(data, mods)
     if how in ("stack", "waffle"):
         return (stack if how == "stack" else waffle)(data, mods, c)
+    if how in ("scatter", "area"):
+        import kit2
+        return getattr(kit2, how)(data, mods, c)
     return _bars(data, mods, c)
 
 
@@ -935,8 +938,10 @@ def formula(words: str, mods: dict, c=None):
     s = re.sub(r"\^\{([^}]*)\}", r"<sup>\1</sup>", s)
     s = re.sub(r"_(\d+|[A-Za-z])", r"<sub>\1</sub>", s)           # H_2O, C_6H_12O_6, x_i
     s = re.sub(r"\^(\d+[+\-]?|[A-Za-z+\-])", r"<sup>\1</sup>", s)   # x^2, Ca^2+, e^x
-    t = MarkupText(s, font=L.get("body") or "Inter", color=col(c or "ink"), font_size=48)
-    t.scale(float(mods.get("size") or 0.5) * 1.35 / max(t.height, 0.01) * 0.8)
+    font = L.get("body") or "Inter"
+    t = MarkupText(s, font=font, color=col(c or "ink"), font_size=48)
+    ref = MarkupText("H", font=font, font_size=48)     # scaled by a capital's height, whatever the glyphs (an "=")
+    t.scale(float(mods.get("size") or 0.5) / max(ref.height, 0.01) * 0.8)
     return VGroup(t)
 
 

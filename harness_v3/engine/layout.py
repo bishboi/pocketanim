@@ -27,7 +27,8 @@ import score as S
 
 # Kinds never said to cover another: what joins things, what lies behind or over a whole shot, what is drawn on a
 # piece where it stands.
-FREE = {"path", "arrow", "waves", "backdrop", "weather", "region", "river", "pin", "event", "span", "labels", "bubble"}
+FREE = {"path", "arrow", "waves", "backdrop", "weather", "region", "river", "pin", "event", "span", "labels", "bubble",
+        "march", "lens", "shade", "inset", "split"}
 WORDS_KINDS = ("text", "tag", "label", "card", "title", "quote")
 
 

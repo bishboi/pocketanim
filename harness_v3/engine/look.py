@@ -418,6 +418,33 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         a = locate(args[0]) if locate else (0, 0, 0)
         b = locate(args[1]) if locate else (1, 0, 0)
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
+    elif kind in KIT2:
+        m = _kit2(kind, args, mods, size, c, locate, find)
+    elif kind == "who":
+        # a person brought in: their picture, name, years and where they were from, as one piece
+        p = picture("photo", str(mods.get("img") or f"a portrait of {args[0] if args else 'a person'}"), size or 2.4, mods)
+        name = text(str(args[0] if args else "").upper(), 0.34, bold=True)
+        col_ = [name]
+        if mods.get("sub"):
+            col_.append(label(str(mods["sub"]), 0.14, "ink"))
+        if mods.get("where"):
+            col_.append(label("from " + str(mods["where"]), 0.12, "soft"))
+        words = VGroup(*col_).arrange(DOWN, buff=0.14, aligned_edge=LEFT)
+        bar = Rectangle(width=0.1, height=words.height + 0.2, fill_color=col(c or "accent"), fill_opacity=1, stroke_width=0)
+        words = VGroup(bar.next_to(words, LEFT, buff=0.18), words)
+        m = Group(p, words.next_to(p, RIGHT, buff=0.35))
+    elif kind == "polaroids":
+        # prints dealt on the table, a little askew each: each its picture on a white print, its caption under
+        prints = []
+        for i, what in enumerate(args):
+            ph = picture("photo", what, size or 2.2, {})
+            card_ = Rectangle(width=ph.width + 0.3, height=ph.height + 0.75, fill_color=col("white"), fill_opacity=1,
+                              stroke_color=col("sand"), stroke_width=1)
+            ph.move_to(card_.get_top() + DOWN * (0.15 + ph.height / 2))
+            one = Group(soft_shadow(card_), card_, ph)
+            one.rotate(math.radians([-5, 4, -2, 6, -4][i % 5]))
+            prints.append(one)
+        m = Group(*prints).arrange(RIGHT, buff=-0.25)
     elif kind == "backdrop":
         # A photo over the whole screen, softened, behind everything of its shot: a place to stand in.
         what = f"commons:{args[1]}" if len(args) > 1 and args[0] == "commons" else (args[0] if args else "")
@@ -462,9 +489,60 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
 KIT = {"timeline", "event", "span", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels", "compare",
        "table", "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather",
        "tree"}
+# More pieces (kit2.py); `who` and `polaroids` are drawn here (they hold pictures).
+KIT2 = {"numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate",
+        "quiz", "lens", "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe"}
 
 
 # ---------------------------------------------------------------- the kit's pieces -----------------------------------
+
+def _kit2(kind, args, mods, size, c, locate, find):
+    import kit2
+    num = kit2._num
+    if kind in ("lens", "shade", "inset"):
+        on = find(mods.get("on")) if find and mods.get("on") else None
+        if on is None or (kind != "lens" and not isinstance(on, GeoMap)):
+            raise ValueError(f"a {kind} is drawn on a {'picture' if kind == 'lens' else 'map'}: `on NAME`")
+        if kind == "lens":
+            return kit2.lens(on, args[0] if args else "@0.5,0.5", mods, c)
+        if kind == "shade":
+            return kit2.shade(on, args[0] if args else "", args[1:], mods, c)
+        return kit2.inset(on, mods, c)
+    if kind == "numberline":
+        return kit2.NumberLine(num(args[0]), num(args[1]), float(mods.get("w", 11)), mods.get("step"), c)
+    if kind == "plot":
+        return kit2.Plot(args[0], num(args[1]) if len(args) > 1 else -3, num(args[2]) if len(args) > 2 else 3,
+                         float(mods.get("w", 6)), float(mods.get("h", 4)), c)
+    if kind == "race":
+        years = [num(y) for y in args[0].split("|")]
+        series = {}
+        for a in args[1:]:
+            k, v = a.rsplit(":", 1)
+            vals = [num(x) for x in v.split("|")]
+            series[k] = (vals + [vals[-1]] * len(years))[:len(years)]
+        return kit2.Race(years, series, float(mods.get("w", 8)), float(mods.get("h", 4)), mods, c)
+    if kind == "market":
+        return kit2.Market(float(mods.get("w", 5.5)), float(mods.get("h", 4)), c)
+    if kind == "clock":
+        return kit2.Clock(num(args[0]) if args else 12, float(mods.get("r", 1.3)), c)
+    if kind == "odometer":
+        return kit2.Odometer(num(args[0]) if args else 0, int(mods.get("digits", 0)), size or 0.8,
+                             mods.get("prefix", ""), mods.get("suffix", ""), c)
+    if kind == "globe":
+        lon, lat = (num(v) for v in (args[0] if args else "0,20").split(","))
+        return kit2.Globe(lon, lat, float(mods.get("r", 2.6)), c)
+    if kind == "march":
+        pts = []
+        for a in args:
+            try:
+                pts.append(tuple(locate(a)[:2]) if locate else tuple(float(v) for v in a.split(",")))
+            except (ValueError, TypeError, KeyError):
+                continue
+        return kit2.march(pts, mods, c)
+    if kind in ("molecule", "circuit", "clipping"):
+        return getattr(kit2, kind)(args[0] if args else "", mods, c)
+    return getattr(kit2, kind)(args, mods, c)       # triangle, equation, parliament, climate, quiz, split, layers
+
 
 def image(path, size: float):
     """A picture whose longest side is `size` (a tall object and a wide one take the same room)."""

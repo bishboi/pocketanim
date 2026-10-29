@@ -43,7 +43,9 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
         veiled; `lift X` brings one back)
   pan PHOTO [zoom K] (a slow push into a still) | type T (letter by letter) | fill SHAPE 60 C (fills like water)
   connect A B "WORDS" (an arrow drawn between them) | follow T [zoom Z] (the camera keeps a moving thing in view)
-  cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide
+  glow T C (a soft light behind it) | era MAP YEAR (its borders change to that year's) | tip BALANCE left|right
+  cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide | cam SHOT via page|tear|whip (a page turned, torn
+  paper, a fast swing: for a change of chapter)
 TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
 - Nothing is a slide: keep things up and change them (move, morph, count, grow, color) instead of replacing them.
@@ -68,11 +70,35 @@ KIT = {
   region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
                is; `color`, `opacity`, `outline`
   pin "PLACE" on M     a town marked, its name beside (`side left`)  |  river "NAME" on M
+  shade "WHAT" on M K:V ...   countries coloured by a value, with a key (a choropleth)
+  march M.a M.b M.c [width W]   a thick arrow swelling along a route (armies, migrations, trade winds)
+  inset on M   a small world map in its corner, where M is boxed | `era M 1500`: borders change to 1500's
+  globe LON,LAT   the Earth as a globe | layers "TOP" ... "BOTTOM" [round]   bands or a cut-away globe's rings
   Where things happen, use a map, never a blob for a country; routes are `path M.a M.b M.c` (then `along SHIP
   ROUTE`); the camera goes to a place: `cam M.paris zoom 2`.""",
     "timeline": """  timeline Y0 Y1 [w 12]   an axis of years (500bc, 1347); every year on it is TL.YEAR (`move x to tl.1347`)
   event YEAR "WORDS" on TL   a card on a stem at its year (kept clear of the others)
   span Y0 Y1 "WORDS" on TL   a band along the axis  (`in` each on the word that names it)""",
+    "science": """  numberline A B [step S]   a number line; NL.3 is a place on it (`move pin to nl.3`)
+  plot "x^2 - 2" A B   axes and a curve y = f(x) for x from A to B; PL.2 is the curve at x = 2 (`move dot to pl.2`)
+  triangle A:0,0 B:4,0 C:1,3 [sides] [angles]   a shape from its corners, named (lengths, angles marked)
+  molecule H2O   balls and sticks (H2O CO2 CH4 NH3 O2 NaCl ...)
+  equation "2x + 3 = 7" "2x = 4" "x = 2"   working, line by line, `=` in a column (`in eq[1]`; `highlight eq[2]`)
+  formula "6CO_2 + 6H_2O -> C_6H_12O_6"   (_ below, ^ above, -> arrow)
+  circuit "battery>bulb>switch"   a circuit loop (also resistor, ammeter, voltmeter); CI.bulb (`glow ci.bulb`)""",
+    "civics": """  race "1900|1950|2000" UK:12|8|5 USA:8|14|20   bars racing through the years, re-sorting (`count rc 2000`)
+  parliament A:303 B:52 C:100 [majority]   seats in a half circle by party
+  market   supply and demand, where they cross; `grow mk 1` moves demand right (-1 left)
+  climate J:14:20 F:17:25 ...   a month's temperature (line) and rain (bars): month:°C:mm
+  chart scatter 1:2 2:3 ... | chart area K:V ...   points; a line with the ground under it filled""",
+    "story": """  quiz "QUESTION?" "A" "B" "C" answer N   question, choices, then the answer shown (`in qz[0]`, the choices,
+               a pause for the viewer, then the last part)
+  lens "@0.6,0.4" on PIC [zoom 3]   a magnifier: a spot of a picture made bigger beside it
+  split "BEFORE" "AFTER"   two halves; SP.left / SP.right are their middles (`at sp.left`)
+  clock 9 (`count clk 17`: hours pass) | odometer 0 [digits 4] (`count od 1455`: digits roll)
+  clipping "HEADLINE" [sub "THE TIMES"] [date "1914"]   a torn newspaper clipping
+  who "NAME" sub "years" where "PLACE" [img "..."]   a person brought in: picture, name, years, place
+  polaroids "SCENE" "SCENE" ...   prints dealt on the table""",
     "chart": """  chart line K:V K:V ...    a line through real values (1000:42 1300:73 1400:45); `suffix " m"`, `w`, `h`
   chart bars K:V ...        bars side by side (England:2 France:1.4); `col` upright
   chart donut K:V ...       shares of a whole; `label "WORDS"` in the middle
@@ -105,10 +131,13 @@ KIT = {
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }
 KIT_WORDS = {
-    "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast",
+    "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast|march|migrat|globe|earth's|layers|literacy|rate in",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
     "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million",
     "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|process|orders|tree|venn|overlap|both",
+    "science": r"number line|graph of|equation|formula|triangle|angle|molecule|atom|circuit|current|solve|plot|curve",
+    "civics": r"election|parliament|seats|vote|supply|demand|market|price|climate|rainfall|rain|temperature|race|rank|overtook",
+    "story": r"quiz|guess|question|zoom in|detail|look closer|clock|hour|newspaper|headline|counter|who was|meet|born|photos?|split",
     "lists": r"compare|versus|\bvs\b|before|after|table|\blist|steps|stages|instead",
     "measure": r"calendar|days?\b|year and|thermomet|temperat|heat|cold|balance|scales|weigh|outgrew|faster than",
     "scene": r"backdrop|weather|snow|rain|storm|winter|portrait|king|queen|ruler|said|speech|forest|village",
@@ -126,7 +155,12 @@ def kit_for(plan: str) -> list[str]:
              "donut": "chart", "stack": "chart", "waffle": "chart", "stat": "chart", "label": "labels",
              "compare": "lists", "table": "lists", "list": "lists", "steps": "lists", "calendar": "measure",
              "meter": "measure", "balance": "measure", "backdrop": "scene", "weather": "scene", "portrait": "scene",
-             "bubble": "scene"}
+             "bubble": "scene", "numberline": "science", "plot": "science", "triangle": "science",
+             "molecule": "science", "equation": "science", "circuit": "science", "race": "civics",
+             "parliament": "civics", "market": "civics", "climate": "civics", "scatter": "civics", "area": "civics",
+             "quiz": "story", "lens": "story", "split": "story", "clock": "story", "odometer": "story",
+             "clipping": "story", "who": "story", "polaroids": "story", "shade": "map", "march": "map",
+             "inset": "map", "globe": "map", "layers": "map", "era": "map"}
     named = {alias.get(w, w) for w in named}
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
 
@@ -142,7 +176,10 @@ flow (how one thing leads to another), tree (a hierarchy), pyramid (ranks), cycl
 share), compare (before and after, two sides), table, list, steps, calendar (time passing), meter (heat, cold,
 pressure), balance (one thing outweighing another), backdrop (a place behind the shot), weather (snow, rain), portrait
 (a real person), bubble (a person's quoted words), quote, doc (a charter, a law), title, formula, labels (a picture's
-parts named).
+parts named), numberline, plot (a graph of a function), triangle, molecule, equation, circuit, race (bars racing
+through years), parliament, market (supply and demand), climate, quiz (ask the viewer, then reveal), lens (a detail
+magnified), split (two halves), clock, odometer, clipping (a newspaper), who (a person brought in), polaroids, shade (a
+map coloured by value), march (an army or migration arrow), inset, globe, layers.
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
 transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""

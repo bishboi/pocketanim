@@ -236,6 +236,11 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
         for i, t in enumerate(toks[:-1]):
             if t == "img" and i >= 3:            # a card's or a portrait's picture
                 found.append(("pic" if toks[2] == "card" else "photo", toks[i + 1]))
+        if toks[2] in ("portrait", "who") and "img" not in toks:   # a person with no picture named: one made of them
+            found.append(("photo", toks[3] if toks[2] == "portrait" else f"a portrait of {toks[3]}"))
+        if toks[2] == "polaroids":                 # prints: each its own photo
+            stop = next((i for i, t in enumerate(toks) if i > 2 and t in ("at", "size", "layer", "rot", "x")), len(toks))
+            found += [("photo", t) for t in toks[3:stop]]
         for kind, prompt in found:
             if (kind, prompt, look) not in out:
                 out.append((kind, prompt, look))

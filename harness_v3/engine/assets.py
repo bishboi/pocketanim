@@ -52,6 +52,19 @@ STYLE = {
                  "slight paper grain",
     "paper": "flat editorial illustration, warm muted colours, soft light",
 }
+# Small things (`pic`, and what were icons) are drawn by hand, not photographed: a realistic object or person cut out
+# looks pasted on, a drawing sits on the paper. V3_SMALL_STYLE says otherwise.
+SMALL_STYLE = os.environ.get("V3_SMALL_STYLE", "").strip() or (
+    "a simple hand-drawn illustration, like a doodle in a sketchbook: clean dark ink outlines, a few flat muted colour "
+    "washes, no shading gradients, no realism, no photographic detail; people drawn as simple friendly stick-like "
+    "figures with round heads")
+SMALL_KEY = "sketch1"          # in the small pictures' key: a change of style makes them anew
+
+
+def style_for(kind: str, look: str) -> str:
+    return SMALL_STYLE if kind == "pic" else STYLE.get(look, STYLE["paper"])
+
+
 HOW = {
     "pic": "One single object, centred, whole and uncropped, seen straight on, isolated on a plain flat light grey "
            "background (#DDDDDD) with nothing else in the picture: no shadow, no floor, no frame, no text, no "
@@ -70,7 +83,7 @@ def path_for(kind: str, prompt: str, look: str, model: str | None = None) -> Pat
     so the render finds it whichever of the image models made it). `model` is not used (kept for old callers)."""
     if is_archive(prompt):                  # a picture from the archive is the same whatever the look or model
         return CACHE / f"commons-{key(kind, archive_query(prompt), 'commons', 'commons')}.png"
-    return CACHE / f"{kind}-{key(kind, prompt, look, '')}.png"
+    return CACHE / f"{kind}-{key(kind, prompt, look + ('|' + SMALL_KEY if kind == 'pic' else ''), '')}.png"
 
 
 def old_path(kind: str, prompt: str, look: str, model: str) -> Path:
@@ -81,7 +94,7 @@ def old_path(kind: str, prompt: str, look: str, model: str) -> Path:
 def adopt(kind: str, prompt: str, look: str, models) -> bool:
     """A picture kept under an old key (made by one of `models`) moved to its key now, with what is beside it."""
     new = path_for(kind, prompt, look)
-    if new.exists() or is_archive(prompt):
+    if new.exists() or is_archive(prompt) or kind == "pic":     # (old small pictures were realistic: made anew)
         return new.exists()
     for m in dict.fromkeys(x for x in models if x):
         old = old_path(kind, prompt, look, m)
@@ -238,6 +251,9 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
                 found.append(("pic" if toks[2] == "card" else "photo", toks[i + 1]))
         if toks[2] in ("portrait", "who") and "img" not in toks:   # a person with no picture named: one made of them
             found.append(("photo", toks[3] if toks[2] == "portrait" else f"a portrait of {toks[3]}"))
+        if toks[2] == "icon" and os.environ.get("V3_ICONS", "0").strip() != "1":
+            import look as kit_look                # what was an icon is a small hand-drawn picture
+            found.append(("pic", kit_look.icon_words(toks[3])))
         if toks[2] == "polaroids":                 # prints: each its own photo
             stop = next((i for i, t in enumerate(toks) if i > 2 and t in ("at", "size", "layer", "rot", "x")), len(toks))
             found += [("photo", t) for t in toks[3:stop]]
@@ -357,7 +373,7 @@ def choose_prompt(query: str, n: int) -> tuple[str, str]:
 
 
 def prompt_for(kind: str, prompt: str, look: str) -> str:
-    return f"{prompt.strip().rstrip('.')}. {STYLE.get(look, STYLE['paper'])}. {HOW[kind]}"
+    return f"{prompt.strip().rstrip('.')}. {style_for(kind, look)}. {HOW[kind]}"
 
 
 # The optional settings each image model refused, learned from its answers ({model: {setting}}): sent no more to it.
@@ -469,7 +485,7 @@ def sheet_prompt(things: list[str], look: str) -> tuple[str, int, int, str]:
               "uncropped, filling about two thirds of its cell and never reaching into another cell, with wide empty "
               "space between the objects. One plain flat light grey background (#DDDDDD) everywhere; no grid lines, "
               "no borders, no frames, no shadows, no floor, no text, no letters, no numbers, no labels. All in the "
-              f"same style: {STYLE.get(look, STYLE['paper'])}.\n" + "\n".join(where))
+              f"same style: {SMALL_STYLE}.\n" + "\n".join(where))
     return prompt, cols, rows, aspect
 
 
@@ -607,7 +623,28 @@ def cutout(img, tol: int = 26):
     box = cut.getchannel("A").point(lambda v: 255 if v > 20 else 0).getbbox()
     if box:
         cut = cut.crop(box)
-    return with_shadow(cut)
+    return with_shadow(paper_edge(cut))
+
+
+def paper_edge(img, share: float = 0.05):
+    """The cut-out on a paper die-cut: a cream border following its outline (rounded), as a sticker cut from a sheet,
+    with a hairline at its edge."""
+    from PIL import Image, ImageFilter
+    img = img.convert("RGBA")
+    W, H = img.size
+    r = max(6, int(max(W, H) * share))
+    big = Image.new("RGBA", (W + 2 * r, H + 2 * r), (0, 0, 0, 0))
+    big.paste(img, (r, r), img)
+    solid = big.getchannel("A").point(lambda v: 255 if v > 40 else 0)
+    grown = solid.filter(ImageFilter.GaussianBlur(r * 0.9)).point(lambda v: 255 if v > 22 else 0)   # round, gaps filled
+    grown = grown.filter(ImageFilter.GaussianBlur(1.0))
+    edge = Image.new("RGBA", big.size, (196, 184, 158, 0))
+    edge.putalpha(grown)
+    inner = grown.filter(ImageFilter.MinFilter(3))
+    sheet = Image.new("RGBA", big.size, (251, 248, 240, 0))
+    sheet.putalpha(inner)
+    out = Image.alpha_composite(edge, sheet)
+    return Image.alpha_composite(out, big)
 
 
 def with_shadow(img, blur: int = 18, dx: int = 10, dy: int = 16, strength: float = 0.32):

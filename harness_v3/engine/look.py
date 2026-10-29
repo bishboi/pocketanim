@@ -30,6 +30,8 @@ Every kind takes `at X,Y` (in its shot's frame), `layer`, `rot`, `opacity`, `x N
 from __future__ import annotations
 
 import math
+import os
+import re
 import zlib
 from pathlib import Path
 
@@ -110,6 +112,32 @@ def text(words: str, size: float = 0.6, bold: bool = False, serif: bool = False,
     if width and t.width > width:
         t.scale_to_fit_width(width)
     return t
+
+
+# Line icons are not drawn unless V3_ICONS=1: `icon NAME` is a small hand-drawn picture of the thing instead.
+ICONS = os.environ.get("V3_ICONS", "0").strip() == "1"
+ICON_WORDS = {"user": "a person", "users": "a small group of people", "coins": "a small pile of coins",
+              "landmark": "a classical stone building with columns", "store": "a market stall",
+              "map-pin": "a map pin", "badge-check": "a seal of approval", "scroll": "a rolled parchment scroll",
+              "swords": "two crossed swords", "crown": "a crown", "church": "a small stone church"}
+
+
+def icon_words(name: str) -> str:
+    """The words a picture is made from for what was an icon's name (`graduation-cap` -> `a graduation cap`)."""
+    n = str(name).strip().lower()
+    if n in ICON_WORDS:
+        return ICON_WORDS[n]
+    words = re.sub(r"[-_]+", " ", re.sub(r"[-_]?\d+$", "", n)).strip()
+    return f"a {words}" if words else "a small object"
+
+
+def figure(size: float = 0.4, color=None):
+    """A little person drawn with a pen: a round head and a body (a crowd's one; no icon)."""
+    c = col(color or "ink")
+    head = Circle(radius=size * 0.22, fill_color=c, fill_opacity=1, stroke_width=0).move_to([0, size * 0.32, 0])
+    body = Arc(radius=size * 0.38, start_angle=0, angle=math.pi, fill_color=c, fill_opacity=1, stroke_width=0)
+    body.move_to([0, -size * 0.18, 0])
+    return VGroup(head, body)
 
 
 def icon(name: str, size: float = 1.2, color=None, badge=None):
@@ -227,7 +255,10 @@ def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color
     # `shape NAME`: each one a small icon (`shape user`: people) instead of a dot.
     n = max(1, min(int(n), 400))
     size = 0.16 if size > 0.5 else min(max(size, 0.05), 0.22)
-    if shape:
+    if shape and (not ICONS or str(shape) in ("user", "person", "people")):
+        one = figure(size * 2.8, color)             # people: little drawn figures (no icons)
+        g = VGroup(*[one.copy() for _ in range(n)])
+    elif shape and ICONS:
         one = icon(str(shape), size * 2.8, color or "ink")
         if str(shape) in SOLID:                     # a silhouette reads filled; an outline icon stays a line
             one.set_fill(col(color or "ink"), opacity=1)
@@ -331,7 +362,10 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = text(args[0] if args else "", size or 0.6, bold=bool(mods.get("bold")), serif=bool(mods.get("serif")),
                  color=c, width=mods.get("width"), italic=bool(mods.get("italic")))
     elif kind == "icon":
-        m = icon(args[0] if args else "circle", size or 1.2, c, mods.get("badge"))
+        if ICONS:
+            m = icon(args[0] if args else "circle", size or 1.2, c, mods.get("badge"))
+        else:   # no line icons: a small hand-drawn picture of the thing, on its paper cut-out
+            m = picture("pic", icon_words(args[0] if args else "circle"), size or 1.2, mods)
     elif kind in ("circle", "rect", "blob", "ring"):
         r = float(mods.get("r", 1.0))
         fill = mods.get("fill")
@@ -693,6 +727,7 @@ class _Places:
 
     def __init__(self, m):
         self.m, self.found = m, {}
+        self.outside: dict[str, tuple[float, float]] = {}   # places beyond the map: drawn at its edge (name -> where)
 
     def __contains__(self, name) -> bool:
         try:
@@ -704,7 +739,22 @@ class _Places:
     def __getitem__(self, name):
         if name not in self.found:
             import geo
-            self.found[name] = _Place(self.m, *geo.place(name, self.m.bounds))
+            lon, lat = geo.place(name, self.m.bounds)
+            lon0, lat0, lon1, lat1 = self.m.bounds
+            if not (lon0 <= lon <= lon1 and lat0 <= lat <= lat1):
+                # Beyond the map: drawn at its edge, on the way to where it is (an army "from the east" comes in
+                # from the east edge), and said (the layout check names it).
+                self.outside[name] = (lon, lat)
+                cx, cy = (lon0 + lon1) / 2, (lat0 + lat1) / 2
+                t = 1.0
+                for p, c, lo, hi in ((lon, cx, lon0, lon1), (lat, cy, lat0, lat1)):
+                    if p > hi:
+                        t = min(t, (hi - c) / (p - c))
+                    elif p < lo:
+                        t = min(t, (lo - c) / (p - c))
+                t *= 0.97
+                lon, lat = cx + (lon - cx) * t, cy + (lat - cy) * t
+            self.found[name] = _Place(self.m, lon, lat)
         return self.found[name]
 
     def __iter__(self):

@@ -131,6 +131,17 @@ def check(score_text: str, words_json: dict) -> dict:
                                    f"y from -{hh:.1f} to {hh:.1f})")
             if e.kind in ("tag", "title") and b[2] - b[0] > hw * 2 * 0.85:
                 say(shot.name, f"{where(e.name, b)} is very wide: fewer words or a smaller size")
+            # a place beyond its map (drawn at the map's edge)
+            for a in [*e.args, str(e.mods.get("at") or "")]:
+                base, _, place = str(a).partition(".")
+                if place and base in E and sc.ents[base].kind == "map":
+                    far = getattr(getattr(E[base], "places", None), "outside", {})
+                    if place in far:
+                        lon, lat = far[place]
+                        say(shot.name, f"{e.name} uses {a}, which is beyond the map {base} (at {lon:.0f}E, {lat:.0f}N; "
+                                       f"the map shows {', '.join(f'{v:.0f}' for v in E[base].bounds)}): it is drawn at "
+                                       "the map's edge; widen the map (or name a region that holds it) or use a "
+                                       "place on it")
             # put at a map's place outside the map
             at = e.mods.get("at")
             if isinstance(at, str) and "." in at:

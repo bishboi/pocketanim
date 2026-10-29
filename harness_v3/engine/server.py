@@ -133,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elif m := re.fullmatch(r"/files/([\w-]+)/player/((?:timeline\.json|voice\.wav|img-[0-9a-f]+\.png))", path):
+            elif m := re.fullmatch(r"/files/([\w-]+)/player/((?:timeline\.json|voice\.wav|soundtrack\.wav|img-[0-9a-f]+\.png))", path):
                 self._file(runs.run_dir(m.group(1)) / "player" / m.group(2))
             elif m := re.fullmatch(r"/files/([\w-]+)/([\w.\-]+)", path):
                 name = m.group(2)

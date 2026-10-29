@@ -86,6 +86,11 @@ is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.par
 name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
 fills the `w`/`h` it is given (12 x 6.6 by default).
 
+Small pictures (`pic`, and what were icons: `icon NAME` is drawn as a small picture of the thing unless
+`V3_ICONS=1`) are hand-drawn, like sketchbook doodles with people as simple stick-like figures (`V3_SMALL_STYLE`), and
+each is cut out on a paper edge, as a sticker. Photos stay prints. A place beyond a map's region is drawn at the
+map's edge, and the layout check says so.
+
 Three image models, each set in `.env.local` (or per run in the app): `V3_IMAGE_MODEL` for pictures (photos,
 backdrops, portraits), `V3_IMAGE_MODEL_SMALL` for small cut-out things and icons (`pic`, six to a sheet: a smaller,
 cheaper model does), `V3_IMAGE_MODEL_LABELED` for a picture whose parts a `labels` entity names (its parts must show

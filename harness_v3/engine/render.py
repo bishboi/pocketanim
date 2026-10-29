@@ -644,7 +644,10 @@ class ScoreScene(MovingCameraScene):
                 if v == "color":
                     self._color(m, look.col(act.args[0] if act.args else "coral"), a0, a1)
                 else:
-                    self._fade_to(m, float(act.args[0]) if v == "dim" and act.args else (0.3 if v == "dim" else 1.0), a0, a1)
+                    to = float(act.args[0]) if v == "dim" and act.args else (0.3 if v == "dim" else 1.0)
+                    self._fade_to(m, to, a0, a1)
+                    if m is self.E.get(name):           # its marks (a ring, a highlight) dim with it
+                        self._fade_marks(name, to, a0, a1)
         elif v in ("scale", "spin", "pulse", "shake"):
             for (name, m), a0, a1 in self._staggered(self._targets(act.target), t0, t1, stagger):
                 if v == "scale":
@@ -903,6 +906,17 @@ class ScoreScene(MovingCameraScene):
                 if stroked:
                     x.set_stroke(interpolate_color(s, ManimColor(c), a), family=False)
         self.tweens.append(Call(t0, t1, start, step))
+
+    def _fade_marks(self, name, to: float, t0, t1) -> None:
+        state = {}
+
+        def start():
+            state["al"] = [(self._alpha(mk), self._alpha(mk).now) for mk in self.marks.get(name, [])]
+
+        def step(a):
+            for al, a0 in state["al"]:
+                al.set(a0 + (to - a0) * a)
+        self.tweens.append(Call(t0, t1, start, step, None))
 
     def _fade_to(self, m, to: float, t0, t1) -> None:
         al = self._alpha(m)

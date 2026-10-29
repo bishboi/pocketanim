@@ -16,10 +16,10 @@ import re
 GRAMMAR = """SCORE GRAMMAR (one item per line; # starts a comment)
 shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `ent` lines follow.
 ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wide, 8 tall, centred on the shot.
-  KINDS: text "WORDS" | icon NAME (Lucide names: ship, train-front, factory, wheat, users, landmark, castle, lock,
-         coins, flag, scroll, crown, mountain-snow, globe, school, anchor, swords, book-open...) | circle | rect | blob
-         | ring | waves N | dots N | num V | bar V | arrow A B | path P P P...
-         | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out; 1-3 a shot)
+  KINDS: text "WORDS" | circle | rect | blob | ring | waves N | dots N (`shape user`: little drawn people) | num V
+         | bar V | arrow A B | path P P P...
+         | pic "WHAT" (a small hand-drawn picture, cut out on paper: ONE object, person or building; 1-3 a shot;
+           there are no icons: a small thing is a pic)
          | photo "A SCENE" (a framed print of a place or scene). Say exactly what to draw, of its time and place:
            pic "a 14th-century English silver penny, worn, both faces stamped" not pic "a coin"; photo "a muddy
            medieval village street at dawn, timber houses, a church tower behind" not photo "a village". No words in it.
@@ -27,7 +27,7 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
   MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline; a picture at a flow's node goes beside it) |
-        below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
+        below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
@@ -54,8 +54,10 @@ RULES
 - A name is one thing for the whole video: a thing from the shot before is used by its name (no new `ent` line for
   it); a new thing gets a new name.
 - Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
-  to put one on another on purpose (a label on its card, an icon on its badge).
-- Show real things: a pic, a photo, a flag or a card says more than a line icon. One big picture per idea.
+  to put one on another on purpose (a label on its card, a pin on its map).
+- Show real things: a pic, a photo, a flag or a card. No icons. One big picture per idea; few small pics.
+- A thing on a map is at a place on it (MAP.place); a place beyond the map's region is drawn at its edge: choose
+  a region that holds every place you name.
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences."""
@@ -233,7 +235,7 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
 
 REPAIR = """You fix one SHOT of an animated explainer's score. The engine built it with the real sizes of everything
 (the pictures as they were made) and found the PROBLEMS below. Rewrite the shot's lines so that:
-- nothing covers another unless on purpose (a label on its card, an icon on its badge, a pin on its map);
+- nothing covers another unless on purpose (a label on its card, a pin on its map);
 - everything stays on the screen (x from -6.6 to 6.6, y from -3.6 to 3.6), a heading clear of what is under it;
 - nothing is empty (a tag with words, a timeline with its dates on it), or it is left out.
 Keep the same things, the same words and the same timing; change where things are and how big. Use the REAL SIZES

@@ -49,7 +49,11 @@ window.__ready = (async () => {
   await Promise.all([...new Set(leaves.filter((l) => l.k === "i").map((l) => l.img))].map((name) => new Promise((ok) => {
     const im = new Image(); im.onload = () => { images[name] = im; ok(); }; im.onerror = () => ok(); im.src = SRC + name;
   })));
-  if (!EXPORT && T.audio) au.src = SRC + T.audio;
+  if (!EXPORT && T.audio) {
+    // the soundtrack (voice, small sounds, music); the voice alone if it cannot be had
+    au.onerror = () => { if (!/voice\.wav$/.test(au.src)) { au.onerror = null; au.src = SRC + "voice.wav"; } };
+    au.src = SRC + T.audio;
+  }
   document.getElementById("msg").style.display = "none";
   draw(0);
   return true;

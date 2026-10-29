@@ -3,7 +3,8 @@ limbs, hands and shoes, a soft shadow at their feet) posed over time.
 
     ent ann person [wear shirt|tunic|robe|habit|dress|gown|coat|suit|armor|apron|toga|uniform|lab|overalls|vest]
                    [color C] [hair short|long|bob|bun|ponytail|curly|spiky|bald[-black|brown|blonde|red|grey|white]]
-                   [beard | longbeard] [mustache] [skin fair|light|tan|brown|dark] [mood happy|sad|angry|surprised|calm]
+                   [beard | longbeard] [mustache] [skin fair|light|tan|brown|dark]
+                   [mood happy|laugh|calm|sad|angry|surprised|worried|scared|think|proud]
                    [hat top|bowler|cap|beret|straw|cowboy|crown|helmet|tricorn|mitre|turban|hood|veil|chef|hardhat|
                         wreath|headscarf]
                    [tool book|scroll|quill|coin|bag|sword|shield|staff|spear|flag|sign|hammer|pickaxe|torch|lantern|
@@ -34,8 +35,23 @@ HIP, TORSO, NECK, HEAD = 0.41, 0.25, 0.03, 0.115
 UPPER, FORE, THIGH, SHIN = 0.14, 0.14, 0.215, 0.195
 
 REST = {"lean": 0.0, "fa1": 0.14, "fa2": 0.22, "ba1": -0.12, "ba2": -0.06, "fl1": 0.07, "fl2": 0.0, "bl1": -0.07,
-        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0}
+        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0,
+        # the face: how it smiles (-1 frown .. 1 grin), brows raised (-1 .. 1), brows drawn in (-1 sad .. 1 cross),
+        # eyes shut (0 .. 1: a blink), where the eyes look (-1 down .. 1 up)
+        "smile": 0.7, "brow": 0.0, "frown": 0.0, "blink": 0.0, "gaze": 0.0}
 KEYS = tuple(REST)
+FACE_KEYS = ("smile", "brow", "frown", "mouth", "gaze")
+# An expression: the face's keys (`mood` sets one to begin with, `emote P NAME` eases into one).
+MOODS = {"happy": {"smile": 0.8, "brow": 0.15, "frown": 0.0, "mouth": 0.0, "gaze": 0.0},
+         "laugh": {"smile": 1.0, "brow": 0.4, "frown": -0.1, "mouth": 0.65, "gaze": 0.1},
+         "calm": {"smile": 0.25, "brow": 0.0, "frown": 0.0, "mouth": 0.0, "gaze": 0.0},
+         "sad": {"smile": -0.85, "brow": 0.25, "frown": -0.8, "mouth": 0.0, "gaze": -0.5},
+         "angry": {"smile": -0.5, "brow": -0.3, "frown": 1.0, "mouth": 0.0, "gaze": 0.0},
+         "surprised": {"smile": 0.0, "brow": 1.0, "frown": 0.0, "mouth": 0.7, "gaze": 0.0},
+         "worried": {"smile": -0.45, "brow": 0.55, "frown": -0.6, "mouth": 0.0, "gaze": 0.0},
+         "scared": {"smile": -0.6, "brow": 0.9, "frown": -0.7, "mouth": 0.45, "gaze": 0.0},
+         "think": {"smile": -0.1, "brow": 0.35, "frown": 0.35, "mouth": 0.0, "gaze": 1.0},
+         "proud": {"smile": 0.6, "brow": -0.1, "frown": 0.0, "mouth": 0.0, "gaze": 0.3}}
 
 SKIN = {"fair": "#F6DCC4", "light": "#EFC9A6", "tan": "#D9A274", "brown": "#A8714A", "dark": "#6E4429"}
 HAIR = {"black": "#2A2320", "brown": "#6B4226", "blonde": "#D9AA4E", "red": "#B4532A", "grey": "#A9A49B",
@@ -80,9 +96,9 @@ def carry_pose() -> dict:
 
 # Poses some verbs move toward (only the keys named are theirs; render.py blends them in and out).
 GESTURES = {
-    "cheer": {"fa1": 2.7, "fa2": 2.9, "ba1": 2.5, "ba2": 2.8},
-    "shrug": {"fa1": 0.5, "fa2": 2.0, "ba1": 0.45, "ba2": 1.9, "nod": -0.12},
-    "think": {"fa1": 0.25, "fa2": 2.75, "nod": 0.12},
+    "cheer": {"fa1": 2.7, "fa2": 2.9, "ba1": 2.5, "ba2": 2.8, "smile": 1.0, "mouth": 0.6, "brow": 0.4},
+    "shrug": {"fa1": 0.5, "fa2": 2.0, "ba1": 0.45, "ba2": 1.9, "nod": -0.12, "brow": 0.8, "smile": -0.2},
+    "think": {"fa1": 0.25, "fa2": 2.75, "nod": 0.12, "gaze": 1.0, "frown": 0.35, "smile": -0.1},
     "bow": {"lean": 0.75, "fa1": 0.5, "fa2": 0.5, "ba1": 0.45, "ba2": 0.45},
 }
 
@@ -144,6 +160,7 @@ class Person(VGroup):
         self.skin, self.cloth = skin, cloth
         self.rigid: list[tuple] = []            # (shape, its points where its part's own frame is, the part)
         self.rest = dict(REST)
+        self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
         if old:
             self.rest["lean"] = 0.1
 
@@ -213,13 +230,18 @@ class Person(VGroup):
             long = bool(mods.get("longbeard")) or old
             self.add(rigid(_beard(hair, ink, ow, R, long), "face"))
         mood = str(mods.get("mood") or "happy").lower()
-        self.eyes = VGroup(*(Dot(radius=0.013, color=ink) for _ in range(2)))
-        self.add(self.eyes)
+        self.eyes = VGroup(*(Ellipse(width=0.028, height=0.036, fill_color=ink, fill_opacity=1, stroke_width=0)
+                             for _ in range(2)))
+        self.brows = VGroup(*(Line([0, 0, 0], [0.03, 0, 0], stroke_color=_shade(hair, 0.55), stroke_width=ow * 1.4)
+                              for _ in range(2)))
+        self.smile = VMobject(stroke_color=ink, stroke_width=ow * 1.1, fill_opacity=0)
+        self.smile.set_points_smoothly([np.array([x, -0.047, 0.0]) for x in (-0.026, -0.009, 0.009, 0.026)])
+        self.add(self.eyes, self.brows, self.smile)
         self.add(rigid(_face(mood, ink, ow, R), "face"))
         if mods.get("mustache"):
             self.add(rigid(_blob([(-0.03, -0.03), (0.0, -0.022), (0.03, -0.03), (0.034, -0.042), (0.0, -0.036),
                                   (-0.034, -0.042)], hair, ink, ow * 0.6), "face"))
-        self.mouth = Ellipse(width=0.04, height=0.012, fill_color="#7A2E2A", fill_opacity=1, stroke_color=ink,
+        self.mouth = Ellipse(width=0.044, height=0.012, fill_color="#7A2E2A", fill_opacity=1, stroke_color=ink,
                              stroke_width=ow * 0.6)
         self.add(self.mouth)
         self.add(rigid(hf, "head"))
@@ -310,8 +332,25 @@ class Person(VGroup):
             P, M = frames[part]
             body = base @ M.T + P
             x.points = o + np.outer(body[:, 0], ex) + np.outer(body[:, 1] - 0.5, ey)
-        for i, e in enumerate(self.eyes):   # the eyes slide round the head as it turns
-            e.move_to(W(face + np.array([(i - 0.5) * 0.042 * (1 - 0.45 * abs(turn)), 0.02])))
+        u = self.unit()
+        blink = max(0.0, min(1.0, p.get("blink", 0.0)))
+        gz = 0.008 * p.get("gaze", 0.0)
+        for i, (e, b) in enumerate(zip(self.eyes, self.brows)):   # the eyes slide round the head as it turns
+            eyx = (i - 0.5) * 0.05 * (1 - 0.45 * abs(turn))
+            e.stretch_to_fit_height(max(0.003, 0.036 * (1 - 0.92 * blink)) * u)
+            e.move_to(W(face + np.array([eyx, 0.02 + gz])))
+            # a brow over each eye: raised by `brow`, its inner end drawn down by `frown` (up when sad)
+            inner = 1.0 if eyx < 0 else -1.0                    # which way is toward the middle
+            by = 0.056 + 0.016 * p.get("brow", 0.0)
+            tilt = 0.014 * p.get("frown", 0.0)
+            a_ = face + np.array([eyx - inner * 0.019, by + tilt * 0.3])
+            b_ = face + np.array([eyx + inner * 0.019, by - tilt])
+            b.put_start_and_end_on(W(a_), W(b_))
+        sm = max(-1.0, min(1.0, p.get("smile", 0.0)))
+        w_ = 0.027 * (1 + 0.25 * abs(sm))
+        self.smile.set_points_smoothly([W(face + np.array([x, -0.05 + y])) for x, y in
+                                        ((-w_, 0.013 * sm), (-w_ / 3, -0.008 * sm), (w_ / 3, -0.008 * sm),
+                                         (w_, 0.013 * sm))])
         mh = max(0.004, 0.006 + 0.04 * max(0.0, min(1.0, p["mouth"]))) * self.unit()
         self.mouth.stretch_to_fit_height(mh)
         self.mouth.set_stroke(opacity=1.0 if p["mouth"] > 0.08 else 0.0)
@@ -460,22 +499,8 @@ def _beard(hair, ink, ow, R, long: bool) -> VMobject:
 
 
 def _face(mood: str, ink, ow, R) -> VGroup:
-    """What the face shows besides the eyes and the open mouth: the mouth at rest, brows, cheeks."""
+    """What the face shows that does not move (the eyes, brows and mouth are posed: Person.set_pose): its cheeks."""
     g = VGroup()
-    w = ow * 0.9
-    if mood == "sad":
-        g.add(_stroke([(-0.025, -0.055), (0.0, -0.045), (0.025, -0.055)], ink, w))
-        g.add(_stroke([(-0.035, 0.045), (-0.012, 0.052)], ink, w), _stroke([(0.012, 0.052), (0.035, 0.045)], ink, w))
-    elif mood == "angry":
-        g.add(_stroke([(-0.022, -0.05), (0.0, -0.052), (0.022, -0.05)], ink, w))
-        g.add(_stroke([(-0.038, 0.055), (-0.01, 0.042)], ink, w * 1.3), _stroke([(0.01, 0.042), (0.038, 0.055)], ink, w * 1.3))
-    elif mood == "surprised":
-        g.add(Circle(radius=0.012, fill_color="#7A2E2A", fill_opacity=1, stroke_color=ink, stroke_width=w).move_to([0, -0.05, 0]))
-        g.add(_stroke(_arc(-0.021, 0.04, 0.014, 30, 150, 6), ink, w), _stroke(_arc(0.021, 0.04, 0.014, 30, 150, 6), ink, w))
-    elif mood == "calm":
-        g.add(_stroke([(-0.018, -0.048), (0.018, -0.048)], ink, w))
-    else:                                       # happy
-        g.add(_stroke([(-0.028, -0.038), (-0.012, -0.054), (0.012, -0.054), (0.028, -0.038)], ink, w))
     for s in (-1, 1):                           # cheeks
         g.add(Circle(radius=0.016, fill_color="#E58B7B", fill_opacity=0.35, stroke_width=0).move_to([s * 0.045, -0.028, 0]))
     return g
@@ -635,7 +660,7 @@ def _tool(kind: str, ink, ow, k):
 
 
 def person(mods: dict, size: float, c=None) -> Person:
-    size = (size or 2.2) * (0.66 if mods.get("kid") else 1.0)
+    size = (size or 2.8) * (0.66 if mods.get("kid") else 1.0)
     p = Person(mods, c, size)
     p.scale(size, about_point=np.array([0.0, 0.0, 0.0]))
     return p

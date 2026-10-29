@@ -492,7 +492,7 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = _kit2(kind, args, mods, size, c, locate, find)
     elif kind == "person":
         import people
-        m = people.person(mods, size or 2.2, c)
+        m = people.person(mods, size or 2.8, c)
     elif kind == "phrase":
         m = phrase(args[0] if args else "", size or 0.5, float(mods.get("w", 9.0)), c, bool(mods.get("bold")),
                    bool(mods.get("serif")))
@@ -534,7 +534,11 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = Group(*parts)
     elif kind in ("pic", "photo"):
         what = f"commons:{args[1]}" if len(args) > 1 and args[0] == "commons" else (args[0] if args else "")
-        m = picture(kind, what, size or (2.6 if kind == "pic" else 3.6), mods)
+        # big enough to read on the screen: a cut-out at least 1.4 across, a print at least 2.4 (`w`/`h`: a box)
+        dflt, low = (3.0, 1.4) if kind == "pic" else (4.6, 2.4)
+        if mods.get("w") and not mods.get("h"):
+            size = float(mods["w"])
+        m = picture(kind, what, max(low, size) if size else dflt, mods)
     elif kind == "flag":
         m = flag(args[0] if args else "", size or 1.6)
     elif kind == "card":
@@ -620,13 +624,32 @@ def _kit2(kind, args, mods, size, c, locate, find):
     return getattr(kit2, kind)(args, mods, c)       # triangle, equation, parliament, climate, quiz, split, layers
 
 
-def image(path, size: float):
-    """A picture whose longest side is `size` (a tall object and a wide one take the same room)."""
+_SHOWN: dict[str, tuple[float, float]] = {}
+
+
+def _shown(path) -> tuple[float, float]:
+    """How much of a picture's width and height is the picture itself (not the clear margin round a cut-out's
+    shadow)."""
+    k = str(path)
+    if k not in _SHOWN:
+        try:
+            from PIL import Image
+            im = Image.open(k)
+            box = im.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox() if im.mode in ("RGBA", "LA") else None
+            _SHOWN[k] = ((box[2] - box[0]) / im.width, (box[3] - box[1]) / im.height) if box else (1.0, 1.0)
+        except Exception:  # noqa: BLE001
+            _SHOWN[k] = (1.0, 1.0)
+    return _SHOWN[k]
+
+
+def image(path, size: float, box: tuple[float, float] | None = None):
+    """A picture whose longest side is `size` (a tall object and a wide one take the same room), measured on what
+    shows (a cut-out's clear margin not counted); `box` (w, h): as big as fits in it instead."""
     m = ImageMobject(str(path))
-    if m.height > m.width:
-        m.height = size
-    else:
-        m.width = size
+    fx, fy = _shown(path)
+    sw, sh = m.width * fx, m.height * fy          # what shows, at the size it was loaded
+    k = (min(box[0] / sw, box[1] / sh) if box else size / max(sw, sh))
+    m.scale(k)
     return m
 
 
@@ -635,7 +658,8 @@ def picture(kind: str, prompt: str, width: float, mods: dict):
     it is not made."""
     p = assets.path_for(kind, prompt, L.get("_name", "paper"))
     if p.exists():
-        m = image(p, width)
+        box = (float(mods["w"]), float(mods["h"])) if mods.get("w") and mods.get("h") else None
+        m = image(p, width, box)
         m.spots = assets.spots(p)        # where its named parts are (a vision model's, kept beside it)
         cr = assets.credit(p)
         if cr and cr.get("needs_credit"):   # an archive picture whose licence asks for its author: said under it

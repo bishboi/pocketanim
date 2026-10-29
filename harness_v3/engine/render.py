@@ -79,9 +79,9 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8,
                "walk": 2.0, "point": 0.6, "wave": 1.6, "talk": 2.0, "carry": 0.8, "sit": 0.7, "stand": 0.6,
                "turn": 0.4, "bring": 1.4, "chapter": 0.1, "run": 1.2, "cheer": 1.4, "shrug": 1.0,
-               "think": 1.6, "bow": 1.2, "jump": 0.7, "nod": 0.8}
+               "think": 1.6, "bow": 1.2, "jump": 0.7, "nod": 0.8, "emote": 0.5}
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
-                "bow", "jump", "nod")
+                "bow", "jump", "nod", "emote")
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -195,6 +195,7 @@ class ScoreScene(MovingCameraScene):
                 tw.line, tw.verb = act.line, act.verb
         self._introduce_the_rest()
         self._weather()
+        self._blinks()
         self._numbers_said()
         self._captions()
         self._progress()
@@ -1757,6 +1758,12 @@ class ScoreScene(MovingCameraScene):
                 if v == "stand" and getattr(m, "carrying", False):
                     target.update({k: P.carry_pose()[k] for k in arms})
                 pose_to(target, legs + arms, a * dur)
+        elif v == "emote":
+            # a face: `emote P happy|laugh|calm|sad|angry|surprised|worried|scared|think|proud` (held)
+            mood = P.MOODS.get((act.args[0] if act.args else "happy").lower(), P.MOODS["happy"])
+
+            def step(a):
+                pose_to({**st["p0"], **mood}, P.FACE_KEYS, a * dur)
         elif v in P.GESTURES:
             gesture = P.GESTURES[v]
             back = v != "think" and back
@@ -1798,6 +1805,26 @@ class ScoreScene(MovingCameraScene):
         else:
             raise ValueError(f"no verb {v!r}")
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+
+    def _blinks(self) -> None:
+        """Every person blinks now and then (each on its own rhythm), while it is up."""
+        import people as P
+        for name, m in self.E.items():
+            if not isinstance(m, P.Person):
+                continue
+            seed = feel.seed(name)
+            period, shift = 2.8 + (seed % 19) / 10, (seed % 7) * 0.41
+
+            def step(_a, m=m, period=period, shift=shift):
+                if id(m) not in self.up:
+                    return
+                ph = (self.clock + shift) % period
+                b = max(0.0, 1 - abs(ph - 0.07) / 0.07) if ph < 0.14 else 0.0
+                if abs(b - m.pose.get("blink", 0.0)) > 1e-3:
+                    p = dict(m.pose)
+                    p["blink"] = b
+                    m.set_pose(p)
+            self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, step, None, rate_functions.linear))
 
     def _carried(self, m, tn, tm, t0, t1) -> None:
         """A thing taken into a person's hands: it goes there as the arms come up, then goes where the hands go."""

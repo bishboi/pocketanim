@@ -484,7 +484,8 @@ def sheet_prompt(things: list[str], look: str) -> tuple[str, int, int, str]:
               f"{rows} row{'s' if rows > 1 else ''}, each object alone in the middle of its own equal cell, whole and "
               "uncropped, filling about two thirds of its cell and never reaching into another cell, with wide empty "
               "space between the objects. One plain flat light grey background (#DDDDDD) everywhere; no grid lines, "
-              "no borders, no frames, no shadows, no floor, no text, no letters, no numbers, no labels. All in the "
+              "no borders, no frames, no shadows, no floor, no square, panel, card or backdrop behind an object (each "
+              "drawn straight on the grey), no text, no letters, no numbers, no labels. All in the "
               f"same style: {SMALL_STYLE}.\n" + "\n".join(where))
     return prompt, cols, rows, aspect
 
@@ -516,7 +517,7 @@ def split_sheet(img, cols: int, rows: int, n: int) -> list:
         if xs.min() <= m or ys.min() <= m or xs.max() >= w - 1 - m or ys.max() >= h - 1 - m:
             out.append(None)                            # cut by the cell's edge: not kept to the grid
             continue
-        out.append(cutout(cell))
+        out.append(cutout(cell, strict=True))
     return out
 
 
@@ -599,26 +600,66 @@ def _open(b: bytes):
 
 # ---------------------------------------------------------------- finishing ------------------------------------------
 
-def cutout(img, tol: int = 26):
+def cutout(img, tol: int = 26, strict: bool = False):
     """The object alone: its own transparency when the model gave one, else the plain background taken away from
-    the edges inwards (so white inside the object stays), then trimmed, with a soft shadow under it."""
+    the edges inwards (so white inside the object stays); then a flat panel drawn behind it (a grey square the object
+    sits on) taken away the same way, specks and strays from a neighbouring cell dropped, trimmed, and laid on its
+    paper edge with a soft shadow. `strict` (a cell of a sheet): None when what is left is too little to be the
+    object, so it is made on its own."""
     import numpy as np
     from PIL import Image, ImageFilter
+    from scipy import ndimage
 
     img = img.convert("RGBA")
     a = np.asarray(img).copy()
+    rgb = a[..., :3].astype(int)
+
+    def flood(colour, alpha):
+        """Take away what is near `colour` and joined to the edge of what is left."""
+        near = (np.abs(rgb - colour).max(axis=2) <= tol) & (alpha > 20)
+        ys, xs = np.nonzero(alpha > 20)
+        y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+        parts, _ = ndimage.label(near)
+        ring = np.concatenate([parts[y0, x0:x1 + 1], parts[y1, x0:x1 + 1], parts[y0:y1 + 1, x0], parts[y0:y1 + 1, x1]])
+        ids = np.unique(ring)
+        gone = np.isin(parts, ids[ids > 0])
+        return np.where(gone, 0, alpha)
+
     if a[..., 3].min() > 250:                          # no transparency: flood the background away from the edges
-        rgb = a[..., :3].astype(int)
         edge = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
-        bg = np.median(edge, axis=0)
-        near = (np.abs(rgb - bg).max(axis=2) <= tol)
-        from scipy import ndimage
-        parts, _ = ndimage.label(near)                 # the background's pieces that touch the edge are taken away
-        edge_ids = np.unique(np.concatenate([parts[0], parts[-1], parts[:, 0], parts[:, -1]]))
-        seen = np.isin(parts, edge_ids[edge_ids > 0])
-        alpha = np.where(seen, 0, 255).astype("uint8")
-        alpha = np.asarray(Image.fromarray(alpha).filter(ImageFilter.GaussianBlur(1.2)))   # a soft edge
-        a[..., 3] = alpha
+        alpha = flood(np.median(edge, axis=0), np.full(a.shape[:2], 255, dtype="uint8"))
+    else:
+        alpha = a[..., 3].copy()
+    def main_piece(alpha):
+        """The object: its biggest piece, and any piece near its size (two hands, a pair of shoes); specks and
+        strays from a neighbouring cell go."""
+        parts, n = ndimage.label(alpha > 40)
+        if n <= 1:
+            return alpha
+        sizes = ndimage.sum(np.ones_like(parts), parts, index=range(1, n + 1))
+        keep = np.isin(parts, [i + 1 for i, s_ in enumerate(sizes) if s_ >= 0.2 * sizes.max()])
+        return np.where(keep | ((alpha <= 40) & ndimage.binary_dilation(keep, iterations=3)), alpha, 0)
+
+    alpha = main_piece(alpha)
+    for _ in range(2):
+        # a flat panel the object was drawn on: what is left still has a straight, even edge all round
+        ys, xs = np.nonzero(alpha > 20)
+        if not len(xs):
+            break
+        y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+        ring_a = np.concatenate([alpha[y0, x0:x1 + 1], alpha[y1, x0:x1 + 1], alpha[y0:y1 + 1, x0], alpha[y0:y1 + 1, x1]])
+        ring_c = np.concatenate([rgb[y0, x0:x1 + 1], rgb[y1, x0:x1 + 1], rgb[y0:y1 + 1, x0], rgb[y0:y1 + 1, x1]])
+        if (ring_a > 20).mean() < 0.85 or ring_c.std(axis=0).max() > 14:
+            break
+        flooded = flood(np.median(ring_c, axis=0), alpha)
+        if (flooded > 20).sum() < 0.12 * (alpha > 20).sum():
+            break                                       # it was the object itself (a flat, square thing): kept
+        alpha = flooded
+    alpha = main_piece(alpha)
+    if strict and (alpha > 40).sum() < 0.04 * alpha.size:
+        return None
+    alpha = np.asarray(Image.fromarray(alpha.astype("uint8")).filter(ImageFilter.GaussianBlur(1.0)))   # a soft edge
+    a[..., 3] = alpha
     cut = Image.fromarray(a)
     box = cut.getchannel("A").point(lambda v: 255 if v > 20 else 0).getbbox()
     if box:

@@ -205,7 +205,7 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "grow", "cam", "flow", "float", "bracket", "spotlight", "chapter", "bring", "ring", "circle", "mark",
                "underline", "highlight", "strike", "box", "tick", "cross", "stamp", "callout", "pan", "type", "fill",
                "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
-               "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod"}
+               "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
 KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",

@@ -84,6 +84,10 @@ class Leaf:
         width = float(m.get_stroke_width())
         style = np.array([*fill, *stroke, width])
         shape = self.shapes[-1] if self.shapes else None
+        if not np.all(np.isfinite(pts)):
+            if self.last_vec is not None:
+                self._key(f, self.last_vec)
+            return
         if self.last_pts is not None and pts.shape == self.last_pts.shape and np.array_equal(pts, self.last_pts):
             aff = self.last_vec[:6]
         else:
@@ -96,6 +100,10 @@ class Leaf:
         self._key(f, np.concatenate([aff, style]))
 
     def _key(self, f: int, vec: np.ndarray) -> None:
+        if not np.all(np.isfinite(vec)):        # a piece scaled to nothing, or worse: kept as it last was
+            if self.last_vec is None or self.last_vec.shape != vec.shape:
+                return
+            vec = self.last_vec
         _hold(self.shapes[-1]["frames"], f, vec)
         self.last_vec = vec
 
@@ -104,6 +112,18 @@ class Leaf:
         """The affine map taking base to pts, or None when they are not one shape moved (a morph, a partial path)."""
         if len(base) < 3 or float(np.ptp(base, axis=0).max()) < 0.02:
             return None                         # a shape shrunk to a point (a grow from nothing): no map from it
+        d0 = base[-1] - base[0]
+        cross = np.abs((base[:, 0] - base[0, 0]) * d0[1] - (base[:, 1] - base[0, 1]) * d0[0])
+        if float(np.linalg.norm(d0)) > 1e-6 and float(cross.max()) < 1e-7 * max(1.0, float(np.linalg.norm(d0))):
+            # a straight line (every point on it): the turn, stretch and shift taking its ends to the new ends
+            d1 = pts[-1] - pts[0]
+            n0 = float(d0 @ d0)
+            a, b = (d1[0] * d0[0] + d1[1] * d0[1]) / n0, (d1[1] * d0[0] - d1[0] * d0[1]) / n0
+            M = np.array([[a, -b], [b, a]])
+            e = pts[0] - M @ base[0]
+            if np.abs(base @ M.T + e - pts).max() > 1e-4 * max(1.0, float(np.ptp(pts, axis=0).max())):
+                return None
+            return np.array([M[0, 0], M[1, 0], M[0, 1], M[1, 1], e[0], e[1]])
         A = np.hstack([base, np.ones((len(base), 1))])
         sol, *_ = np.linalg.lstsq(A, pts, rcond=None)
         err = np.abs(A @ sol - pts).max()
@@ -195,6 +215,15 @@ def _straight(a, b, mids, image: bool) -> bool:
     return True
 
 
+def _unseen(m) -> bool:
+    """Nothing of it shows: no fill and no line (or lines of no width)."""
+    f = m.fill_rgbas[:, 3].max() if len(m.fill_rgbas) else 0.0
+    if f > 0.001:
+        return False
+    s = m.stroke_rgbas[:, 3].max() if len(m.stroke_rgbas) else 0.0
+    return s <= 0.001 or float(m.stroke_width) <= 0.0
+
+
 class Recorder:
     def __init__(self, out_dir: Path):
         self.out = out_dir
@@ -224,6 +253,8 @@ class Recorder:
         for m in extract_mobject_family_members(scene.mobjects, use_z_index=True, only_those_with_points=True):
             if not ((isinstance(m, VMobject) and len(m.points)) or isinstance(m, ImageMobject)):
                 continue
+            if isinstance(m, VMobject) and _unseen(m):
+                continue                        # draws nothing (a hidden reference dot, a part not yet come on)
             leaf = self.leaves.get(id(m))
             if leaf is None or leaf.m is not m:
                 leaf = Leaf(len(self.order), m, len(self.order))
@@ -299,7 +330,7 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
             "leaves": [leaf.out() for leaf in rec.order], "notes": sc.notes}
     if feel.texture_on(sc):                     # outlines tremble as drawn (player.html: boil)
         data["boil"] = {"hz": feel.BOIL_HZ, "shift": feel.BOIL_SHIFT, "turn": feel.BOIL_TURN}
-    text = json.dumps(data, separators=(",", ":"))
+    text = json.dumps(data, separators=(",", ":")).replace("NaN", "0")    # (never NaN in the JSON: a player cannot read it)
     (out_dir / "timeline.json").write_text(text)
     return {"leaves": len(rec.order), "frames": total, "bytes": len(text), "pictures": len(rec.pictures),
             "shapes": sum(len(l.shapes) for l in rec.order if l.kind == "p"), "notes": sc.notes}

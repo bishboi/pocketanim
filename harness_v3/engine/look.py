@@ -401,14 +401,16 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         else:   # no line icons: a small hand-drawn picture of the thing, on its paper cut-out
             m = picture("pic", icon_words(args[0] if args else "circle"), size or 1.2, mods)
     elif kind in ("circle", "rect", "blob", "ring"):
-        r = float(mods.get("r", 1.0))
+        # `size S`: the shape S across (when neither r nor w/h says)
+        r = float(mods.get("r", size / 2 if size else 1.0))
         fill = mods.get("fill")
         if kind == "circle":
             m = Circle(radius=r, fill_color=col(fill or c or "coral"), fill_opacity=1, stroke_width=0)
         elif kind == "ring":
             m = Circle(radius=r, stroke_color=col(c or "ink"), stroke_width=STROKE, fill_opacity=0)
         elif kind == "rect":
-            m = RoundedRectangle(width=float(mods.get("w", 2)), height=float(mods.get("h", 1)), corner_radius=0.18,
+            w_, h_ = float(mods.get("w", size or 2)), float(mods.get("h", size * 0.6 if size else 1))
+            m = RoundedRectangle(width=w_, height=h_, corner_radius=min(0.18, w_ * 0.2, h_ * 0.2),
                                  fill_color=col(fill or c or "sand"), fill_opacity=1,
                                  stroke_color=col(mods.get("line") or "ink"), stroke_width=STROKE * 0.6 if mods.get("line") else 0)
         else:

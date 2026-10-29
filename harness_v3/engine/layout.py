@@ -167,8 +167,54 @@ def check(score_text: str, words_json: dict) -> dict:
                         if k >= 0.2 and not _held(scene, a, b, ab, bb):
                             say(shot.name, f"from {_word_at(words, t0)}: {where(a.name, ab)} and {where(b.name, bb)} "
                                            f"overlap ({k * 100:.0f}% of the smaller is covered)")
+    # lines the engine could not read or play (each is left out of the video): said in the shot they are in
+    for shot, text in _unplayable(scene, sc, score_text):
+        say(shot, text)
     count = sum(len(v) for v in problems.values())
     return {"count": count, "problems": problems, "sizes": sizes, "notes": sc.notes}
+
+
+VERBS = (set(R.DEFAULT_RUN) | set(R.MARKS) | set(R.PERSON_VERBS) |
+         {"in", "out", "move", "along", "morph", "color", "dim", "lift", "scale", "spin", "pulse", "shake", "count",
+          "grow", "cam", "flow", "float", "bracket", "spotlight", "chapter", "bring"})
+
+
+def _unplayable(scene, sc, score_text: str) -> list[tuple[str, str]]:
+    """(shot, problem) for each line left out: one the grammar cannot read, a thing that cannot be drawn, an action
+    with no such verb or on no such thing."""
+    starts = sorted((s.line, s.name) for s in sc.shots.values())
+
+    def shot_at(line: int) -> str | None:
+        here = [name for ln, name in starts if ln <= line]
+        return here[-1] if here else (starts[0][1] if starts else None)
+    lines = score_text.splitlines()
+    out = []
+    for n in sc.notes:
+        m = re.match(r"^line (\d+): (.*)$", n)
+        if not m or "was made again" in m.group(2):     # (a mend, not a loss)
+            continue
+        k = int(m.group(1))
+        shot = shot_at(k)
+        src = lines[k - 1].strip() if 0 < k <= len(lines) else ""
+        if shot:
+            out.append((shot, f"`{src[:90]}` is left out ({m.group(2)[:160]}): write it in the grammar or drop it"))
+    for a in sc.acts:
+        shot = shot_at(a.line)
+        if not shot:
+            continue
+        if a.verb not in VERBS:
+            out.append((shot, f"`{a.text[:90]}` is left out: there is no verb {a.verb!r} (TIME VERB TARGET; "
+                              "e.g. `w12 in NAME pop`, `w14 out NAME`, `w16-w18 in PHRASE speak`)"))
+            continue
+        if a.verb in ("cam", "chapter"):
+            continue
+        for ref in a.target.split(","):
+            base = re.sub(r"\[.*", "", ref.strip()).split(".", 1)[0]
+            if base and base not in scene.E:
+                out.append((shot, f"`{a.text[:90]}` is left out: there is no thing named {base!r} (make it with an "
+                                  "`ent` line, or use a name that is made)"))
+                break
+    return out
 
 
 def _moved(scene, sc, name, a, cur):

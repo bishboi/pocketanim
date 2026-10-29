@@ -279,6 +279,42 @@ class ScoreScene(MovingCameraScene):
                 self.E.pop(e.name, None)
         for name in [n for n in sc.ents if n not in self.E]:
             del sc.ents[name]
+        self._declutter_pins()
+
+    def _declutter_pins(self) -> None:
+        """Pins' names on one map kept off each other: each name not given a side goes to the side (right, left,
+        above, below its dot) that covers the fewest of the names and dots already there."""
+        sc = self.SCORE
+        maps: dict[str, list[str]] = {}
+        for n, e in sc.ents.items():
+            if e.kind == "pin" and n in self.E and len(self.E[n]) > 1:
+                maps.setdefault(str(e.mods.get("on")), []).append(n)
+
+        def box(m):
+            lo, hi = m.get_corner(DOWN + LEFT), m.get_corner(UP + RIGHT)
+            return lo[0], lo[1], hi[0], hi[1]
+
+        def cover(a, b):
+            w, h = min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+            return max(0.0, w) * max(0.0, h)
+        for pins in maps.values():
+            if len(pins) < 2:
+                continue
+            taken = [box(self.E[n][0]) for n in pins]                  # every dot
+            for n in pins:
+                dot, words = self.E[n][0], self.E[n][1]
+                if sc.ents[n].mods.get("side"):
+                    taken.append(box(words))
+                    continue
+                best, where = None, None
+                for side in (RIGHT, LEFT, UP, DOWN):
+                    words.next_to(dot, side, buff=0.12)
+                    b = box(words)
+                    k = sum(cover(b, t) for t in taken) + (0.001 if side is not RIGHT else 0.0)
+                    if best is None or k < best - 1e-6:
+                        best, where = k, side
+                words.next_to(dot, where, buff=0.12)
+                taken.append(box(words))
 
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
@@ -396,9 +432,20 @@ class ScoreScene(MovingCameraScene):
         s = self.SCORE.shots.get(shot)
         return np.array([s.x, s.y, 0.0]) if s else np.zeros(3)
 
+    SIDE_OF = {"center": None, "centre": None, "middle": None, "left": LEFT, "right": RIGHT, "top": UP, "up": UP,
+               "bottom": DOWN, "down": DOWN}
+
     def _locate(self, ref: str, shot: str) -> np.ndarray:
         if ref in self.E:
             return self.E[ref].get_center()
+        base, _, side = ref.rpartition(".")
+        if base and side in self.SIDE_OF and (base in self.E or "[" in base):
+            # a thing's or a part's middle or edge (`cmp[0].left`, `card.top`)
+            m = self._targets(base)[0][1]
+            d = self.SIDE_OF[side]
+            return m.get_center() if d is None else m.get_critical_point(d)
+        if "[" in ref and re.match(r"^[\w\-]+\[\-?\d+\]$", ref) and ref.split("[")[0] in self.E:
+            return self._targets(ref)[0][1].get_center()
         if "." in ref and ref.split(".", 1)[0] in self.E:
             # A place on a land (`japan.tokyo`).
             ent, place = ref.split(".", 1)
@@ -657,6 +704,9 @@ class ScoreScene(MovingCameraScene):
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
+        if v == "in" and how == "speak" and any(self._kind(n) not in ("phrase", "text", "label", "tag", "title", "quote")
+                                                for n, _ in self._targets(act.target)):
+            how = None                          # (only words are spoken on: anything else comes on its own way)
         if v == "in" and how == "speak":
             for name, m in self._targets(act.target):
                 end = act.t1 if act.t1 is not None else t0 + 0.38 * max(1, len(m.submobjects))
@@ -752,6 +802,8 @@ class ScoreScene(MovingCameraScene):
         elif v == "glow":
             colour = look.col(next((a for a in act.args if a in look.L), "accent"))
             for (name, m) in self._targets(act.target):
+                if m is self.E[name] and self._kind(name) == "pin":
+                    m = m[0]                    # a pin glows at its dot, not round its name
                 self._glow(name, m, colour, t0, t1)
         elif v == "spotlight":
             self._spotlight(act.target, float(self._opt(act, "dim", 0.22)), t0, t1)
@@ -1147,6 +1199,7 @@ class ScoreScene(MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, lambda a: al.set(state["a0"] + (to - state["a0"]) * a)))
 
     def _scale(self, m, k, t0, t1) -> None:
+        k = max(float(k), 0.01)                 # to nothing: as small as a speck (0 would undo nothing after it)
         state = {"k": 1.0}
 
         def step(a):
@@ -1508,9 +1561,15 @@ class ScoreScene(MovingCameraScene):
 
         def start():
             core = getattr(m, "core", m)
-            r = max(core.width, core.height) / 2
-            halo = VGroup(*(Circle(radius=r * (1.0 + 0.12 * k), fill_color=c, fill_opacity=0.09, stroke_width=0)
-                            for k in range(7))).move_to(core)
+            if max(core.width, core.height) > 3.2:
+                # a big thing (a map, a row of cards): a soft glow round its edge, not a disc the size of the screen
+                halo = VGroup(*(RoundedRectangle(width=core.width + 0.12 * k, height=core.height + 0.12 * k,
+                                                 corner_radius=0.15 + 0.06 * k, fill_color=c, fill_opacity=0.07,
+                                                 stroke_width=0) for k in range(5))).move_to(core)
+            else:
+                r = max(core.width, core.height) / 2
+                halo = VGroup(*(Circle(radius=r * (1.0 + 0.1 * k), fill_color=c, fill_opacity=0.09, stroke_width=0)
+                                for k in range(6))).move_to(core)
             halo.set_z_index(min(x.z_index for x in m.get_family()) - 2)
             self.marks.setdefault(name, []).append(halo)
             self.follows.append([halo, core, core.get_center().copy(), None])

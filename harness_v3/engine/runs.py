@@ -332,6 +332,11 @@ def _score_shot(run: dict, shots: list[dict], k: int, words: list[dict], before:
     text = re.sub(r"^```\w*|```$", "", text.strip(), flags=re.M).strip()
     if not re.search(r"^\s*shot\s", text, re.M):
         text = f"shot {s['name']} at {at[0]:g},{at[1]:g}\n" + text
+    name = re.sub(r"\W+", "_", s["name"]).strip("_") or f"shot{k + 1}"
+    if re.search(r"^\s*shot\s+(at|zoom)\b", text, re.M):
+        # `shot at X,Y` (no name): the storyboard's, and a camera sent `at X,Y` goes to it
+        text = re.sub(r"^(\s*shot\s+)(at|zoom)\b", rf"\g<1>{name} \2", text, flags=re.M)
+        text = re.sub(r"^(\S+\s+cam\s+)at\s+-?[\d.]+,-?[\d.]+", rf"\g<1>{name}", text, flags=re.M)
     return f"# ---- {s['name']}: {s['plan'][:90]}\n{text}"
 
 
@@ -627,12 +632,12 @@ def _shot_blocks(text: str) -> dict[str, tuple[int, int]]:
 def _layout(run: dict) -> None:
     """The layout check (layout.py): the score's things built with their real sizes, and what covers what, runs off
     the screen or is empty said by shot. A shot with problems goes back to the score's model once with them and the
-    real sizes (V3_LAYOUT_FIX rounds, default 1; 0: only checked), and is checked again. A score given by hand is
+    real sizes (V3_LAYOUT_FIX rounds, default 2; 0: only checked), and is checked again. A score given by hand is
     only checked: what to change is said here."""
     d = run_dir(run["id"])
     rep = _check_layout(run)
     notes = [f"{rep['count']} layout problem(s) in {len(rep['problems'])} shot(s)" if rep["count"] else "no layout problems"]
-    rounds = int(os.environ.get("V3_LAYOUT_FIX", "1"))
+    rounds = int(os.environ.get("V3_LAYOUT_FIX", "2"))
     can = bool(os.environ.get("OPENROUTER_API_KEY")) and not run["settings"].get("given_score")
     if rep["count"] and (not can or rounds <= 0):
         notes += [f"{shot}: {p}" for shot, ps in rep["problems"].items() for p in ps][:30]
@@ -648,7 +653,7 @@ def _layout(run: dict) -> None:
             (d / "video.before-layout.score").write_text(text)
         blocks = _shot_blocks(text)
         lines = text.splitlines()
-        todo = [shot for shot in rep["problems"] if shot in blocks][:int(os.environ.get("V3_LAYOUT_SHOTS", "16"))]
+        todo = [shot for shot in rep["problems"] if shot in blocks][:int(os.environ.get("V3_LAYOUT_SHOTS", "40"))]
 
         def fix(shot: str) -> tuple[str, str | None]:
             a, b = blocks[shot]

@@ -53,6 +53,9 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   chapter "TITLE" (on a chapter's first word: the bar along the bottom names it; 3-6 a video)
 TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
+- Every action is one line that starts with its time, then the verb, then the thing: `w12 in seal pop`,
+  `w14-w18 move ship to 3,0`, `w20 out seal`, `w21 ring seal`, `w22-w26 in key speak`. One action a line; the only
+  verbs are those above (no `appear`, `fade in`, `show`); a thing is made by an `ent` line before it is used.
 - Nothing is a slide: keep things up and change them (move, morph, count, grow, color) instead of replacing them.
 - Something moves on every phrase; land each action on the word that names it.
 - Start every shot with `cam SHOT` on its first word: the camera only goes where a `cam` line sends it.
@@ -146,7 +149,8 @@ KIT = {
   walk P to X,Y|ENT|M.place | run P to ... | point P at T | wave P | talk P "WORDS" (mouth moves; a bubble only
   for words the narration quotes) | carry P THING (it goes into the hands) | sit P | stand P | turn P left|right
   | cheer P | shrug P | think P | bow P | jump P | nod P
-  People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart.""",
+  People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart. Never put a person at
+  a map's place (they stand taller than a country): mark places on maps with pins.""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }

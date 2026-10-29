@@ -152,6 +152,9 @@ def parse_mods(toks: list[str]) -> tuple[list[str], dict]:
             if i + 1 >= len(toks):
                 raise ValueError(f"{t!r} needs a value")
             v = toks[i + 1]
+            if shape in ("n", "i") and not re.match(r"^-?[\d.]+$", v):
+                i += 2                          # `size big`: a number was meant; left as it would be
+                continue
             if shape == "xy" and not re.match(r"^-?[\d.]+,-?[\d.]+$", v):
                 mods[t] = v                 # a place or an entity (`at japan.uraga`): found when it is drawn
             else:
@@ -179,13 +182,122 @@ def _renamed(tok: str, alias: dict[str, str]) -> str:
     return ",".join(out)
 
 
+# Words a model writes for a verb the grammar has (`appear X` is `in X`).
+VERB_ALIAS = {"appear": "in", "show": "in", "enter": "in", "reveal": "in", "add": "in", "disappear": "out",
+              "hide": "out", "exit": "out", "remove": "out", "vanish": "out", "camera": "cam", "zoom": "cam",
+              "circle": "circle", "emphasize": "pulse", "emphasise": "pulse"}
+# Ways a thing comes on or goes (`in X pop`), also written as the verb (`pop X` is `in X pop`).
+IN_WAYS = {"fade", "pop", "rise", "drop", "slide-left", "slide-right", "draw", "write", "grow", "unfold", "slap", "speak"}
+OUT_WAYS = {"fade", "shrink", "drop", "peel"}
+KEYWORDS = {"look", "music", "sound", "shot", "ent", "texture", "parallax", "motion", "captions", "progress"}
+
+
+def _is_time(tok: str) -> bool:
+    t = tok.strip()
+    if t == "end" or WORD.match(t) or SECS.match(t):
+        return True
+    a, sep, b = t.partition("-")
+    return bool(sep) and bool(WORD.match(a) or SECS.match(a)) and bool(WORD.match(b) or SECS.match(b)
+                                                                       or re.match(r"^\d+$", b))
+
+
+KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "scale", "spin", "pulse", "shake", "count",
+               "grow", "cam", "flow", "float", "bracket", "spotlight", "chapter", "bring", "ring", "circle", "mark",
+               "underline", "highlight", "strike", "box", "tick", "cross", "stamp", "callout", "pan", "type", "fill",
+               "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
+               "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod"}
+# Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
+KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
+         "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
+         "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels", "compare", "table", "list", "steps",
+         "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
+         "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
+         "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
+         "backdrop", "portrait", "person", "phrase"}
+ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
+
+
+def _mend_action(toks: list[str], names=frozenset()) -> list[list[str]] | None:
+    """An action line as the grammar has it (TIME VERB TARGET ARGS), from the ways models get it wrong: the time
+    elsewhere on the line, `in fade X`, `fade in X`, `appear X`, `pop X`, `w12-14`, several actions joined by `|`.
+    None: not an action a mend can make out."""
+    # several actions on one line
+    if "|" in toks:
+        parts, cur = [], []
+        for t in toks:
+            if t == "|":
+                parts.append(cur)
+                cur = []
+            else:
+                cur.append(t)
+        parts.append(cur)
+        out, when = [], None
+        for p in parts:
+            p = [t for t in p if t]
+            if not p:
+                continue
+            if when and not any(_is_time(t) for t in p):
+                p = [when] + p
+            m = _mend_action(p, names)
+            if m:
+                out += m
+                when = when or m[0][0]
+        return out or None
+    # the time: the first token if it is one, else the first that is one; a name that looks like one (`w1`) is a name
+    times = [i for i, t in enumerate(toks) if _is_time(t) and t not in names]
+    if not times:
+        return None
+    if times[0] == 0:
+        times = [0] + [i for i in times[1:] if i <= 2 and toks[i] != toks[0] and len(toks) > i + 1
+                       and toks[i + 1] in names]          # `w216 move w216 X`: the time said twice
+    when = toks[times[0]]
+    a, _, b = when.partition("-")
+    if b and re.match(r"^\d+$", b) and a.startswith("w"):
+        when = f"{a}-w{b}"                       # w229-230
+    rest = [t for i, t in enumerate(toks) if i not in times]
+    if not rest:
+        return None
+    verb = rest[0].lower()
+    args = rest[1:]
+    if verb not in KNOWN_VERBS and verb not in VERB_ALIAS and verb not in IN_WAYS and args and \
+            (args[0].lower() in KNOWN_VERBS or args[0].lower() in VERB_ALIAS):
+        verb, args = args[0].lower(), [rest[0]] + args[1:]     # `w46 church appear`: the thing first
+    if verb == "fade" and args and args[0] in ("in", "out"):
+        verb, args = args[0], args[1:] + ["fade"]
+    verb = VERB_ALIAS.get(verb, verb)
+    if verb in IN_WAYS - {"fade", "draw", "grow"} and args:
+        verb, args = "in", [args[0], verb] + args[1:]      # `pop X` is `in X pop`
+    if verb in ("in", "out") and len(args) >= 2 and args[0] in (IN_WAYS | OUT_WAYS) \
+            and args[1] not in (IN_WAYS | OUT_WAYS) and args[1] not in ARG_WORDS \
+            and not re.match(r"^-?[\d.,]+$", args[1]):
+        args = [args[1], args[0]] + args[2:]               # `in fade X` is `in X fade`
+    if verb in ("in", "out") and args:
+        ways = IN_WAYS if verb == "in" else OUT_WAYS
+        rest_ways = [t for t in args[1:] if t in ways]
+        if len(rest_ways) > 1:                             # one way only: the first
+            first = rest_ways[0]
+            args = [args[0]] + [t for t in args[1:] if t not in ways or t == first]
+    return [[when, verb] + args]
+
+
+def _join_xy(toks: list[str]) -> list[str]:
+    """`-1.5, -2.9` or `a, b, c` written with spaces: one token again."""
+    out = []
+    for t in toks:
+        if out and out[-1].endswith(",") and len(out) > 1 and not (" " in out[-1]):
+            out[-1] += t
+        else:
+            out.append(t)
+    return out
+
+
 def parse(text: str, words: list[dict], seconds: float) -> Score:
     """A score's text read against the narration's words. A line that cannot be read is left out, with a note
     (the rest plays). Two mends, each said in the notes (the shots are written one call at a time, and a small
     model forgets): a name made again in a later shot is a new thing (`people` becomes `people_s2` from there on;
     the earlier one stays where it was), and a shot no camera move goes to gets one, as its first action plays."""
     sc = Score(end=seconds)
-    shot: Shot | None = None
+    state: dict = {"shot": None}
     alias: dict[str, str] = {}
     for n, raw in enumerate(text.splitlines(), 1):
         try:
@@ -195,56 +307,134 @@ def parse(text: str, words: list[dict], seconds: float) -> Score:
             continue
         if not toks:
             continue
-        line = " ".join(toks)
-        head = toks[0]
-        try:
-            if head == "look":
-                sc.look = toks[1]
-            elif head == "music":
-                sc.music = toks[1] if len(toks) > 1 else "calm"
-            elif head == "sound":
-                sc.sound = (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0")
-            elif head in ("texture", "parallax", "captions", "progress"):
-                setattr(sc, head, (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0", "no"))
-            elif head == "motion":
-                sc.motion = toks[1] if len(toks) > 1 else "paper"
-            elif head == "shot":
-                _, mods = parse_mods(toks[2:])
-                if "at" in mods:
-                    x, y = mods["at"]
-                else:
-                    last = list(sc.shots.values())[-1] if sc.shots else None
-                    x, y = ((last.x + SHOT_STEP, last.y) if last else (0.0, 0.0))
-                shot = Shot(toks[1], x, y, float(mods.get("zoom", 1.0)), n)
-                sc.shots[shot.name] = shot
-            elif head == "ent":
-                if shot is None:
-                    shot = Shot("main", 0.0, 0.0, 1.0, n)
-                    sc.shots["main"] = shot
-                toks = toks[:3] + [_renamed(t, alias) for t in toks[3:]]
-                args, mods = parse_mods(toks[3:])
-                name = toks[1]
-                if name in alias and sc.ents[alias[name]].shot != shot.name:
-                    new = f"{name}_{shot.name}"
-                    while new in sc.ents:
-                        new += "_"
-                    sc.notes.append(f"line {n}: {name!r} was made again in shot {shot.name}: a new thing ({new}); "
-                                    f"the one in shot {sc.ents[alias[name]].shot} stays")
-                    alias[name] = new
-                else:
-                    alias.setdefault(name, name)
-                sc.ents[alias[name]] = Ent(alias[name], toks[2], args, mods, shot.name, n)
-            else:
-                t0, t1 = _when(head, words, seconds)
-                toks = toks[:2] + [_renamed(t, alias) for t in toks[2:]]
-                verb = toks[1]
-                target = toks[2] if len(toks) > 2 else ""
-                sc.acts.append(Act(t0, t1, verb, target, toks[3:], n, line))
-        except (ValueError, IndexError) as e:
-            sc.notes.append(f"line {n}: {e}: {line[:80]}")
+        toks = _join_xy(toks)
+        state["raw"] = raw
+        items = [toks]
+        if toks[0] not in KEYWORDS:
+            mended = _mend_action(toks, frozenset(alias))
+            if mended:
+                if [" ".join(m) for m in mended] != [" ".join(toks)]:
+                    sc.notes.append(f"mended line {n}: `{' '.join(toks)[:80]}` read as " +
+                                    "; ".join(f"`{' '.join(m)}`" for m in mended))
+                items = mended
+        for toks in items:
+            _one_line(sc, toks, n, words, seconds, alias, state)
+    _name_the_nameless(sc, state.get("nameless", []))
     _camera_to_every_shot(sc)
     sc.acts.sort(key=lambda a: a.t0)
     return sc
+
+
+def _name_the_nameless(sc: Score, nameless: list[tuple[str, str]]) -> None:
+    """`ent map eu ...` meant `ent eu map ...` when `eu` is what the other lines call it (`eu.mainz`)."""
+    if not nameless:
+        return
+    used = set()
+    for a in sc.acts:                           # what actions act on, and places on it (`eu.mainz`)
+        for t in [a.target, *(x for x in a.args if "." in x)]:
+            for part in str(t).split(","):
+                m = REF.match(part.strip())
+                if m:
+                    used.add(m.group(1))
+    for e in sc.ents.values():
+        for v in e.mods.values():
+            if isinstance(v, str):
+                m = REF.match(v.split(",")[0])
+                if m:
+                    used.add(m.group(1))
+    for name, first in nameless:
+        e = sc.ents.get(name)
+        if e is None or first not in used or first in sc.ents or not e.args or e.args[0] != first:
+            continue
+        del sc.ents[name]
+        e.name, e.args = first, e.args[1:]
+        sc.ents[first] = e
+        for a in sc.acts:
+            if a.target == name:
+                a.target = first
+        sc.notes.append(f"mended: {first} is the name of the {e.kind} on line {e.line}")
+
+
+def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, state: dict) -> None:
+    """One line of the score read into it (`state` keeps the shot the lines are in)."""
+    shot = state.get("shot")
+    line = " ".join(toks)
+    head = toks[0]
+    try:
+        if head == "look":
+            sc.look = toks[1]
+        elif head == "music":
+            sc.music = toks[1] if len(toks) > 1 else "calm"
+        elif head == "sound":
+            sc.sound = (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0")
+        elif head in ("texture", "parallax", "captions", "progress"):
+            setattr(sc, head, (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0", "no"))
+        elif head == "motion":
+            sc.motion = toks[1] if len(toks) > 1 else "paper"
+        elif head == "shot":
+            if len(toks) > 1 and toks[1] in ("at", "zoom"):          # `shot at X,Y`: no name
+                toks = [toks[0], f"shot{n}"] + toks[1:]
+                sc.notes.append(f"mended line {n}: a shot with no name: called {toks[1]}")
+            _, mods = parse_mods(toks[2:])
+            if "at" in mods:
+                x, y = mods["at"]
+            else:
+                last = list(sc.shots.values())[-1] if sc.shots else None
+                x, y = ((last.x + SHOT_STEP, last.y) if last else (0.0, 0.0))
+            shot = Shot(toks[1], x, y, float(mods.get("zoom", 1.0)), n)
+            sc.shots[shot.name] = shot
+        elif head == "ent":
+            if len(toks) > 2 and toks[1] in KINDS and toks[2] not in KINDS:
+                # `ent map europe ...`: no name, the kind named; the thing is called by its kind (as its actions do)
+                name = toks[1]
+                k = 2
+                while name in sc.ents and sc.ents[name].shot == (shot.name if shot else "main"):
+                    name = f"{toks[1]}{k}"
+                    k += 1
+                sc.notes.append(f"mended line {n}: `{line[:60]}` has no name: called {name}")
+                if f'"{toks[2]}"' not in state.get("raw", "") and f"'{toks[2]}'" not in state.get("raw", ""):
+                    state.setdefault("nameless", []).append((name, toks[2]))     # (words in quotes are words)
+                toks = [toks[0], name] + toks[1:]
+            if shot is None:
+                shot = Shot("main", 0.0, 0.0, 1.0, n)
+                sc.shots["main"] = shot
+            toks = toks[:3] + [_renamed(t, alias) for t in toks[3:]]
+            args, mods = parse_mods(toks[3:])
+            for k in ("below", "above", "left", "right"):
+                # `at X below 0.8`: below X, 0.8 apart
+                if isinstance(mods.get(k), str) and re.match(r"^-?[\d.]+$", mods[k]) and isinstance(mods.get("at"), str):
+                    mods["gap"] = float(mods[k])
+                    mods[k] = mods.pop("at")
+            name = toks[1]
+            if name in alias and sc.ents[alias[name]].shot != shot.name:
+                new = f"{name}_{shot.name}"
+                while new in sc.ents:
+                    new += "_"
+                sc.notes.append(f"line {n}: {name!r} was made again in shot {shot.name}: a new thing ({new}); "
+                                f"the one in shot {sc.ents[alias[name]].shot} stays")
+                alias[name] = new
+            else:
+                alias.setdefault(name, name)
+            sc.ents[alias[name]] = Ent(alias[name], toks[2], args, mods, shot.name, n)
+        else:
+            t0, t1 = _when(head, words, seconds)
+            toks = toks[:2] + [_renamed(t, alias) for t in toks[2:]]
+            verb = toks[1]
+            target = toks[2] if len(toks) > 2 else ""
+            if verb == "cam" and target == "at" and len(toks) > 3 and "at" not in sc.shots:
+                # `cam at X,Y`: the shot at that place (else the one these lines are in)
+                try:
+                    x, y = _xy(toks[3])
+                    near = min(sc.shots.values(), key=lambda s_: abs(s_.x - x) + abs(s_.y - y))
+                    target = near.name if abs(near.x - x) + abs(near.y - y) < 1.0 else (shot.name if shot else target)
+                except ValueError:
+                    target = shot.name if shot else target
+                toks = toks[:2] + [target] + toks[4:]
+                line = " ".join(toks)
+            sc.acts.append(Act(t0, t1, verb, target, toks[3:], n, line))
+    except (ValueError, IndexError) as e:
+        sc.notes.append(f"line {n}: {e}: {line[:80]}")
+    state["shot"] = shot
 
 
 def shot_of(sc: Score, ref: str) -> str | None:

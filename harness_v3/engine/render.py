@@ -20,6 +20,15 @@ VERBS (TIME VERB TARGET [ARGS]):
     flow PATH [n N] [COLOR]                          (dots travel the path over the action's time)
     float T [AMP]                                    (bobs gently over the action's time, or to the end)
     cam SHOT | cam ENT [zoom Z] | cam SHOT X,Y [zoom Z] | cam wide
+    cam SHOT via page|tear|whip | cam SHOT via dive [into REF]   (dive: into a thing, which opens on the next shot)
+    bring T to SHOT [X,Y]                            (T travels on the screen with the camera into another shot)
+    chapter "TITLE"                                  (the chapter bar along the bottom moves on to it)
+    walk P to X,Y|ENT|MAP.place | point P at REF | wave P | talk P ["WORDS"] | carry P THING | sit P | stand P
+        | turn P left|right                          (a person's poses)
+
+The paper world (feel.py): a cut-out comes on slapped down and leaves peeled off unless the score says how; moves
+overshoot a little and settle; what lands nudges its neighbours; outlines boil and lines are drawn by a pen; grain and
+a vignette lie over the frame; the layers slide at their own speeds as the camera travels between shots.
 """
 
 from __future__ import annotations
@@ -45,6 +54,7 @@ from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, I
                    tempconfig)
 from manim.utils.color import ManimColor, interpolate_color
 
+import feel
 import look
 import score as S
 
@@ -58,12 +68,18 @@ SIDES = ("left", "right", "up", "down")
 # Putting a thing against another (`below X`...), and what goes beside a piece's part when put `at` it.
 REL = ("below", "above", "left", "right")
 PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart", "layers", "circuit"}
-BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait"}
+BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait",
+                "person", "phrase"}
+HUD_Z = 970             # what stays on the screen (captions, the chapter bar) over everything but the grain
+
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
                "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
                "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
                "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6,
-               "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8}
+               "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8,
+               "walk": 2.0, "point": 0.6, "wave": 1.6, "talk": 2.0, "carry": 0.8, "sit": 0.7, "stand": 0.6,
+               "turn": 0.4, "bring": 1.4, "chapter": 0.1}
+PERSON_VERBS = ("walk", "point", "wave", "talk", "carry", "sit", "stand", "turn")
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -83,6 +99,7 @@ class Alpha:
     its parts' own opacities were."""
 
     def __init__(self, m):
+        self.m = m
         self.base = []
         for x in leaves(m):
             try:
@@ -93,6 +110,9 @@ class Alpha:
 
     def set(self, a: float) -> None:
         self.now = a
+        if isinstance(self.m, look.Num) and self.base and self.m.submobjects and \
+                not any(self.base[0][0] is x for x in self.m.submobjects[0].get_family()):
+            self.base = [(x, 1.0, 1.0) for x in leaves(self.m)]     # a number redrawn as it counts
         for x, f, s in self.base:
             if isinstance(x, ImageMobject):
                 x.set_opacity(max(0.0, min(1.0, a)))      # from the picture's own alpha
@@ -138,6 +158,7 @@ class ScoreScene(MovingCameraScene):
     FRAMES: tuple[int, int] | None = None     # a chunk of the video (frames from, to), else all of it
     FPS: int = 30
     SOUND: bool = True
+    BOIL: bool = True                          # outlines tremble as drawn (the player draws its own from the timeline)
 
     def construct(self):
         sc, words = self.SCORE, self.WORDS
@@ -151,9 +172,16 @@ class ScoreScene(MovingCameraScene):
         self.up: set[int] = set()                # what is on the screen
         self.tweens: list[Tween] = []
         self.clock = 0.0
+        self.texture, self.motion = feel.texture_on(sc), feel.motion_on(sc)
+        self.parallax = feel.parallax_on(sc)
+        self.hud: list[list] = []                # [mobject, scale it was placed at, centre it was placed at]
+        self.hud_hooks: list = []
+        self.boiled: list = []                   # the trembles applied this frame, undone at the next
+        self.boil_ids: dict[int, int] = {}
         self._paper()
         self._build()
         self._spread()
+        self._depths()
         for act in sc.acts:
             n = len(self.tweens)
             try:
@@ -165,6 +193,10 @@ class ScoreScene(MovingCameraScene):
                 tw.line, tw.verb = act.line, act.verb
         self._introduce_the_rest()
         self._weather()
+        self._numbers_said()
+        self._captions()
+        self._progress()
+        self._overlay()
         self.tweens.sort(key=lambda t: t.t0)
         first = next((a for a in sc.acts if a.verb == "cam"), None)
         f = self.camera.frame
@@ -448,6 +480,8 @@ class ScoreScene(MovingCameraScene):
         m = look.copies(one, int(e.mods["x"]), e.mods) if int(e.mods.get("x", 1)) > 1 else one()
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
+        if self.texture and e.kind in ("arrow", "path"):
+            feel.wobbled(m, 0.028, e.name)          # a line drawn by hand
         on_map = e.kind in ON_PARENT        # drawn where it stands on its map, timeline or picture
         if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather", "march") and not on_map
                 and (m.width > 12 or m.height > 7)):
@@ -462,6 +496,8 @@ class ScoreScene(MovingCameraScene):
             at = e.mods.get("at", (0.0, 0.0))
             where = self._locate(at, e.shot) if isinstance(at, str) else self._origin(e.shot) + np.array([at[0], at[1], 0.0])
             m.move_to(where)
+            if e.kind == "person":              # a person stands where it is put: its feet there
+                m.shift(where - m.feet())
             rel = self._relation(e)
             if rel:
                 self._beside(m, rel[0], rel[1], e)
@@ -544,6 +580,7 @@ class ScoreScene(MovingCameraScene):
         else:
             self.clock += dt
         t = self.clock
+        self._unboil()
         if any(isinstance(tw, Call) and getattr(tw, "camera", False) and tw.t0 <= t <= tw.t1 for tw in self.tweens):
             self._crept = 0.0                   # a camera move: the creep starts again after it
         elif dt and getattr(self, "_crept", 0.0) < self.CREEP:
@@ -567,6 +604,8 @@ class ScoreScene(MovingCameraScene):
                 tw.done = True
                 print(f"score line {getattr(tw, 'line', '?')}: {getattr(tw, 'verb', 'an action')} stopped as it played: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
+        if self.parallax:
+            self._parallax()
         # A mark goes where what it marks goes (a ring round a thing that then moves, a fill in a box that slides).
         for rec in self.follows:
             mk, what, last, fill = rec
@@ -576,6 +615,9 @@ class ScoreScene(MovingCameraScene):
                 if fill is not None:
                     fill["base"] += (c - last)[1]
                 rec[2] = c.copy()
+        self._place_hud()
+        if self.BOIL and self.texture and dt:
+            self._boil()
         # What is drawn this frame is what is up now: manim keeps the list it took when the wait began, and a part
         # replaced since (a number counting, a bar growing) would be drawn twice, the stale one under the live one.
         if getattr(self, "moving_mobjects", None) is not None:
@@ -611,18 +653,22 @@ class ScoreScene(MovingCameraScene):
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
-        if v == "in":
+        if v == "in" and how == "speak":
+            for name, m in self._targets(act.target):
+                end = act.t1 if act.t1 is not None else t0 + 0.38 * max(1, len(m.submobjects))
+                self._speak(name, m, act, t0, end)
+        elif v == "in":
             items = self._targets(act.target)
             if len(items) == 1 and stagger is not None and len(items[0][1].submobjects) > 1:
                 items = [(items[0][0], p) for p in items[0][1].submobjects]
             for (name, m), a0, a1 in self._staggered(items, t0, t1, stagger):
-                self._in(name, m, a0, a1, how or "fade")
+                self._in(name, m, a0, a1, how or self._default_way(name, m, "in"))
         elif v == "out":
             items = self._targets(act.target)
             if len(items) == 1 and stagger is not None and len(items[0][1].submobjects) > 1:
                 items = [(items[0][0], p) for p in items[0][1].submobjects]
             for (name, m), a0, a1 in self._staggered(items, t0, t1, stagger):
-                self._out(name, m, a0, a1, how or "fade")
+                self._out(name, m, a0, a1, how or self._default_way(name, m, "out"))
         elif v == "move":
             for (name, m), a0, a1 in self._staggered(self._targets(act.target), t0, t1, stagger):
                 self._move(name, m, act, a0, a1)
@@ -721,6 +767,13 @@ class ScoreScene(MovingCameraScene):
         elif v == "flow":
             self._flow(self._track(self.E[act.target]), int(self._opt(act, "n", 6, int)),
                        look.col(next((x for x in act.args if x in look.L), "coral")), t0, t1)
+        elif v in PERSON_VERBS:
+            self._person(act, t0, t1)
+        elif v == "bring":
+            (name, m), = self._targets(act.target)[:1]
+            self._bring(name, m, act, t0, t1 if act.t1 is not None else t0 + DEFAULT_RUN["bring"])
+        elif v == "chapter":
+            pass                                # the chapter bar reads these (_progress)
         elif v == "float":
             amp = float(act.args[0]) if act.args else 0.08
             end = t1 if act.t1 is not None else self.SCORE.end + TAIL
@@ -738,9 +791,29 @@ class ScoreScene(MovingCameraScene):
         return m if len(m.points) else next((x for x in m.get_family() if len(x.points)), m)
 
     # ------------------------------------------------------------ verbs ------------------------------------------------
+    def _kind(self, name: str) -> str:
+        e = self.SCORE.ents.get(name)
+        return e.kind if e else ""
+
+    def _default_way(self, name, m, way: str) -> str:
+        """How a thing comes on or goes when the score does not say: a paper cut-out slapped down and peeled off, a
+        person stepping up, the rest faded."""
+        kind = self._kind(name)
+        if not self.motion or m is not self.E.get(name):
+            return "fade"
+        if kind == "person":
+            return "rise" if way == "in" else "fade"
+        if kind in feel.CUTOUTS:
+            return "slap" if way == "in" else "peel"
+        return "fade"
+
     def _in(self, name, m, t0, t1, how) -> None:
         al = self._alpha(m)
         state = {}
+        if how == "slap":
+            return self._slap(name, m, t0, t1)
+        kind = self._kind(name)
+        pen = how == "draw" and self.texture and kind in ("arrow", "path", "river", "march")
 
         def start():
             self._show(name, m)
@@ -750,6 +823,10 @@ class ScoreScene(MovingCameraScene):
                 anim = (Write(m) if how == "write" else Create(m, lag_ratio=0.05))
                 anim.begin()
                 state["anim"] = anim
+                if pen:                         # the pen's nib, at the head of the line as it is drawn
+                    nib = Dot(radius=0.055, color=look.col("ink")).set_z_index(max(x.z_index for x in m.get_family()) + 1)
+                    state["nib"], state["track"] = nib, self._track(m)
+                    self.add(nib)
                 return
             al.set(0.0)
             state["k"], state["d"] = 1.0, np.zeros(3)
@@ -768,8 +845,10 @@ class ScoreScene(MovingCameraScene):
         def step(a):
             if "anim" in state:
                 state["anim"].interpolate(a)
+                if "nib" in state:
+                    state["nib"].move_to(state["track"].point_from_proportion(min(1.0, max(0.0, a))))
                 return
-            al.set(min(1.0, a * 1.6) if how in ("pop", "grow") else a)
+            al.set(min(1.0, a * 1.6) if how in ("pop", "grow") else min(1.0, max(0.0, a)))
             if "k0" in state:
                 k = state["k0"] + (1 - state["k0"]) * a
                 m.scale(max(k, 1e-3) / state["k"])
@@ -787,30 +866,145 @@ class ScoreScene(MovingCameraScene):
             if "anim" in state:
                 state["anim"].interpolate(1)
                 state["anim"].finish()
+            if "nib" in state:
+                self.remove(state["nib"])
         rate = {"pop": rate_functions.ease_out_back, "grow": rate_functions.ease_out_back, "drop": rate_functions.ease_out_back,
-                "slide-left": rate_functions.ease_out_cubic, "slide-right": rate_functions.ease_out_cubic,
-                "rise": rate_functions.ease_out_cubic, "draw": rate_functions.ease_in_out_sine,
+                "slide-left": feel.settle if self.motion else rate_functions.ease_out_cubic,
+                "slide-right": feel.settle if self.motion else rate_functions.ease_out_cubic,
+                "rise": rate_functions.ease_out_cubic, "draw": feel.pen if pen else rate_functions.ease_in_out_sine,
                 "write": rate_functions.linear}.get(how, rate_functions.smooth)
         self.tweens.append(Call(t0, t1, start, step, stop, rate))
+        if self.motion and how in ("pop", "drop") and m is self.E.get(name):
+            self._nudge(name, m, t0 + (t1 - t0) * 0.6)
+
+    @staticmethod
+    def _undo(m, st) -> None:
+        """A tween's own turn, shift and scale of a thing taken off it (see _redo)."""
+        k, r, d, p = st["tf"]
+        if k != 1.0:
+            m.scale(1 / k, about_point=p + d)
+        if d.any():
+            m.shift(-d)
+        if r:
+            m.rotate(-r, about_point=p)
+
+    @staticmethod
+    def _redo(m, st, k: float, r: float, d) -> None:
+        """Turned by r about the tween's pivot, shifted by d and scaled by k: each step undoes the last first, so
+        what other tweens do to the thing meanwhile is kept and nothing is left over at the end."""
+        p = st["pivot"]
+        d = np.asarray(d, dtype=float)
+        if r:
+            m.rotate(r, about_point=p)
+        if d.any():
+            m.shift(d)
+        if k != 1.0:
+            m.scale(k, about_point=p + d)
+        st["tf"] = (k, r, d, p)
+
+    def _slap(self, name, m, t0, t1) -> None:
+        """A cut-out slapped down: in bigger and turned, its shadow tightening under it, a small wobble as it lands."""
+        al = self._alpha(m)
+        st = {}
+        sign = 1 if feel.seed(name + str(round(t0, 2))) % 2 else -1
+        t1 = max(t1, t0 + 0.55)
+
+        def start():
+            self._show(name, m)
+            al.set(0.0)
+            st["pivot"] = m.get_center().copy()
+            st["tf"] = (1.0, 0.0, np.zeros(3), st["pivot"])
+            w, h = max(m.width, 0.2), max(m.height, 0.2)
+            sh = RoundedRectangle(width=w, height=h, corner_radius=min(w, h) * 0.06, fill_color=look.L["ink"],
+                                  fill_opacity=0.0, stroke_width=0).move_to(st["pivot"])
+            sh.set_z_index(min(x.z_index for x in m.get_family()) - 1)
+            st["sh"], st["sh_at"], st["sh_k"] = sh, np.zeros(3), 1.0
+            self.add(sh)
+
+        def step(a):
+            self._undo(m, st)
+            e = feel.slap(a)
+            k = 1.22 + (1.0 - 1.22) * e
+            land = 0.55
+            r = sign * 0.12 * (1 - min(1.0, a / land)) ** 2 if a < land else feel.wobble_angle((a - land) / (1 - land), sign * -0.035)
+            self._redo(m, st, k, r, np.zeros(3))
+            al.set(min(1.0, a * 4))
+            sh = st["sh"]                       # the shadow: wide and far while it falls, tight as it lands
+            off = np.array([0.32, -0.42, 0.0]) * (1 - min(1.0, a / land)) + np.array([0.05, -0.07, 0.0])
+            sk = 1.0 + 0.12 * (1 - min(1.0, a / land))
+            sh.shift(off - st["sh_at"])
+            sh.scale(sk / st["sh_k"])
+            st["sh_at"], st["sh_k"] = off, sk
+            sh.set_fill(opacity=0.2 * min(1.0, a * 3) * (1 - max(0.0, (a - land) / (1 - land))))
+
+        def stop():
+            self._undo(m, st)
+            st["tf"] = (1.0, 0.0, np.zeros(3), st["pivot"])
+            al.set(1.0)
+            self.remove(st["sh"])
+        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.linear))
+        self._nudge(name, m, t0 + (t1 - t0) * 0.55)
+
+    def _nudge(self, name, m, t) -> None:
+        """What stands near a thing that lands is pushed a little away from it, and comes back (follow-through)."""
+        if not self.motion:
+            return
+        st = {}
+        parents = {e.mods.get("on") for e in self.SCORE.ents.values()} | {e.mods.get("map") for e in self.SCORE.ents.values()}
+        still = {"map", "backdrop", "region", "river", "pin", "weather", "labels", "split", "globe", "path", "arrow",
+                 "march", "shade", "inset", "lens", "land", "waves", "islands", "event", "span", "bubble"}
+
+        def start():
+            here = self.SCORE.ents[name].shot if name in self.SCORE.ents else None
+            c = m.get_center()
+            st["near"] = []
+            for n, mob in self.E.items():
+                e = self.SCORE.ents.get(n)
+                if n == name or e is None or e.shot != here or e.kind in still or n in parents or id(mob) not in self.up:
+                    continue
+                if mob.width > 6 or mob.height > 4 or self._alpha(mob).now < 0.05:
+                    continue
+                d = mob.get_center() - c
+                dist = float(np.linalg.norm(d[:2]))
+                if 0.05 < dist < 3.2:
+                    st["near"].append([mob, d / dist * 0.075 * (1 - dist / 3.2), np.zeros(3)])
+
+        def step(a):
+            for rec in st["near"]:
+                off = rec[1] * math.sin(math.pi * a) * (1 - 0.3 * a)
+                rec[0].shift(off - rec[2])
+                rec[2] = off
+
+        def stop():
+            for rec in st["near"]:
+                rec[0].shift(-rec[2])
+        self.tweens.append(Call(t, t + 0.42, start, step, stop, rate_functions.linear))
 
     def _out(self, name, m, t0, t1, how) -> None:
         al = self._alpha(m)
-        state = {}
+        st = {}
+        sign = 1 if feel.seed(name) % 2 else -1
 
         def start():
-            state["a0"] = al.now
-            state["k"], state["d"] = 1.0, np.zeros(3)
+            st["a0"] = al.now
+            st["pivot"] = (m.get_corner(DOWN + (LEFT if sign > 0 else RIGHT)) if how == "peel" else m.get_center()).copy()
+            st["tf"] = (1.0, 0.0, np.zeros(3), st["pivot"])
 
         def step(a):
-            al.set(state["a0"] * (1 - a))
-            if how == "shrink":
-                k = max(1 - 0.8 * a, 0.05)
-                m.scale(k / state["k"])
-                state["k"] = k
-            if how == "drop":
-                d = DOWN * 0.8 * a
-                m.shift(d - state["d"])
-                state["d"] = d
+            self._undo(m, st)
+            if how == "peel":
+                # a corner lifted, then flicked away
+                lift = min(1.0, a / 0.35)
+                fly = max(0.0, (a - 0.35) / 0.65) ** 2
+                r = sign * (0.07 * lift + 0.45 * fly)
+                d = np.array([sign * 2.0 * fly, 1.6 * fly, 0.0])
+                self._redo(m, st, 1.0 + 0.05 * lift, r, d)
+                al.set(st["a0"] * (1 - max(0.0, (a - 0.45) / 0.55)))
+                return
+            al.set(st["a0"] * (1 - a))
+            k = max(1 - 0.8 * a, 0.05) if how == "shrink" else 1.0
+            d = DOWN * 0.8 * a if how == "drop" else np.zeros(3)
+            self._redo(m, st, k, 0.0, d)
 
         def stop():
             for mk in self.marks.get(name, []) if m is self.E.get(name) else []:
@@ -818,7 +1012,12 @@ class ScoreScene(MovingCameraScene):
             if m is self.E.get(name):
                 self.remove(m)
                 self.up.discard(id(m))
-        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_cubic if how == "drop" else rate_functions.smooth))
+            self._undo(m, st)                   # back as it was, should it come on again
+            st["tf"] = (1.0, 0.0, np.zeros(3), st["pivot"])
+        if how == "peel":
+            t1 = max(t1, t0 + 0.6)
+        rate = rate_functions.ease_in_cubic if how == "drop" else rate_functions.linear if how == "peel" else rate_functions.smooth
+        self.tweens.append(Call(t0, t1, start, step, stop, rate))
         for mk in self.marks.get(name, []):
             self._fade_to(mk, 0.0, t0, t1)
 
@@ -835,21 +1034,37 @@ class ScoreScene(MovingCameraScene):
     def _move(self, name, m, act, t0, t1) -> None:
         arc = self._opt(act, "arc", 0.0)
         state = {}
+        # A cut-out slid on the page: past its place a little and back, tilting the way it goes.
+        paper = self.motion and self._kind(name) in feel.CUTOUTS | {"text", "label", "num", "icon", "dots"}
 
         def start():
             state["p0"] = m.get_center().copy()
             state["p1"] = self._dest(name, m, act)
             state["at"] = np.zeros(3)
+            state["r"], state["c"] = 0.0, None
 
         def step(a):
+            if state["r"]:
+                m.rotate(-state["r"], about_point=state["c"])
+                state["r"] = 0.0
             p0, p1 = state["p0"], state["p1"]
             d = p1 - p0
             n = np.array([-d[1], d[0], 0.0])
             n = n / (np.linalg.norm(n) + 1e-9)
-            off = d * a + n * arc * math.sin(math.pi * a) * np.linalg.norm(d) * 0.35
+            off = d * a + n * arc * math.sin(math.pi * min(a, 1.0)) * np.linalg.norm(d) * 0.35
             m.shift(off - state["at"])
             state["at"] = off
-        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_in_out_cubic))
+            if paper and abs(d[0]) > 0.3:
+                r = -math.copysign(1.0, d[0]) * 0.055 * math.sin(math.pi * min(1.0, max(0.0, a)))
+                state["c"] = m.get_center().copy()
+                m.rotate(r, about_point=state["c"])
+                state["r"] = r
+
+        def stop():
+            if state["r"]:
+                m.rotate(-state["r"], about_point=state["c"])
+                state["r"] = 0.0
+        self.tweens.append(Call(t0, t1, start, step, stop, feel.settle if self.motion else rate_functions.ease_in_out_cubic))
 
     def _along(self, m, path, t0, t1) -> None:
         state = {}
@@ -1057,6 +1272,8 @@ class ScoreScene(MovingCameraScene):
                     mk.add(look.label(words, 0.15, "ink").next_to(mk[0], RIGHT, buff=0.15))
             else:
                 raise ValueError(f"no mark {kind!r}")
+            if self.texture and kind in ("ring", "circle", "mark", "underline", "box", "strike"):
+                feel.wobbled(mk, 0.02, name + kind)     # drawn by hand
             mk.set_z_index(z + 2)
             self.marks.setdefault(name, []).append(mk)
             self.follows.append([mk, core, core.get_center().copy(), None])
@@ -1090,7 +1307,7 @@ class ScoreScene(MovingCameraScene):
             if "anim" in state:
                 state["anim"].interpolate(1)
                 state["anim"].finish()
-        rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, rate_functions.ease_in_out_sine)
+        rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, feel.pen if self.texture else rate_functions.ease_in_out_sine)
         self.tweens.append(Call(t0, t1, start, step, stop, rate))
 
     def _pan(self, m, k, d, t0, t1) -> None:
@@ -1337,6 +1554,465 @@ class ScoreScene(MovingCameraScene):
             state["y"] = y
         self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
 
+    # ------------------------------------------------------------ people -----------------------------------------------
+    def _person(self, act: S.Act, t0, t1) -> None:
+        """A person's poses over time: each verb sets only its own part of the pose (a walk its legs, a talk its
+        mouth), so a person can talk while walking."""
+        import people as P
+        (name, m), = self._targets(act.target)[:1]
+        if not isinstance(m, P.Person):
+            raise ValueError(f"{act.verb} is a person's (`ent NAME person`): {name} is a {self._kind(name)}")
+        v = act.verb
+        legs = ("fl1", "fl2", "bl1", "bl2", "bob", "drop", "lean")
+        arms = ("fa1", "fa2", "ba1", "ba2")
+        dur = max(t1 - t0, 0.05)
+        st = {}
+        blend = min(0.35, dur / 2)
+        back = v in ("wave", "talk")            # a wave or a talk ends where it began
+
+        def eased(tt: float) -> float:
+            k = min(1.0, tt / blend) if blend > 0 else 1.0
+            if back:
+                k = min(k, max(0.0, (dur - tt) / blend))
+            return k * k * (3 - 2 * k)
+
+        def pose_to(target: dict, keys, tt: float) -> None:
+            k = eased(tt)
+            p = dict(m.pose)
+            for key in keys:
+                p[key] = st["p0"][key] + (target[key] - st["p0"][key]) * k
+            m.set_pose(p)
+
+        if v == "walk":
+            def start():
+                st["p0"] = dict(m.pose)
+                st["f0"] = m.feet().copy()
+                st["f1"] = self._dest(name, m, act)
+                st["at"] = st["f0"].copy()
+                m.pose["face"] = 1.0 if st["f1"][0] >= st["f0"][0] else -1.0
+
+            def step(a):
+                tt = a * dur
+                pos = st["f0"] + (st["f1"] - st["f0"]) * rate_functions.ease_in_out_sine(a)
+                m.shift(pos - m.feet())
+                gone = float(np.linalg.norm(pos - st["f0"]))
+                phase = gone / max(0.3 * m.unit(), 1e-3) * math.pi / 2
+                ramp = min(1.0, tt / 0.25, max(0.0, (dur - tt) / 0.25))
+                target = P.mix(P.REST, P.walk_pose(phase), ramp)
+                keys = legs + (() if getattr(m, "carrying", False) else arms)
+                p = dict(m.pose)
+                for key in keys:
+                    p[key] = target[key]
+                p["drop"] = 0.0
+                m.set_pose(p)
+            self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+            return
+        if v == "point":
+            ref = act.args[act.args.index("at") + 1] if "at" in act.args else (act.args[0] if act.args else "")
+
+            def start():
+                st["p0"] = dict(m.pose)
+                goal = self._locate(ref, self.SCORE.ents[name].shot)
+                sh = m.w((0.0, P.HIP + P.TORSO))
+                face = 1.0 if goal[0] >= sh[0] else -1.0
+                d = goal - sh
+                ang = math.atan2(face * d[0], -d[1])
+                st["target"] = {**st["p0"], "fa1": ang, "fa2": ang, "face": face}
+
+            def step(a):
+                pose_to(st["target"], arms[:2] + ("face",), a * dur)
+            self.tweens.append(Call(t0, max(t1, t0 + 0.5), start, step, None, rate_functions.linear))
+            return
+
+        def start():
+            st["p0"] = dict(m.pose)
+            if v == "carry":
+                m.carrying = True
+
+        if v == "wave":
+            def step(a):
+                tt = a * dur
+                target = {**st["p0"], "fa1": 2.55, "fa2": 2.55 + 0.5 * math.sin(tt * 9.0)}
+                pose_to(target, arms[:2], tt)
+        elif v == "talk":
+            seed = feel.seed(name) % 7
+
+            def step(a):
+                tt = a * dur
+                o = 0.5 + 0.5 * math.sin(tt * 13.0 + seed) * math.sin(tt * 4.1 + seed * 0.7)
+                target = {**st["p0"], "mouth": abs(o)}
+                pose_to(target, ("mouth",), tt)
+            words = next((x for x in act.args if x not in look.L), "")
+            if words:
+                self._talk_bubble(name, m, words, t0, t1)
+        elif v in ("sit", "stand"):
+            def step(a):
+                target = P.sit_pose(m.seat is not None) if v == "sit" else dict(P.REST)
+                target["face"], target["mouth"] = st["p0"]["face"], st["p0"]["mouth"]
+                if v == "stand" and getattr(m, "carrying", False):
+                    target.update({k: P.carry_pose()[k] for k in arms})
+                pose_to(target, legs + arms, a * dur)
+        elif v == "turn":
+            def step(a):
+                face = -1.0 if (act.args and act.args[0] == "left") else 1.0 if act.args else -st["p0"]["face"]
+                pose_to({**st["p0"], "face": face}, ("face",), a * dur)
+        elif v == "carry":
+            thing = act.args[0] if act.args else ""
+            (tn, tm), = self._targets(thing)[:1]
+
+            def step(a):
+                pose_to(P.carry_pose(), arms, a * dur)
+            self._carried(m, tn, tm, t0, t1)
+        else:
+            raise ValueError(f"no verb {v!r}")
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+
+    def _carried(self, m, tn, tm, t0, t1) -> None:
+        """A thing taken into a person's hands: it goes there as the arms come up, then goes where the hands go."""
+        st = {}
+
+        def start():
+            if id(self.E[tn]) not in self.up:
+                self._show(tn, tm)
+                self._alpha(tm).set(1.0)
+            st["at"] = tm.get_center().copy()
+
+        def step(a):
+            goal = m.hand.get_center() + UP * tm.height * 0.4
+            p = st["at"] + (goal - st["at"]) * a
+            tm.shift(p - tm.get_center())
+
+        def stop():
+            self.follows.append([tm, m.hand, m.hand.get_center().copy(), None])
+        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_sine))
+
+    def _talk_bubble(self, name, m, words, t0, t1) -> None:
+        import kit
+        st = {}
+
+        def start():
+            b = kit.bubble(m.head, words, {"size": 0.2, "w": 2.6})
+            b.set_z_index(max(x.z_index for x in m.get_family()) + 2)
+            st["b"], st["al"] = b, Alpha(b)
+            st["al"].set(0.0)
+            self.follows.append([b, m.head, m.head.get_center().copy(), None])
+            self.add(b)
+
+        def step(a):
+            tt = a * (t1 - t0)
+            st["al"].set(min(1.0, tt / 0.2, max(0.0, (t1 - t0 - tt) / 0.25)))
+
+        def stop():
+            self.remove(st["b"])
+        self.tweens.append(Call(t0, max(t1, t0 + 0.8), start, step, stop, rate_functions.linear))
+
+    # ------------------------------------------------------------ carried over -----------------------------------------
+    def _bring(self, name, m, act: S.Act, t0, t1) -> None:
+        """A thing that travels on the screen with the camera into another shot, and stays there (`bring T to SHOT
+        [X,Y]`, best at the time of the camera move)."""
+        shot = act.args[act.args.index("to") + 1] if "to" in act.args else (act.args[0] if act.args else "")
+        if shot not in self.SCORE.shots:
+            raise ValueError(f"bring needs a shot to go to: `bring {name} to SHOT [X,Y]`")
+        xy = next((a for a in act.args if re.match(r"^-?[\d.]+,-?[\d.]+$", a)), None)
+        f = self.camera.frame
+        st = {}
+
+        def start():
+            s = self.SCORE.shots[shot]
+            w1 = S.SCREEN_W / s.zoom
+            st["rel0"] = (m.get_center() - f.get_center()) / f.width
+            dest = np.array([s.x, s.y, 0.0]) + (np.array([*(float(v) for v in xy.split(",")), 0.0]) if xy else st["rel0"] * w1)
+            st["rel1"] = (dest - np.array([s.x, s.y, 0.0])) / w1
+            st["fw"] = f.width
+            self.still.add(name)                # no parallax while it rides on the screen
+
+        def step(a):
+            m.scale(f.width / st["fw"])
+            st["fw"] = f.width
+            rel = st["rel0"] + (st["rel1"] - st["rel0"]) * a
+            m.shift(f.get_center() + rel * f.width - m.get_center())
+
+        def stop():
+            self.SCORE.ents[name].shot = shot
+            self.home[name] = self._origin(shot)
+            self.still.discard(name)
+        self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_sine))
+
+    # ------------------------------------------------------------ depth ------------------------------------------------
+    def _depths(self) -> None:
+        """Each thing's depth on the paper (feel.DEPTH): what stands on another piece or against it shares its depth."""
+        sc = self.SCORE
+        self.home: dict[str, np.ndarray] = {}
+        self.depth: dict[str, float] = {}
+        self.offset: dict[str, np.ndarray] = {}
+        self.still: set[str] = set()
+
+        def of(n: str, seen=()) -> float:
+            e = sc.ents.get(n)
+            if e is None or n in seen:
+                return 1.0
+            for key in ("on", "map", *REL, "at"):
+                ref = e.mods.get(key)
+                if isinstance(ref, str):
+                    base = ref.split(".", 1)[0]
+                    if base in sc.ents and base != n:
+                        return of(base, (*seen, n))
+            return feel.depth(e.kind)
+        for n, e in sc.ents.items():
+            if n in self.E and e.shot in sc.shots:
+                k = of(n)
+                if abs(k - 1.0) > 1e-3:
+                    self.depth[n] = k
+                    self.home[n] = self._origin(e.shot)
+                    self.offset[n] = np.zeros(3)
+
+    def _parallax(self) -> None:
+        f = self.camera.frame
+        c, fw = f.get_center(), f.width
+        zoomed_out = min(1.0, max(0.0, (1.6 * S.SCREEN_W - fw) / (0.4 * S.SCREEN_W)))
+        for n, k in self.depth.items():
+            m = self.E.get(n)
+            if m is None or n in self.still:
+                continue
+            d = c - self.home[n]
+            w = feel.parallax_weight(float(np.linalg.norm(d[:2])), S.SCREEN_W) * zoomed_out
+            off = d * (1.0 - k) * w
+            off[2] = 0.0
+            last = self.offset[n]
+            if np.abs(off - last).max() > 1e-5:
+                m.shift(off - last)             # (its marks follow it: self.follows)
+                self.offset[n] = off
+
+    # ------------------------------------------------------------ on the screen ----------------------------------------
+    def _hud_add(self, m, x: float, y: float) -> None:
+        """A thing kept on the screen (x, y in screen widths and heights from its centre), whatever the camera does."""
+        m.move_to([x * S.SCREEN_W, y * S.SCREEN_H, 0])
+        self.hud.append([m, 1.0, np.zeros(3)])
+
+    def _place_hud(self) -> None:
+        f = self.camera.frame
+        k, c = f.width / S.SCREEN_W, f.get_center().copy()
+        c[2] = 0.0
+        for rec in self.hud:
+            m, k0, c0 = rec
+            if abs(k - k0) < 1e-9 and np.allclose(c, c0, atol=1e-9):
+                continue
+            m.shift(-c0)
+            m.scale(k / k0, about_point=np.zeros(3))
+            m.shift(c)
+            for x in m.family_members_with_points():     # a line's width is in world units: kept on the screen too
+                if isinstance(x, VMobject) and x.get_stroke_width() > 0:
+                    x.set_stroke(width=x.get_stroke_width() * k / k0, family=False)
+            rec[1], rec[2] = k, c
+        for hook in self.hud_hooks:             # what is drawn on the screen afresh each frame (the chapter bar's fill)
+            hook(k, c)
+
+    def _overlay(self) -> None:
+        """Paper grain and a soft vignette over the frame, drifting a little."""
+        if not self.texture:
+            return
+        img = ImageMobject(feel.overlay_rgba(ink=look.L["ink"]))
+        img.stretch_to_fit_width(S.SCREEN_W * 1.06).stretch_to_fit_height(S.SCREEN_H * 1.06)
+        img.set_z_index(990)
+        self._hud_add(img, 0.0, 0.0)
+        self.add(img)
+        st = {"at": np.zeros(3)}
+
+        def step(a):
+            t = self.clock
+            k = self.camera.frame.width / S.SCREEN_W
+            off = np.array([0.1 * math.sin(t * 0.23), 0.07 * math.cos(t * 0.17), 0.0]) * k
+            img.shift(off - st["at"] * k / st.get("k", k))
+            st["at"], st["k"] = off, k
+        self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, step, None, rate_functions.linear))
+
+    def _boil(self) -> None:
+        """Drawn outlines tremble a little, a few times a second (undone before the next frame's actions)."""
+        n = int(self.clock * feel.BOIL_HZ)
+        out = []
+        for root in self.mobjects:
+            if root is getattr(self, "paper", None):
+                continue
+            for x in root.family_members_with_points():
+                if not isinstance(x, VMobject) or getattr(x, "z_index", 0) >= 900 or not feel.boils(x):
+                    continue
+                i = self.boil_ids.setdefault(id(x), len(self.boil_ids))
+                dx, dy, turn = feel.boil(i, n)
+                P = x.points
+                lo, hi = P[:, :2].min(axis=0), P[:, :2].max(axis=0)
+                cx, cy = (lo + hi) / 2
+                r = max(0.2, float(np.linalg.norm(hi - lo)) / 2)
+                ang = max(-0.03, min(0.03, turn * feel.BOIL_TURN / r))
+                ca, sa = math.cos(ang), math.sin(ang)
+                X, Y = P[:, 0] - cx, P[:, 1] - cy
+                P[:, 0], P[:, 1] = cx + ca * X - sa * Y + dx, cy + sa * X + ca * Y + dy
+                out.append((x, dx, dy, ang, cx, cy))
+        self.boiled = out
+
+    def _unboil(self) -> None:
+        for x, dx, dy, ang, cx, cy in self.boiled:
+            P = x.points
+            if not len(P):
+                continue
+            ca, sa = math.cos(-ang), math.sin(-ang)
+            X, Y = P[:, 0] - dx - cx, P[:, 1] - dy - cy
+            P[:, 0], P[:, 1] = cx + ca * X - sa * Y, cy + sa * X + ca * Y
+        self.boiled = []
+
+    # ------------------------------------------------------------ words said -------------------------------------------
+    def _numbers_said(self) -> None:
+        """A number that comes on as the voice says it counts up to itself while it is said (unless the score
+        counts it): from the word's start to its end, when a word nearby holds its digits."""
+        sc = self.SCORE
+        words = self.WORDS.get("words", []) if isinstance(self.WORDS, dict) else []
+        counted = {re.sub(r"\[.*", "", x) for a in sc.acts if a.verb in ("count", "grow") for x in a.target.split(",")}
+        for a in sc.acts:
+            if a.verb != "in":
+                continue
+            for x in a.target.split(","):
+                n = re.sub(r"\[.*", "", x.strip())
+                e, m = sc.ents.get(n), self.E.get(n)
+                if e is None or e.kind != "num" or n in counted or not isinstance(m, look.Num):
+                    continue
+                v = float(m.value)
+                if abs(v) < 10 or (1000 <= v <= 2100 and v.is_integer() and not m.prefix and not m.suffix):
+                    continue                    # a small number or a year stays as it is
+                digits = re.sub(r"\D", "", f"{v:.0f}")
+                said = next((w for w in words if a.t0 - 1.0 <= float(w["start"]) <= a.t0 + 3.0
+                             and re.sub(r"\D", "", str(w.get("w", ""))) == digits), None)
+                t0 = max(0.0, a.t0 - LEAD)
+                t1 = max(float(said["end"]), t0 + 0.6) if said else t0 + 1.0
+
+                def start(m=m):
+                    m.set_value(0.0)
+
+                def step(k, m=m, v=v):
+                    m.set_value(v * k)
+                self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_out_cubic))
+                counted.add(n)
+
+    def _speak(self, name, m, act: S.Act, t0, t1) -> None:
+        """A phrase's words come on one by one as the voice says them (over the action's words)."""
+        parts = list(m.submobjects) or [m]
+        words = self.WORDS.get("words", []) if isinstance(self.WORDS, dict) else []
+        said = [w for w in words if t0 - 0.05 <= float(w["start"]) <= t1 + 0.05]
+        if len(said) >= len(parts):
+            times = [float(w["start"]) - 0.08 for w in said[:len(parts)]]
+        else:
+            times = [t0 + (t1 - t0) * i / max(1, len(parts)) for i in range(len(parts))]
+        self.tweens.append(Call(t0, t0 + 0.01, lambda: (self._show(name, m), self._alpha(m).set(1.0),
+                                                        [self._alpha(p).set(0.0) for p in parts]), None, None))
+        for p, t in zip(parts, times):
+            self._rise_word(p, max(t0, t), max(t0, t) + 0.28)
+
+    def _rise_word(self, p, t0, t1) -> None:
+        al = self._alpha(p)
+        st = {"d": DOWN * 0.12}
+
+        def start():
+            p.shift(st["d"])
+
+        def step(a):
+            al.set(a)
+            d = DOWN * 0.12 * (1 - a)
+            p.shift(d - st["d"])
+            st["d"] = d
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_out_cubic))
+
+    def _captions(self) -> None:
+        """The narration's words along the bottom of the screen, a few at a time, the word being said lit."""
+        sc = self.SCORE
+        on = sc.captions if sc.captions is not None else os.environ.get("V3_CAPTIONS", "0").strip() == "1"
+        words = self.WORDS.get("words", []) if isinstance(self.WORDS, dict) else []
+        if not on or not words:
+            return
+        chunks, cur = [], []
+        for i, w in enumerate(words):
+            cur.append(w)
+            nxt = words[i + 1] if i + 1 < len(words) else None
+            end = re.search(r"[.,;:?!]$", str(w["w"])) or nxt is None or float(nxt["start"]) - float(w["end"]) > 0.45
+            if len(cur) >= 7 or (end and len(cur) >= 3) or nxt is None:
+                chunks.append(cur)
+                cur = []
+        if cur:
+            chunks.append(cur)
+        st = {"k": -1, "m": None}
+
+        def make(chunk):
+            g = look.phrase(" ".join(str(w["w"]) for w in chunk), 0.26, 12.0, "ink")
+            pill = RoundedRectangle(width=g.width + 0.6, height=g.height + 0.34, corner_radius=0.2,
+                                    fill_color=look.col("card"), fill_opacity=0.88, stroke_width=0).move_to(g)
+            box = VGroup(pill, g).set_z_index(HUD_Z)
+            return box
+
+        def step(_a):
+            t = self.clock
+            k = next((i for i, c in enumerate(chunks) if float(c[0]["start"]) - 0.15 <= t <= float(c[-1]["end"]) + 0.3), -1)
+            if k != st["k"]:
+                if st["m"] is not None:
+                    self.remove(st["m"])
+                    self.hud = [r for r in self.hud if r[0] is not st["m"]]
+                st["k"], st["m"] = k, None
+                if k >= 0:
+                    st["m"] = make(chunks[k])
+                    self._hud_add(st["m"], 0.0, -0.4)
+                    self.add(st["m"])
+                    self._place_hud()
+            if st["m"] is None:
+                return
+            for w, part in zip(chunks[k], st["m"][1]):
+                now = float(w["start"]) - 0.05 <= t < float(w["end"]) + 0.05
+                done = t >= float(w["end"])
+                part.set_fill(look.col("coral") if now else look.col("ink") if done else look.col("soft"))
+        self.tweens.append(Call(0.0, sc.end + TAIL, None, step, None, rate_functions.linear))
+
+    def _progress(self) -> None:
+        """The chapter bar along the bottom: how far the video has gone, a tick at each chapter, the chapter's name."""
+        sc = self.SCORE
+        chapters = [(a.t0, a.target) for a in sc.acts if a.verb == "chapter"]
+        on = sc.progress if sc.progress is not None else bool(chapters)
+        if not on:
+            return
+        total = sc.end + TAIL
+        x0, x1, y = -0.44 * S.SCREEN_W, 0.44 * S.SCREEN_W, -0.465 * S.SCREEN_H
+        track = Line([x0, y, 0], [x1, y, 0], stroke_color=look.col("soft"), stroke_width=3, stroke_opacity=0.45)
+        ticks = VGroup(*(Dot([x0 + (x1 - x0) * t / total, y, 0], radius=0.045, color=look.col("soft"))
+                         for t, _ in chapters if t > 0.5))
+        fill = Line([x0, y, 0], [x0 + 0.01, y, 0], stroke_color=look.col("coral"), stroke_width=5).set_z_index(HUD_Z + 1)
+        names = [look.label(str(c), 0.13, "ink").move_to([x0, y + 0.22, 0], aligned_edge=LEFT) for _, c in chapters]
+        bar = VGroup(track, ticks).set_z_index(HUD_Z)
+        self.hud.append([bar, 1.0, np.zeros(3)])  # (laid out on the screen as it is; the fill is put each frame)
+        self.add(bar, fill)
+        for nm in names:
+            nm.set_z_index(HUD_Z)
+            self.hud.append([nm, 1.0, np.zeros(3)])
+        al = [Alpha(nm) for nm in names]
+        for a in al:
+            a.set(0.0)
+        st = {"k": -1}
+
+        def place(k, c):
+            t = self.clock
+            fill.put_start_and_end_on(np.array([c[0] + x0 * k, c[1] + y * k, 0]),
+                                      np.array([c[0] + (x0 + max(0.01, (x1 - x0) * min(1.0, t / total))) * k, c[1] + y * k, 0]))
+            fill.set_stroke(width=5 * k)
+        self.hud_hooks.append(place)
+
+        def step(_a):
+            t = self.clock
+            cur = max((i for i, (t0, _) in enumerate(chapters) if t0 - 0.2 <= t), default=-1)
+            for i, a in enumerate(al):
+                since = t - chapters[i][0] + 0.2
+                if i == cur:
+                    a.set(min(1.0, since / 0.4))
+                elif a.now > 0:
+                    a.set(max(0.0, a.now - 1 / 12))
+                if a.now > 0 and nm_up[i] is False:
+                    self.add(names[i])
+                    nm_up[i] = True
+        nm_up = [False] * len(names)
+        self.tweens.append(Call(0.0, sc.end + TAIL, None, step, None, rate_functions.linear))
+
     # ------------------------------------------------------------ the camera -------------------------------------------
     def _cam_target(self, act: S.Act) -> tuple[np.ndarray, float]:
         sc = self.SCORE
@@ -1376,6 +2052,8 @@ class ScoreScene(MovingCameraScene):
             # The width eases in log space, so a zoom feels even.
             f.set_width(math.exp(math.log(state["w0"]) + (math.log(state["w1"]) - math.log(state["w0"])) * a))
         via = self._opt(act, "via", None, str)
+        if via == "dive":
+            return self._dive(act, max(0.0, t0), max(t1, max(0.0, t0) + 1.8))
         if via in ("page", "tear"):
             t1 = max(t1, max(0.0, t0) + 1.1)          # the sheet needs a moment to cross
             self._sheet(via, max(0.0, t0), t1)
@@ -1386,6 +2064,52 @@ class ScoreScene(MovingCameraScene):
         else:
             rate = rate_functions.ease_in_out_sine
         tw = Call(max(0.0, t0), t1, start, step, None, rate)
+        tw.camera = True
+        self.tweens.append(tw)
+
+    def _dive(self, act: S.Act, t0, t1) -> None:
+        """Into a thing (a pin, a picture) until it fills the screen, and out of it onto the next shot: `cam SHOT via
+        dive into REF`. The paper closes over the view as it goes in, and opens on the new place."""
+        f = self.camera.frame
+        ref = self._opt(act, "into", None, str)
+        st = {}
+        iris = Circle(radius=1.0, fill_color=look.col("bg"), fill_opacity=1, stroke_color=look.col("ink"),
+                      stroke_width=look.STROKE * 0.5).set_z_index(945)
+
+        def start():
+            st["c0"], st["w0"] = f.get_center().copy(), f.width
+            st["c1"], st["w1"] = self._cam_target(act)
+            st["p"] = self._locate(ref, "") if ref else st["c0"].copy()
+            st["r"] = 1.0
+            st["al"] = Alpha(iris)
+            iris.move_to(st["p"]).scale(0.01)
+            st["r"] = 0.01
+            self.add(iris)
+
+        def step(a):
+            if a < 0.5:                         # in: toward the thing, closer and closer; the paper closes over
+                k = rate_functions.ease_in_cubic(a / 0.5)
+                f.move_to(st["c0"] + (st["p"] - st["c0"]) * min(1.0, k * 1.4))
+                f.set_width(math.exp(math.log(st["w0"]) + (math.log(st["w0"] / 9) - math.log(st["w0"])) * k))
+                r = max(0.01, f.width * 0.75 * max(0.0, (k - 0.45) / 0.55))
+                iris.move_to(st["p"])
+                st["al"].set(1.0)
+            else:                               # out: the new place, from close in, opening as the camera draws back
+                k = rate_functions.ease_out_cubic((a - 0.5) / 0.5)
+                f.move_to(st["c1"])
+                f.set_width(math.exp(math.log(st["w1"] / 6) + (math.log(st["w1"]) - math.log(st["w1"] / 6)) * k))
+                iris.move_to(st["c1"])
+                r = f.width * 0.75 * (1 + 0.6 * k)
+                st["al"].set(max(0.0, 1 - k * 1.6))
+            iris.scale(r / st["r"])
+            iris.set_stroke(width=look.STROKE * 0.5 * f.width / S.SCREEN_W)
+            st["r"] = r
+
+        def stop():
+            self.remove(iris)
+            f.move_to(st["c1"])
+            f.set_width(st["w1"])
+        tw = Call(t0, t1, start, step, stop, rate_functions.linear)
         tw.camera = True
         self.tweens.append(tw)
 

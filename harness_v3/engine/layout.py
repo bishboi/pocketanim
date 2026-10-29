@@ -40,6 +40,8 @@ class CheckScene(R.ScoreScene):
         look.use(sc.look)
         self.E, self.alpha, self.marks, self.fills, self.follows = {}, {}, {}, {}, []
         self.up, self.tweens, self.clock = set(), [], 0.0
+        self.texture = self.motion = self.parallax = False
+        self.hud, self.hud_hooks, self.boiled, self.boil_ids = [], [], [], {}
         self._build()
         self._spread()
 
@@ -99,7 +101,7 @@ def check(score_text: str, words_json: dict) -> dict:
     for name, m in E.items():
         t0, t1 = times.get(name, (0.0, 1e9))
         b = _box(m)
-        moves = sorted((a for a in sc.acts if a.verb == "move" and a.target == name), key=lambda a: a.t0)
+        moves = sorted((a for a in sc.acts if a.verb in ("move", "walk") and a.target == name), key=lambda a: a.t0)
         cur, start = b, t0
         for a in moves:
             end = a.t1 if a.t1 is not None else a.t0 + 0.9

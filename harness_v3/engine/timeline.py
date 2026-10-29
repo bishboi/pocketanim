@@ -18,6 +18,7 @@ Writes out_dir/timeline.json (the format below) and the pictures beside it; the 
 any time t, and an MP4 can be made from the player (export.py) to compare with the renderer's.
 
     {"version": 1, "fps", "frames", "size": [w, h], "bg", "audio", "camera": [[f, x, y, width]...],
+     "boil": {"hz", "shift", "turn"} (when outlines tremble: feel.py),
      "leaves": [{"k": "p" | "i", "z", "r", "on": [[f0, f1]...],
                  "img": "img-....png",                                   (a picture)
                  "shapes": [{"f", "p": [[closed, x0, y0, (h1x, h1y, h2x, h2y, x, y)...]...],   (a path, its base)
@@ -243,6 +244,7 @@ class BakeScene(R.ScoreScene):
     """The renderer's scene, played without drawing: each frame is recorded instead."""
     RECORDER: Recorder
     TOTAL: int = 0
+    BOIL = False                                # the player draws the boil itself (the timeline's `boil`)
 
     def add_sound(self, *a, **k):  # noqa: D401 -- no sound while recording
         pass
@@ -289,11 +291,14 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
             print(f"soundtrack: {told['sounds']} sound(s), music {told['music'] or 'off'}", flush=True)
         except Exception as e:  # noqa: BLE001 -- the voice alone
             print(f"soundtrack not made ({e}): the voice alone", flush=True)
+    import feel
     import look
     print(f"writing timeline.json: {len(rec.order)} pieces, {len(rec.pictures)} picture(s)", flush=True)
     data = {"version": 1, "fps": fps, "frames": total, "size": [w, h], "frame_width": S.SCREEN_W,
             "bg": look.L["bg"], "audio": audio, "camera": rec.camera_keys(),
             "leaves": [leaf.out() for leaf in rec.order], "notes": sc.notes}
+    if feel.texture_on(sc):                     # outlines tremble as drawn (player.html: boil)
+        data["boil"] = {"hz": feel.BOIL_HZ, "shift": feel.BOIL_SHIFT, "turn": feel.BOIL_TURN}
     text = json.dumps(data, separators=(",", ":"))
     (out_dir / "timeline.json").write_text(text)
     return {"leaves": len(rec.order), "frames": total, "bytes": len(text), "pictures": len(rec.pictures),

@@ -246,3 +246,39 @@ t80        in gl fade
 t80.6      in earth stagger .2
 t81        in soil stagger .2
 t82        cam scene via tear
+
+# ---- the paper world: people who move, words that come on as they are said, a number counted as it is said,
+# ---- cut-outs slapped down and peeled off (the default for them), a dive into the next shot, a chapter bar
+shot folk at 18,-33
+ent hdp    label "person · walk · point · talk · carry · sit · wave · phrase speak · slap · peel" size 0.18 at -4.8,3.4
+ent ann    person hat top tool book at -5,-2.4
+ent ben    person hat cap seat at 3.6,-2.4 face left
+ent purse  circle r 0.18 fill accent at -1.2,-1.4
+ent deal   card "a deal" at 4.2,1.6
+ent spoken phrase "words come on as they are said" size 0.4 w 7 at -1.4,1.8
+ent big    num 4800 size 0.8 suffix " books" at -1.4,0.3
+t83        cam maps2 via whip
+t84        chapter "People"
+t84        cam folk via dive into em2.paris
+t86        in hdp fade
+t86.2      in ann
+t86.4      in ben
+t86.6-t88.4 walk ann to -2.2,-2.4
+t86.8-t88.6 in spoken speak
+t88.6-t89.8 talk ben "a fair price?"
+t89        point ann at ben
+t89.6      in purse pop
+t90-t90.8  carry ann purse
+t90.8-t92.2 walk ann to 1.6,-2.4
+t91        sit ben
+t91.4      in deal
+t92        wave ann
+t92.4      in big
+t93.6      out deal
+
+shot ends at 36,-33
+ent hde    label "bring: a thing carried with the camera into the next shot" size 0.18 at -4.8,3.4
+t95        chapter "Carried over"
+t95-t96.4  cam ends
+t95-t96.4  bring big to ends 0,0
+t96.6      in hde fade

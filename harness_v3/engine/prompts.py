@@ -26,14 +26,16 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
          | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
+         | phrase "KEY WORDS" [w W] (a key phrase the voice says: `wA-wB in P speak` puts each word on as it is said)
   MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline; a picture at a flow's node goes beside it) |
         below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
 TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (over those words), wN+0.4, tSECONDS, end
-  in T [fade|pop|rise|drop|slide-left|slide-right|draw|write|grow|unfold] [stagger S]
-  out T [fade|shrink|drop] [stagger S]
+  in T [fade|pop|rise|drop|slide-left|slide-right|draw|write|grow|unfold|slap|speak] [stagger S]
+        (with no way said, a pic, photo, card, tag or quote is slapped down like a sticker; the rest fades)
+  out T [fade|shrink|drop|peel] [stagger S]   (with no way said, a cut-out is peeled off and flicked away)
   move T to X,Y | to ENT | by DX,DY [arc A] [stagger S]
   along T PATH | flow PATH n N COLOR | float T AMP
   morph A B [stagger S] (A becomes B; B never shown before)
@@ -45,7 +47,10 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   connect A B "WORDS" (an arrow drawn between them) | follow T [zoom Z] (the camera keeps a moving thing in view)
   glow T C (a soft light behind it) | era MAP YEAR (its borders change to that year's) | tip BALANCE left|right
   cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide | cam SHOT via page|tear|whip (a page turned, torn
-  paper, a fast swing: for a change of chapter)
+  paper, a fast swing: for a change of chapter) | cam SHOT via dive into M.place (into a pin or a picture, which
+  opens on the next shot)
+  bring T to SHOT [X,Y] (at the camera's move: T rides along into the next shot and stays; one thread carried on)
+  chapter "TITLE" (on a chapter's first word: the bar along the bottom names it; 3-6 a video)
 TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
 - Nothing is a slide: keep things up and change them (move, morph, count, grow, color) instead of replacing them.
@@ -60,7 +65,8 @@ RULES
   a region that holds every place you name.
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
-- Keep text short (1-4 words). The narration says the sentences."""
+- Keep text short (1-4 words). The narration says the sentences; a `phrase` spoken word by word is the exception
+  (one a shot at most, the key line). A `num` put `in` on the word that says it counts up as it is said."""
 
 # The bigger pieces, each told to a shot's call only when its plan asks for it (the storyboard names them), so the
 # card a small model reads stays short. Each is one `ent` placed freely; its parts come on by the actions.
@@ -129,6 +135,13 @@ KIT = {
   quote "WORDS" [who "who said it"]   a quotation (only words the narration quotes)
   doc "TITLE" [sub "a line"] [seal]   a page of a document (a charter, a law, a letter); `stamp` it
   formula "6CO_2 + 6H_2O -> C_6H_12O_6"   a formula (_ below, ^ above, -> an arrow)""",
+    "people": """  person [hat top|cap|crown|helmet|hood] [tool book|staff|spear|flag|sign|hammer|quill|coin] [seat]
+               [color C] [face left] [size H]   a stick figure drawn with a pen, standing at its feet's place
+  walk P to X,Y|ENT|M.place   (legs swing, it faces the way it goes)  |  point P at T  |  wave P  |  talk P "WORDS"
+  (mouth moves; a bubble only for words the narration quotes)  |  carry P THING (it goes into the hands and goes
+  where they go)  |  sit P  |  stand P  |  turn P left|right
+  People act out what the voice says (a merchant walks to the market, a monk points at the book): 1-3 a shot,
+  ground y about -2.6, at least 2.5 apart.""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }
@@ -145,6 +158,8 @@ KIT_WORDS = {
     "scene": r"backdrop|weather|snow|rain|storm|winter|portrait|king|queen|ruler|said|speech|forest|village",
     "paper": r"title|quote|saying|\bsaid\b|document|charter|\blaw\b|letter|decree|formula|equation|reaction",
     "labels": r"label|parts? of|named parts|inside",
+    "people": r"\bperson|people|\bm[ae]n\b|wom[ae]n|merchant|monk|farmer|worker|soldier|travell?er|\bwalk|"
+              r"carr(y|ied)|pointed|buyer|seller|peasant|crowd",
 }
 
 
@@ -162,7 +177,8 @@ def kit_for(plan: str) -> list[str]:
              "parliament": "civics", "market": "civics", "climate": "civics", "scatter": "civics", "area": "civics",
              "quiz": "story", "lens": "story", "split": "story", "clock": "story", "odometer": "story",
              "clipping": "story", "who": "story", "polaroids": "story", "shade": "map", "march": "map",
-             "inset": "map", "globe": "map", "layers": "map", "era": "map"}
+             "inset": "map", "globe": "map", "layers": "map", "era": "map", "person": "people", "walk": "people",
+             "figure": "people"}
     named = {alias.get(w, w) for w in named}
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
 
@@ -181,7 +197,8 @@ pressure), balance (one thing outweighing another), backdrop (a place behind the
 parts named), numberline, plot (a graph of a function), triangle, molecule, equation, circuit, race (bars racing
 through years), parliament, market (supply and demand), climate, quiz (ask the viewer, then reveal), lens (a detail
 magnified), split (two halves), clock, odometer, clipping (a newspaper), who (a person brought in), polaroids, shade (a
-map coloured by value), march (an army or migration arrow), inset, globe, layers.
+map coloured by value), march (an army or migration arrow), inset, globe, layers, people (stick figures who walk,
+point, talk, carry things, sit: acting out what is said).
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
 transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""

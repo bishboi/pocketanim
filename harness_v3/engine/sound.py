@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import wave
 from pathlib import Path
 
@@ -111,7 +112,29 @@ def rustle(rate: int, seed: int = 0) -> np.ndarray:
     return 0.1 * x * shape + 0.25 * grains * shape * _noise(n, seed + 2)
 
 
-SOUNDS = {"pop": pop, "scratch": scratch, "thud": thud, "chime": chime, "buzz": buzz, "whoosh": whoosh, "rustle": rustle}
+def slap(rate: int, seed: int = 0) -> np.ndarray:
+    """Paper pressed onto paper: a soft papery smack with a little body under it."""
+    n = int(0.16 * rate)
+    t = np.arange(n) / rate
+    smack = (_smooth(_noise(n, seed), 3) - _smooth(_noise(n, seed), 24)) * _env(n, 0.001, rate, 0.025)
+    body = np.sin(2 * np.pi * (180 - 60 * t / t[-1]) * t) * _env(n, 0.002, rate, 0.04)
+    return 0.55 * smack + 0.3 * body
+
+
+def flick(rate: int, seed: int = 0) -> np.ndarray:
+    """A sheet peeled up and flicked away: a short rising swish."""
+    n = int(0.3 * rate)
+    t = np.linspace(0, 1, n)
+    x = _smooth(_noise(n, seed), 4) - _smooth(_noise(n, seed), 30)
+    return 0.35 * x * np.sin(np.pi * t) ** 2 * (0.4 + 0.6 * t)
+
+
+def step_tap(rate: int, seed: int = 0) -> np.ndarray:
+    n = int(0.07 * rate)
+    return 0.25 * _smooth(_noise(n, seed), 10) * _env(n, 0.001, rate, 0.015)
+
+
+SOUNDS = {"slap": slap, "flick": flick, "step": step_tap, "pop": pop, "scratch": scratch, "thud": thud, "chime": chime, "buzz": buzz, "whoosh": whoosh, "rustle": rustle}
 
 
 def events(sc) -> list[tuple[float, str]]:
@@ -119,9 +142,23 @@ def events(sc) -> list[tuple[float, str]]:
     out = []
     lead = 0.12                                         # actions start a little before their word
     last_shot = None
+    import feel
+    paper = feel.motion_on(sc)
+
+    def kind(ref: str) -> str:
+        e = sc.ents.get(re.sub(r"\[.*", "", ref.split(",")[0]))
+        return e.kind if e else ""
     for a in sorted(sc.acts, key=lambda a: a.t0):
         how = a.args[0] if a.args else ""
-        if a.verb == "in" and how in ("pop", "drop", "grow"):
+        bare = not a.args or a.args[0] in ("stagger",)
+        if a.verb == "in" and (how == "slap" or (bare and paper and kind(a.target) in feel.CUTOUTS)):
+            out.append((a.t0 - lead + 0.3, "slap"))
+        elif a.verb == "out" and (how == "peel" or (bare and paper and kind(a.target) in feel.CUTOUTS)):
+            out.append((a.t0 - lead + 0.25, "flick"))
+        elif a.verb == "walk":
+            run = (a.t1 or a.t0 + 2.0) - a.t0
+            out += [(a.t0 - lead + 0.2 + i * 0.42, "step") for i in range(max(1, int(run / 0.42)))]
+        elif a.verb == "in" and how in ("pop", "drop", "grow"):
             out.append((a.t0 - lead + 0.05, "pop"))
         elif a.verb == "in" and how in ("draw", "write"):
             out.append((a.t0 - lead, "scratch"))

@@ -279,6 +279,40 @@ def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color
     return g
 
 
+def phrase(words: str, size: float, width: float, c=None, bold: bool = False, serif: bool = False) -> VGroup:
+    """Words laid out a word a part (wrapped to a width, centred), so each can come on as it is said
+    (`in P speak` over the words that say it)."""
+    from manim import Text
+    ws = [w for w in str(words).split() if w]
+    font = "DejaVu Serif" if serif else L["font"]
+    ref = Text("H", font=font, weight=BOLD if bold else NORMAL, font_size=48)
+    k = size / max(ref.height, 0.01)
+    parts = [Text(w, font=font, weight=BOLD if bold else NORMAL, color=col(c), font_size=48).scale(k) for w in ws]
+    space, lead = size * 0.42, size * 1.75
+    rows, row, x = [], [], 0.0
+    for p in parts:
+        if row and x + space + p.width > width:
+            rows.append(row)
+            row, x = [], 0.0
+        x += (space if row else 0.0) + p.width
+        row.append(p)
+    if row:
+        rows.append(row)
+    g = VGroup()
+    for i, row in enumerate(rows):
+        total = sum(p.width for p in row) + space * (len(row) - 1)
+        x = -total / 2
+        for p in row:
+            # on one baseline: each word's own bottom put where a "Hg" box's would be
+            # on one baseline: a word's bottom is its baseline, less a descender's depth when it has one
+            low = size * 0.3 if any(ch in "gjpqy,;" for ch in p.text if hasattr(p, "text")) else 0.0
+            p.move_to([x + p.width / 2, 0, 0])
+            p.shift([0, -i * lead - (p.get_bottom()[1] + low), 0])
+            x += p.width + space
+            g.add(p)
+    return g.move_to([0, 0, 0])
+
+
 class Valued:
     """A piece with a value that `count` and `grow` change (`set_value`): a calendar filling, a meter rising."""
 
@@ -454,6 +488,12 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
     elif kind in KIT2:
         m = _kit2(kind, args, mods, size, c, locate, find)
+    elif kind == "person":
+        import people
+        m = people.person(mods, size or 1.8, c)
+    elif kind == "phrase":
+        m = phrase(args[0] if args else "", size or 0.5, float(mods.get("w", 9.0)), c, bool(mods.get("bold")),
+                   bool(mods.get("serif")))
     elif kind == "who":
         # a person brought in: their picture, name, years and where they were from, as one piece
         p = picture("photo", str(mods.get("img") or f"a portrait of {args[0] if args else 'a person'}"), size or 2.4, mods)

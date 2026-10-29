@@ -89,6 +89,31 @@ function path(s) {
 }
 const rgba = (r, g, b, a) => `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${Math.max(0, Math.min(1, a))})`;
 
+// ---- the boil: a drawn outline trembles a little a few times a second (feel.py: boil) ----------------------------
+function boilAt(index, step) {
+  const h = (Math.imul(index, 73856093) ^ Math.imul(step, 19349663)) >>> 0;
+  const u = (k) => (((h >>> k) & 0x3ff) / 1023) * 2 - 1;
+  return [u(0) * T.boil.shift, u(10) * T.boil.shift, u(20)];
+}
+function bbox(s) {
+  if (s.box) return s.box;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const sp of s.p) for (let i = 1; i + 1 < sp.length; i += 2) {     // every point, handles too (as render.py)
+    const x = sp[i], y = sp[i + 1];
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return (s.box = [x0, y0, x1, y1]);
+}
+function boiled(l, s, M, fr) {
+  const [x0, y0, x1, y1] = bbox(s);
+  const p0 = M.transformPoint(new DOMPoint(x0, y0)), p1 = M.transformPoint(new DOMPoint(x1, y1));
+  const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2, r = Math.max(0.2, Math.hypot(p1.x - p0.x, p1.y - p0.y) / 2);
+  const [dx, dy, turn] = boilAt(l.r, Math.floor(fr / T.fps * T.boil.hz));
+  const ang = Math.max(-0.03, Math.min(0.03, turn * T.boil.turn / r));
+  const B = new DOMMatrix().translate(cx + dx, cy + dy).rotate(ang * 180 / Math.PI).translate(-cx, -cy);
+  return B.multiply(M);
+}
+
 // ---- a frame -----------------------------------------------------------------------------------------------------
 function draw(fr) {
   if (!T) return;
@@ -117,8 +142,10 @@ function draw(fr) {
     if (fa <= 0.001 && (sw <= 0 || sa <= 0.001)) continue;
     // The shape moved into the world (its own map), then drawn through the camera: a line's width is the
     // renderer's (stroke_width x 0.01 world units) whatever the shape's map is, as it is there.
+    let M = new DOMMatrix([a, b, c, d, e, g]);
+    if (T.boil && l.z < 900 && sw > 0.5 && sa > 0.05 && fa < 0.05) M = boiled(l, sh, M, fr);
     const p = new Path2D();
-    p.addPath(path(sh), new DOMMatrix([a, b, c, d, e, g]));
+    p.addPath(path(sh), M);
     ctx.setTransform(s, 0, 0, -s, tx, ty);
     if (fa > 0.001) { ctx.fillStyle = rgba(fr_, fg, fb, fa); ctx.fill(p); }
     if (sw > 0 && sa > 0.001) { ctx.lineWidth = sw * 0.01; ctx.strokeStyle = rgba(sr, sg, sb, sa); ctx.stroke(p); }

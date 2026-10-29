@@ -1,0 +1,218 @@
+"""The layout check: the score's things built as the render builds them (with the real pictures, after the assets
+step) and looked at before anything is played, so what the score model could not see is said in words it can act
+on: things that cover each other without meaning to, things off their shot's screen or off the map they are put on,
+pieces with nothing in them. Each problem names its shot and the word it starts at, with the real sizes.
+
+    python layout.py video.score run_dir            -> prints `layout: {...}` (the problems by shot, and the sizes)
+
+What is meant to be on another is left alone: a label on its card, an icon on its badge, a pin or region on its map,
+an event on its timeline, labels on their picture, a thing put `at` another or against it (`below X`), a thing given
+another `layer`, paths and arrows (they join things), a backdrop and the weather.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+import numpy as np
+from manim import tempconfig
+
+import look
+import render as R
+import score as S
+
+# Kinds never said to cover another: what joins things, what lies behind or over a whole shot, what is drawn on a
+# piece where it stands.
+FREE = {"path", "arrow", "waves", "backdrop", "weather", "region", "river", "pin", "event", "span", "labels", "bubble"}
+WORDS_KINDS = ("text", "tag", "label", "card", "title", "quote")
+
+
+class CheckScene(R.ScoreScene):
+    """The renderer's scene, built and laid out, never played."""
+
+    def construct(self):
+        sc = self.SCORE
+        look.use(sc.look)
+        self.E, self.alpha, self.marks, self.fills, self.follows = {}, {}, {}, {}, []
+        self.up, self.tweens, self.clock = set(), [], 0.0
+        self._build()
+        self._spread()
+
+
+def _box(m) -> tuple[float, float, float, float]:
+    lo, hi = m.get_corner(R.DOWN + R.LEFT), m.get_corner(R.UP + R.RIGHT)
+    return float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1])
+
+
+def _area(b) -> float:
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def _cover(a, b) -> float:
+    """How much of the smaller of two boxes the other covers (0..1)."""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    return w * h / max(1e-6, min(_area(a), _area(b)))
+
+
+def _word_at(words: list[dict], t: float) -> str:
+    if not words or t <= 0:
+        return "the start"
+    k = min(range(len(words)), key=lambda i: abs(float(words[i]["start"]) - t))
+    return f"w{words[k]['i']}"
+
+
+def check(score_text: str, words_json: dict) -> dict:
+    sc = S.parse(score_text, words_json["words"], float(words_json["seconds"]))
+    CheckScene.SCORE, CheckScene.WORDS, CheckScene.WAV = sc, words_json, None
+    with tempconfig({"disable_caching": True, "verbosity": "ERROR", "progress_bar": "none",
+                     "media_dir": str(Path("/tmp") / "v3-layout-media")}):
+        scene = CheckScene()
+        scene.setup()
+        scene.construct()
+    E = scene.E
+    times = scene._up_times()
+    words = words_json["words"]
+    problems: dict[str, list[str]] = {}
+    sizes: dict[str, list[str]] = {}
+
+    def say(shot: str, text: str) -> None:
+        problems.setdefault(shot, [])
+        if text not in problems[shot]:
+            problems[shot].append(text)
+
+    def where(name: str, box) -> str:
+        e = sc.ents[name]
+        o = scene._origin(e.shot)
+        return (f"{name} ({e.kind}, {box[2] - box[0]:.1f} wide x {box[3] - box[1]:.1f} tall, at "
+                f"{(box[0] + box[2]) / 2 - o[0]:.1f},{(box[1] + box[3]) / 2 - o[1]:.1f})")
+
+    # Where each thing is while it is up: as built, and after each move that takes all of it somewhere else.
+    spans: dict[str, list[tuple[float, float, tuple]]] = {}
+    for name, m in E.items():
+        t0, t1 = times.get(name, (0.0, 1e9))
+        b = _box(m)
+        moves = sorted((a for a in sc.acts if a.verb == "move" and a.target == name), key=lambda a: a.t0)
+        cur, start = b, t0
+        for a in moves:
+            end = a.t1 if a.t1 is not None else a.t0 + 0.9
+            dest = _moved(scene, sc, name, a, cur)
+            if dest is None:
+                continue
+            spans.setdefault(name, []).append((start, end, cur))
+            cur, start = dest, end
+        spans.setdefault(name, []).append((start, t1, cur))
+
+    for shot in sc.shots.values():
+        mine = [e for e in sc.ents.values() if e.shot == shot.name and e.name in E]
+        o = scene._origin(shot.name)
+        hw, hh = S.SCREEN_W / shot.zoom / 2, S.SCREEN_H / shot.zoom / 2
+        sizes[shot.name] = [where(e.name, _box(E[e.name])) for e in mine]
+        for e in mine:
+            b = _box(E[e.name])
+            # empty pieces
+            if e.kind in WORDS_KINDS and not (e.args and str(e.args[0]).strip()):
+                say(shot.name, f"{e.name} ({e.kind}) has no words: give it words or leave it out")
+            if e.kind == "timeline" and not any(x.mods.get("on") == e.name for x in sc.ents.values()):
+                say(shot.name, f"{e.name} (timeline) has no event or span on it: add the dates the narration names "
+                               "(event YEAR \"WORDS\" on " + e.name + ") or leave it out")
+            # off the screen
+            if e.kind not in ("backdrop", "weather"):
+                out = max(o[0] - hw - b[0], b[2] - (o[0] + hw), o[1] - hh - b[1], b[3] - (o[1] + hh))
+                if out > 0.15:
+                    say(shot.name, f"{where(e.name, b)} runs {out:.1f} off the screen (x from -{hw:.1f} to {hw:.1f}, "
+                                   f"y from -{hh:.1f} to {hh:.1f})")
+            if e.kind in ("tag", "title") and b[2] - b[0] > hw * 2 * 0.85:
+                say(shot.name, f"{where(e.name, b)} is very wide: fewer words or a smaller size")
+            # put at a map's place outside the map
+            at = e.mods.get("at")
+            if isinstance(at, str) and "." in at:
+                base = at.split(".", 1)[0]
+                if base in E and sc.ents[base].kind == "map":
+                    sea = _box(E[base][0])
+                    c = E[e.name].get_center()
+                    if not (sea[0] <= c[0] <= sea[2] and sea[1] <= c[1] <= sea[3]):
+                        say(shot.name, f"{e.name} is put at {at}, which is outside the map {base}")
+        # things covering each other while both are up
+        for i, a in enumerate(mine):
+            for b in mine[i + 1:]:
+                if not _judged(scene, sc, a, b):
+                    continue
+                for (a0, a1, ab) in spans.get(a.name, []):
+                    for (b0, b1, bb) in spans.get(b.name, []):
+                        t0, t1 = max(a0, b0), min(a1, b1)
+                        if t1 - t0 < 0.3:
+                            continue
+                        k = _cover(ab, bb)
+                        if k >= 0.2 and not _held(scene, a, b, ab, bb):
+                            say(shot.name, f"from {_word_at(words, t0)}: {where(a.name, ab)} and {where(b.name, bb)} "
+                                           f"overlap ({k * 100:.0f}% of the smaller is covered)")
+    count = sum(len(v) for v in problems.values())
+    return {"count": count, "problems": problems, "sizes": sizes, "notes": sc.notes}
+
+
+def _moved(scene, sc, name, a, cur):
+    """The box a `move` of the whole thing takes it to, or None (a move of its parts, or one not understood)."""
+    args = a.args
+    w, h = cur[2] - cur[0], cur[3] - cur[1]
+    c = np.array([(cur[0] + cur[2]) / 2, (cur[1] + cur[3]) / 2])
+    try:
+        if "to" in args:
+            ref = args[args.index("to") + 1]
+            if re.match(r"^-?[\d.]+,-?[\d.]+$", ref):
+                o = scene._origin(sc.ents[name].shot)
+                c = o[:2] + np.array([float(v) for v in ref.split(",")])
+            else:
+                c = scene._locate(ref, sc.ents[name].shot)[:2]
+        elif "by" in args:
+            c = c + np.array([float(v) for v in args[args.index("by") + 1].split(",")])
+        else:
+            return None
+    except (ValueError, IndexError, KeyError):
+        return None
+    return (c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2)
+
+
+def _judged(scene, sc, a, b) -> bool:
+    """Whether two things are ones the check says anything about (not one meant to be on the other)."""
+    if a.kind in FREE or b.kind in FREE:
+        return False
+    for x, y in ((a, b), (b, a)):
+        if x.mods.get("on") in (y.name,) or x.mods.get("map") == y.name:
+            return False
+        at = x.mods.get("at")
+        if isinstance(at, str) and at.split(".", 1)[0] == y.name and not (
+                "." in at and y.kind in R.PIECES and x.kind in R.BESIDE_KINDS):
+            return False                        # put at it, or at a place on it, on purpose (not beside a part)
+        if any(isinstance(x.mods.get(k), str) and x.mods[k] == y.name for k in R.REL):
+            return False                        # put against the whole of it: beside it by construction
+    if ("layer" in a.mods or "layer" in b.mods) and a.mods.get("layer") != b.mods.get("layer"):
+        return False
+    return True
+
+
+def _held(scene, a, b, ab, bb) -> bool:
+    """One inside the other, the bigger a holder (a label on its card, an icon on its badge, words on a box)."""
+    def inside(s, g, e=0.35):
+        return s[0] >= g[0] - e and s[2] <= g[2] + e and s[1] >= g[1] - e and s[3] <= g[3] + e
+    return (scene._holder(a) and inside(bb, ab)) or (scene._holder(b) and inside(ab, bb))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("score")
+    ap.add_argument("run_dir")
+    a = ap.parse_args()
+    words = json.loads((Path(a.run_dir) / "words.json").read_text())
+    rep = check(Path(a.score).read_text(), words)
+    print("layout: " + json.dumps(rep), flush=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -26,7 +26,8 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
          | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
-  MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline, a node of a flow) | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
+  MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline; a picture at a flow's node goes beside it) |
+        below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
@@ -191,6 +192,26 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
     kit = kit_for(plan)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     return SCORE + "\n\n" + GRAMMAR + cards, user
+
+
+REPAIR = """You fix one SHOT of an animated explainer's score. The engine built it with the real sizes of everything
+(the pictures as they were made) and found the PROBLEMS below. Rewrite the shot's lines so that:
+- nothing covers another unless on purpose (a label on its card, an icon on its badge, a pin on its map);
+- everything stays on the screen (x from -6.6 to 6.6, y from -3.6 to 3.6), a heading clear of what is under it;
+- nothing is empty (a tag with words, a timeline with its dates on it), or it is left out.
+Keep the same things, the same words and the same timing; change where things are and how big. Use the REAL SIZES
+to place them, or put one against another: `below X`, `above X`, `left X`, `right X` (X a thing or a part of a piece,
+like `below fl.economic`; `gap G`). Answer with only the shot's lines, its `shot` line first."""
+
+
+def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict]) -> tuple[str, str]:
+    said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
+    kit = kit_for(shot_text)
+    cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
+    user = ("PROBLEMS:\n" + "\n".join(f"- {p}" for p in problems)
+            + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)
+            + (f"\n\nWORDS: {said}" if said else "") + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
+    return REPAIR + "\n\n" + GRAMMAR + cards, user
 
 
 CRITIC = """You judge frames of an animated explainer, each with its time and the words being said. Point out only

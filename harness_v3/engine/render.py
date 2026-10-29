@@ -55,6 +55,10 @@ ON_PARENT = ("region", "pin", "river", "event", "span", "labels", "bubble")
 MARKS = {"ring": "coral", "circle": "coral", "mark": "coral", "underline": "coral", "highlight": "accent",
          "strike": "red", "box": "coral", "tick": "green", "cross": "red", "stamp": "red", "callout": "ink"}
 SIDES = ("left", "right", "up", "down")
+# Putting a thing against another (`below X`...), and what goes beside a piece's part when put `at` it.
+REL = ("below", "above", "left", "right")
+PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart"}
+BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait"}
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
                "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
                "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
@@ -143,6 +147,7 @@ class ScoreScene(MovingCameraScene):
         self.alpha: dict[int, Alpha] = {}
         self.marks: dict[str, list] = {}         # entity name -> rings and lines drawn on it
         self.fills: dict[str, dict] = {}         # entity name -> the level a `fill` has brought it to
+        self.follows: list[list] = []            # [mark, what it marks, where that was, a fill's record]: kept together
         self.up: set[int] = set()                # what is on the screen
         self.tweens: list[Tween] = []
         self.clock = 0.0
@@ -218,7 +223,21 @@ class ScoreScene(MovingCameraScene):
         # after what they name.
         paths = [e for e in ents if e.kind == "path" or e.kind in ON_PARENT]
         last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path" and e.kind not in ON_PARENT)]
-        for e in [e for e in ents if e not in paths and e not in last] + paths + last:
+        rel = [e for e in ents if any(isinstance(e.mods.get(k), str) for k in REL)
+               or (isinstance(e.mods.get("at"), str) and e.mods["at"].split(".", 1)[0] in sc.ents and e not in paths)]
+        first = [e for e in ents if e not in paths and e not in last and e not in rel]
+        rel = [e for e in rel if e not in paths and e not in last]
+        # what is placed against another thing waits for it (a chain: each pass places what it can)
+        placed = {e.name for e in first}
+        for _ in range(len(rel) + 1):
+            ready = [e for e in rel if all(self._against(e, x) in placed or self._against(e, x) not in sc.ents
+                                           for x in (*REL, "at"))]
+            first += ready
+            placed |= {e.name for e in ready}
+            rel = [e for e in rel if e not in ready]
+            if not rel:
+                break
+        for e in first + rel + paths + last:
             try:
                 self._make(e)
             except Exception as ex:  # noqa: BLE001
@@ -246,7 +265,8 @@ class ScoreScene(MovingCameraScene):
         times = self._up_times()
         for shot in sc.shots.values():
             ents = [e for e in sc.ents.values() if e.shot == shot.name and e.kind in self.SPREAD
-                    and not e.mods.get("on") and not isinstance(e.mods.get("at"), str)]
+                    and not e.mods.get("on") and not isinstance(e.mods.get("at"), str)
+                    and not any(isinstance(e.mods.get(k), str) for k in REL)]
             def holds(big, small) -> bool:
                 # Only a shape holds things (a box, a disc, a region): a long title's box is not a card.
                 return big is not small and self._holder(big) and self._inside(self.E[small.name], self.E[big.name])
@@ -353,6 +373,68 @@ class ScoreScene(MovingCameraScene):
         x, y = (float(v) for v in ref.split(","))
         return self._origin(shot) + np.array([x, y, 0.0])
 
+    @staticmethod
+    def _against(e: S.Ent, key: str) -> str:
+        v = e.mods.get(key)
+        return v.split(".", 1)[0] if isinstance(v, str) else ""
+
+    def _relation(self, e: S.Ent):
+        """Where a thing is put against another, if it is: `below X`, `above X`, `left X`, `right X` (X a thing or a
+        named part of a piece: `below fl.economic`); and a picture, icon or words put `at` a piece's part (a flow's
+        node, a pyramid's level) goes beside it, not over it (`side up|down|left|right`, below by default)."""
+        for k in REL:
+            if isinstance(e.mods.get(k), str):
+                return k, e.mods[k]
+        at = e.mods.get("at")
+        if isinstance(at, str) and "." in at and e.kind in BESIDE_KINDS:
+            base = self.SCORE.ents.get(at.split(".", 1)[0])
+            if base is not None and base.kind in PIECES:
+                side = {"up": "above", "down": "below", "left": "left", "right": "right"}.get(str(e.mods.get("side")), "below")
+                return side, at
+        return None
+
+    def _beside(self, m, how: str, ref: str, e: S.Ent) -> None:
+        """`m` put against `ref`'s edge (`gap` apart, 0.3 by default), centred along it."""
+        base, _, part = ref.partition(".")
+        target = None
+        if ref in self.E:
+            target = self.E[ref]
+        elif part and base in self.E:
+            hit = getattr(self.E[base], "places", {})[part] if part in getattr(self.E[base], "places", {}) else None
+            target = hit if isinstance(hit, Mobject) else None
+            if target is None and hit is not None:     # a point (a year, a town): beside the point
+                p = hit.get_center()
+                lo = hi = np.array(p)
+            elif target is None:
+                raise ValueError(f"{base} has no part {part!r}")
+        else:
+            raise ValueError(f"no thing {ref!r} to put it {how}")
+        if target is not None:
+            target = getattr(target, "core", target)
+            lo, hi = target.get_corner(DOWN + LEFT), target.get_corner(UP + RIGHT)
+        gap = float(e.mods.get("gap", 0.3)) if e.mods.get("x") is None else 0.3
+        c = (lo + hi) / 2
+        w, h = m.width, m.height
+
+        def spot(side):
+            return {"below": [c[0], lo[1] - gap - h / 2], "above": [c[0], hi[1] + gap + h / 2],
+                    "left": [lo[0] - gap - w / 2, c[1]], "right": [hi[0] + gap + w / 2, c[1]]}[side]
+        to = spot(how)
+        if part and base in self.E and target is not None:
+            # Beside a piece's part: the first side (the one asked for first) that keeps clear of its other parts.
+            others = [getattr(p, "core", p) for p in self.E[base].submobjects if p is not target
+                      and getattr(p, "core", p) is not target]
+
+            def clear(xy):
+                x0, y0, x1, y1 = xy[0] - w / 2, xy[1] - h / 2, xy[0] + w / 2, xy[1] + h / 2
+                return not any(min(x1, q.get_right()[0]) > max(x0, q.get_left()[0]) + 0.05 and
+                               min(y1, q.get_top()[1]) > max(y0, q.get_bottom()[1]) + 0.05 for q in others)
+            for side in (how, *[x for x in ("below", "right", "above", "left") if x != how]):
+                if clear(spot(side)):
+                    to = spot(side)
+                    break
+        m.move_to([to[0], to[1], 0.0])
+
     def _make(self, e: S.Ent) -> None:
         if e.kind == "labels":                  # the shot's screen, so names stay on it
             o = self._origin(e.shot)
@@ -378,6 +460,9 @@ class ScoreScene(MovingCameraScene):
             at = e.mods.get("at", (0.0, 0.0))
             where = self._locate(at, e.shot) if isinstance(at, str) else self._origin(e.shot) + np.array([at[0], at[1], 0.0])
             m.move_to(where)
+            rel = self._relation(e)
+            if rel:
+                self._beside(m, rel[0], rel[1], e)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
         if e.kind == "map" and e.shot in self.SCORE.shots:
@@ -480,6 +565,15 @@ class ScoreScene(MovingCameraScene):
                 tw.done = True
                 print(f"score line {getattr(tw, 'line', '?')}: {getattr(tw, 'verb', 'an action')} stopped as it played: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
+        # A mark goes where what it marks goes (a ring round a thing that then moves, a fill in a box that slides).
+        for rec in self.follows:
+            mk, what, last, fill = rec
+            c = what.get_center()
+            if not np.allclose(c, last, atol=1e-4):
+                mk.shift(c - last)
+                if fill is not None:
+                    fill["base"] += (c - last)[1]
+                rec[2] = c.copy()
         # What is drawn this frame is what is up now: manim keeps the list it took when the wait began, and a part
         # replaced since (a number counting, a bar growing) would be drawn twice, the stale one under the live one.
         if getattr(self, "moving_mobjects", None) is not None:
@@ -939,6 +1033,7 @@ class ScoreScene(MovingCameraScene):
                 raise ValueError(f"no mark {kind!r}")
             mk.set_z_index(z + 2)
             self.marks.setdefault(name, []).append(mk)
+            self.follows.append([mk, core, core.get_center().copy(), None])
             self.add(mk)
             state["mk"] = mk
             if how == "draw":
@@ -1013,6 +1108,7 @@ class ScoreScene(MovingCameraScene):
                 mk.set_z_index(max(x.z_index for x in m.get_family()) + 1)
                 fills.update(mk=mk, h=0.0, full=(ul[1] - dr[1]) * 0.94, base=dr[1] + (ul[1] - dr[1]) * 0.03)
                 self.marks.setdefault(name, []).append(mk)
+                self.follows.append([mk, m, m.get_center().copy(), fills])
                 self.add(mk)
             state["h0"] = fills["h"]
             state["f"] = fills
@@ -1040,6 +1136,7 @@ class ScoreScene(MovingCameraScene):
                 mk.add(t.move_to((p0 + p1) / 2 + nrm * 0.25 * (1 if nrm[1] >= 0 else -1)))
             mk.set_z_index(max(x.z_index for x in a.get_family()) + 1)
             self.marks.setdefault(name, []).append(mk)
+            self.follows.append([mk, a, a.get_center().copy(), None])
             self.add(mk)
             anim = Create(mk, lag_ratio=0.2)
             anim.begin()

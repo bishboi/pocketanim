@@ -85,7 +85,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "to": "s", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "flag": "s", "img": "s", "sub": "s",
         "map": "s", "year": "i", "names": None, "rivers": None, "outline": None, "side": "s", "who": "s",
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
-        "n": "i"}
+        "n": "i", "below": "s", "above": "s", "left": "s", "right": "s"}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")

@@ -42,8 +42,9 @@ sys.path.insert(0, str(HERE))
 
 import assets  # noqa: E402
 import prompts  # noqa: E402
+import score as S  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "assets", "timeline", "render", "critic"]
+STEPS = ["voice", "storyboard", "score", "assets", "layout", "timeline", "render", "critic"]
 # The MP4 (Manim) is slow and the Player needs none: it is made only when a run asks for it (`mp4`, V3_RENDER_MP4),
 # or when its render step is run by hand.
 RENDER_MP4 = os.environ.get("V3_RENDER_MP4", "0").strip().lower() in ("1", "true", "yes", "on")
@@ -586,6 +587,113 @@ def _tail(p: subprocess.CompletedProcess) -> str:
     return "\n".join(lines)[-1500:]
 
 
+def _check_layout(run: dict) -> dict:
+    """layout.py on the run's score: the problems by shot, with every thing's real size."""
+    d = run_dir(run["id"])
+    p = _proc(run["id"], [sys.executable, str(HERE / "layout.py"), str(d / "video.score"), str(d)])
+    if p.returncode != 0:
+        raise RuntimeError(_tail(p))
+    line = next((l for l in p.stdout.splitlines() if l.startswith("layout: ")), None)
+    if line is None:
+        raise RuntimeError("the layout check said nothing: " + _tail(p))
+    return json.loads(line[8:])
+
+
+def _shot_blocks(text: str) -> dict[str, tuple[int, int]]:
+    """Each shot's lines in a score: {name: (first line, line after its last)}, the comment lines over it included."""
+    lines = text.splitlines()
+    starts = []
+    for i, ln in enumerate(lines):
+        m = re.match(r"^\s*shot\s+([\w\-]+)", ln)
+        if m:
+            j = i
+            while j > 0 and lines[j - 1].lstrip().startswith("#"):
+                j -= 1
+            starts.append((m.group(1), j, i))
+    out = {}
+    for k, (name, j, i) in enumerate(starts):
+        end = starts[k + 1][1] if k + 1 < len(starts) else len(lines)
+        while end > i + 1:
+            last = lines[end - 1].strip()
+            # (blank lines after it, and the video's closing wide shot after the last, are not the shot's)
+            if last == "" or (k + 1 == len(starts) and re.match(r"^\S+\s+cam\s+wide\b", last)):
+                end -= 1
+            else:
+                break
+        out[name] = (j, end)
+    return out
+
+
+def _layout(run: dict) -> None:
+    """The layout check (layout.py): the score's things built with their real sizes, and what covers what, runs off
+    the screen or is empty said by shot. A shot with problems goes back to the score's model once with them and the
+    real sizes (V3_LAYOUT_FIX rounds, default 1; 0: only checked), and is checked again. A score given by hand is
+    only checked: what to change is said here."""
+    d = run_dir(run["id"])
+    rep = _check_layout(run)
+    notes = [f"{rep['count']} layout problem(s) in {len(rep['problems'])} shot(s)" if rep["count"] else "no layout problems"]
+    rounds = int(os.environ.get("V3_LAYOUT_FIX", "1"))
+    can = bool(os.environ.get("OPENROUTER_API_KEY")) and not run["settings"].get("given_score")
+    if rep["count"] and (not can or rounds <= 0):
+        notes += [f"{shot}: {p}" for shot, ps in rep["problems"].items() for p in ps][:30]
+        if run["settings"].get("given_score"):
+            notes.append("the score was given by hand: fix these in it (or let the score step write it)")
+    words = _words(run)
+    st = run["settings"]
+    for rnd in range(rounds if can else 0):
+        if not rep["count"]:
+            break
+        text = (d / "video.score").read_text()
+        if rnd == 0:
+            (d / "video.before-layout.score").write_text(text)
+        blocks = _shot_blocks(text)
+        lines = text.splitlines()
+        todo = [shot for shot in rep["problems"] if shot in blocks][:int(os.environ.get("V3_LAYOUT_SHOTS", "16"))]
+
+        def fix(shot: str) -> tuple[str, str | None]:
+            a, b = blocks[shot]
+            body = "\n".join(lines[a:b])
+            used = [int(x) for x in re.findall(r"\bw(\d+)", body)]
+            mine = [w for w in words if used and min(used) <= w["i"] <= max(used)]
+            system, user = prompts.repair_prompt(body, rep["problems"][shot], rep["sizes"].get(shot, []), mine)
+            try:
+                out = chat(run, "layout", f"Layout fix: {shot}", system, user,
+                           model=(st.get("models") or {}).get("score") or st["model"])
+            except Exception as e:  # noqa: BLE001 -- the shot stays as it was
+                return shot, None
+            out = re.sub(r"^```\w*|```$", "", out.strip(), flags=re.M).strip()
+            if not re.search(rf"^\s*shot\s+{re.escape(shot)}\b", out, re.M):
+                return shot, None                       # not the shot asked for: kept as it was
+            head = []                                   # the comment lines over the shot are kept
+            for ln in lines[a:b]:
+                if not ln.lstrip().startswith("#"):
+                    break
+                head.append(ln)
+            return shot, "\n".join(head + [out])
+        jobs = max(1, int(os.environ.get("V3_SCORE_JOBS", "6")))
+        with ThreadPoolExecutor(max_workers=min(jobs, max(1, len(todo)))) as pool:
+            fixed = dict(pool.map(fix, todo))
+        # the new shots in place of the old (from the last, so the line numbers hold)
+        for shot in sorted((s_ for s_ in fixed if fixed[s_]), key=lambda s_: -blocks[s_][0]):
+            a, b = blocks[shot]
+            new = lines[:a] + fixed[shot].splitlines() + [""] + lines[b:]
+            trial = S.parse("\n".join(new), words, float(json.loads((d / "words.json").read_text())["seconds"]))
+            if shot in trial.shots and any(e.shot == shot for e in trial.ents.values()):
+                lines = new
+        (d / "video.score").write_text("\n".join(lines) + "\n")
+        made = [k for k in fixed if fixed[k]]
+        # pictures a fixed shot asks for anew are made (the rest are kept)
+        before = run["steps"]["assets"].get("notes", [])
+        _assets(run)
+        run["steps"]["assets"]["notes"] = before
+        rep = _check_layout(run)
+        notes.append(f"round {rnd + 1}: {len(made)} shot(s) rewritten ({', '.join(made)}); "
+                     f"{rep['count']} problem(s) left")
+    if can and rep["count"]:
+        notes += [f"{shot}: {p}" for shot, ps in rep["problems"].items() for p in ps][:20]
+    run["steps"]["layout"]["notes"] = notes
+
+
 def _timeline(run: dict) -> None:
     """The video as a timeline for the player (player/timeline.json, its pictures, the voice)."""
     d = run_dir(run["id"])
@@ -672,7 +780,8 @@ def _critic(run: dict) -> None:
     run["steps"]["critic"]["notes"] = [l for l in verdict.splitlines() if l.strip()][:20]
 
 
-RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "assets": _assets, "render": _render,
+RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "assets": _assets, "layout": _layout,
+           "render": _render,
            "timeline": _timeline, "critic": _critic}
 
 

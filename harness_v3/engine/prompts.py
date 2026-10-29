@@ -76,7 +76,7 @@ RULES
 KIT = {
     "map": """  map REGION   a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
                a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`,
-               `compass`, `scale` (a scale bar);
+               `compass`, `scale` (a scale bar); it comes in an atlas frame (`frame plain` for a bare one);
                `w 12 h 6.6` (it fills that). Every place on it is MAP.PLACE: eu.paris, eu.constantinople, eu.north_sea
   region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
                is; `color`, `opacity`, `outline`
@@ -149,12 +149,18 @@ KIT = {
                crown; a merchant: wear coat hat top tool bag), standing with its feet at its place
   walk P to X,Y|ENT|M.place | run P to ... | point P at T | wave P | talk P "WORDS" (mouth moves; a bubble only
   for words the narration quotes) | carry P THING (it goes into the hands) | sit P | stand P | turn P left|right
-  | cheer P | shrug P | think P | bow P | jump P | nod P | emote P FACE (the face turns into another and stays;
+  | cheer P | shrug P | think P | bow P | jump P | nod P | dance P | clap P | facepalm P | laugh P | cry P | shiver P
+  | kick P | look P at T | faint P (falls flat; `stand P` gets it up) | hug P OTHER
+  | emote P FACE (the face turns into another and stays;
   `mood FACE` on the ent line is how it looks to begin with). FACES: happy calm joy laugh excited playful proud smug
   cool sad crying angry furious annoyed suspicious surprised shocked scared worried nervous embarrassed confused
   think dazed pained sleepy disgusted. Faces carry the story: emote on the word that turns the feeling.
   People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart. Never put a person at
-  a map's place (they stand taller than a country): mark places on maps with pins.""",
+  a map's place (they stand taller than a country): mark places on maps with pins.
+  nation NAME [year Y] [color C] [mood FACE] [named] [size H] [face left]   a COUNTRY AS A CHARACTER: its real shape
+               for a body, stick legs and arms, a face; every verb above works (walk, talk, point, emote, shiver,
+               hug...). For history told as countries' relations (a big power leaning on a small one, two rivals
+               squabbling, an ally's hug): 2-4 a shot, sized by their importance (size 1.2-3.4), feet at y about -2.6.""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }
@@ -172,7 +178,8 @@ KIT_WORDS = {
     "paper": r"title|quote|saying|\bsaid\b|document|charter|\blaw\b|letter|decree|formula|equation|reaction",
     "labels": r"label|parts? of|named parts|inside",
     "people": r"\bperson|people|\bm[ae]n\b|wom[ae]n|merchant|monk|farmer|worker|soldier|travell?er|\bwalk|"
-              r"carr(y|ied)|pointed|buyer|seller|peasant|crowd",
+              r"carr(y|ied)|pointed|buyer|seller|peasant|crowd|alliance|allies|\brival|treaty|neighbou?r|invad|"
+              r"annex|bull(y|ied)|nation",
 }
 
 
@@ -190,7 +197,7 @@ def kit_for(plan: str) -> list[str]:
              "parliament": "civics", "market": "civics", "climate": "civics", "scatter": "civics", "area": "civics",
              "quiz": "story", "lens": "story", "split": "story", "clock": "story", "odometer": "story",
              "clipping": "story", "who": "story", "polaroids": "story", "shade": "map", "march": "map",
-             "inset": "map", "globe": "map", "layers": "map", "era": "map", "person": "people", "walk": "people",
+             "inset": "map", "globe": "map", "layers": "map", "era": "map", "person": "people", "walk": "people", "nation": "people", "country": "people",
              "figure": "people"}
     named = {alias.get(w, w) for w in named}
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]

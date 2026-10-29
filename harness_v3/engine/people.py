@@ -35,7 +35,7 @@ HIP, TORSO, NECK, HEAD = 0.41, 0.25, 0.03, 0.115
 UPPER, FORE, THIGH, SHIN = 0.14, 0.14, 0.215, 0.195
 
 REST = {"lean": 0.0, "fa1": 0.14, "fa2": 0.22, "ba1": -0.12, "ba2": -0.06, "fl1": 0.07, "fl2": 0.0, "bl1": -0.07,
-        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0, "blink": 0.0}
+        "bl2": -0.07, "drop": 0.0, "face": 1.0, "mouth": 0.0, "bob": 0.0, "nod": 0.0, "blink": 0.0, "breath": 0.0}
 # The face, every part a number the pose eases (so one look turns into another as it plays):
 #   smile -1 frown .. 1 grin; smirk -1..1 (one corner up); wavy 0..1 (an uneasy, wobbly mouth); grin 0..1 (open, a
 #   D); tongue 0..1 (out, in the grin); mouth 0..1 (open round: talking, surprise)
@@ -282,6 +282,13 @@ class Person(VGroup):
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
 
+    # the body's measures (a country character has its own)
+    D = {"HIP": HIP, "TORSO": TORSO, "NECK": NECK, "HEAD": HEAD, "UPPER": UPPER, "FORE": FORE, "THIGH": THIGH,
+         "SHIN": SHIN}
+    hips = ((0.0, 0.0), (0.0, 0.0))            # where each leg leaves the hip (front, back), x toward the face
+    shoulders = ((0.0, 0.0), (0.0, 0.0))       # where each arm leaves the shoulders
+    face_k = 1.0                               # the face's size
+
     # -- the face -----------------------------------------------------------------------------------------------------
     def _build_face(self, ink, ow, skin, hair, hair_s, mods) -> None:
         """Eyes (whites, pupils, lids), and the other eyes they may become (x x, > <, ^ ^, sunglasses); brows; the
@@ -388,10 +395,14 @@ class Person(VGroup):
             x.set_stroke(opacity=so * k, family=False)
 
     def _pose_face(self, p: dict, o, ex, ey, face, f: float, turn: float) -> None:
-        def Wv(pts):                            # body frame -> the world, many points at once
+        k = self.face_k
+
+        def Wv(pts):                            # body frame -> the world, many points at once (the face at its size)
             pts = np.asarray(pts, dtype=float)
+            if k != 1.0:
+                pts = face + (pts - face) * k
             return o + np.outer(pts[:, 0], ex) + np.outer(pts[:, 1] - 0.5, ey)
-        squeeze = 1 - 0.45 * abs(turn)
+        squeeze = 1 - 0.22 * abs(turn)
         eyes = [face + np.array([(i - 0.5) * 0.054 * squeeze, 0.02 + 0.006 * p["gaze"]]) for i in range(2)]
         look = np.array([0.0065 * p["side"] * f, 0.007 * p["gaze"]])
         where = {("eye", 0): eyes[0], ("eye", 1): eyes[1], ("pupil", 0): eyes[0] + look,
@@ -473,31 +484,39 @@ class Person(VGroup):
         def d(a):                               # a direction at an angle from down, toward the face
             return np.array([f * math.sin(a), -math.cos(a)])
 
+        D = self.D
         lean = p["lean"]
         up = np.array([f * math.sin(lean), math.cos(lean)])
-        hip = np.array([0.0, HIP - p["drop"] + p["bob"]])
-        sh = hip + TORSO * up
+        hip = np.array([0.0, D["HIP"] - p["drop"] + p["bob"] + p.get("breath", 0.0) * 0.4])
+        sh = hip + (D["TORSO"] + p.get("breath", 0.0)) * up
         nod = lean + p.get("nod", 0.0)
         hup = np.array([f * math.sin(nod), math.cos(nod)])
-        neck_top = sh + NECK * up
-        head = neck_top + HEAD * 0.92 * hup
+        neck_top = sh + D["NECK"] * up
+        head = neck_top + D["HEAD"] * 0.92 * hup + np.array([0.0, D.get("FACE_UP", 0.0)])
+        ca_, sa_ = math.cos(-f * lean), math.sin(-f * lean)
+
+        def off(v):                             # a point on the body (x toward the face), turned with its lean
+            x, y = v[0] * f, v[1]
+            return np.array([ca_ * x - sa_ * y, sa_ * x + ca_ * y])
+        hf, hb = hip + off(self.hips[0]), hip + off(self.hips[1])
+        sf, sb = sh + off(self.shoulders[0]), sh + off(self.shoulders[1])
 
         def seg(pair, a, b):
             if np.linalg.norm(a - b) > 1e-4:
                 for m in pair:
                     m.put_start_and_end_on(W(a), W(b))
 
-        fk, bk = hip + THIGH * d(p["fl1"]), hip + THIGH * d(p["bl1"])
-        ff_, bf_ = fk + SHIN * d(p["fl2"]), bk + SHIN * d(p["bl2"])
-        seg(self.legs["fl"], hip, fk)
+        fk, bk = hf + D["THIGH"] * d(p["fl1"]), hb + D["THIGH"] * d(p["bl1"])
+        ff_, bf_ = fk + D["SHIN"] * d(p["fl2"]), bk + D["SHIN"] * d(p["bl2"])
+        seg(self.legs["fl"], hf, fk)
         seg(self.legs["fs"], fk, ff_)
-        seg(self.legs["bl"], hip, bk)
+        seg(self.legs["bl"], hb, bk)
         seg(self.legs["bs"], bk, bf_)
-        fe, be = sh + UPPER * d(p["fa1"]), sh + UPPER * d(p["ba1"])
-        fh, bh = fe + FORE * d(p["fa2"]), be + FORE * d(p["ba2"])
-        seg(self.arms["fa"], sh, fe)
+        fe, be = sf + D["UPPER"] * d(p["fa1"]), sb + D["UPPER"] * d(p["ba1"])
+        fh, bh = fe + D["FORE"] * d(p["fa2"]), be + D["FORE"] * d(p["ba2"])
+        seg(self.arms["fa"], sf, fe)
         seg(self.arms["ff"], fe, fh)
-        seg(self.arms["ba"], sh, be)
+        seg(self.arms["ba"], sb, be)
         seg(self.arms["bf"], be, bh)
         seg((self.neck,), sh, head)
         turn = max(-1.0, min(1.0, p["face"]))
@@ -505,17 +524,122 @@ class Person(VGroup):
         # each rigid part's place and turn in the body's frame (mirrored to face the way it looks)
         parts = {"ground": (np.array([0.0, 0.0]), 0.0), "torso": (hip, -f * lean), "head": (head, -f * nod),
                  "face": (face, -f * nod), "foot_f": (ff_, 0.0), "foot_b": (bf_, 0.0), "hand_f": (fh, 0.0),
-                 "hand_b": (bh, 0.0)}
+                 "hand_b": (bh, 0.0), "body": (hip, -f * lean)}
         frames = {}
         for name, (P, ang) in parts.items():
             ca, sa = math.cos(ang), math.sin(ang)
-            frames[name] = (P, np.array([[ca * f, -sa], [sa * f, ca]]))
+            g = 1.0 if name == "body" else f        # a country's shape is never turned over (east stays east)
+            frames[name] = (P, np.array([[ca * g, -sa], [sa * g, ca]]))
         for x, base, part in self.rigid:
             P, M = frames[part]
             body = base @ M.T + P
             x.points = o + np.outer(body[:, 0], ex) + np.outer(body[:, 1] - 0.5, ey)
         self._pose_face(p, o, ex, ey, face, f, turn)
         self.hand.move_to(W(fh))
+
+
+class Nation(Person):
+    """A country as a character (as drawn in a margin): its real shape for a body, stick legs and arms, the same doodle
+    face and every verb a person has: `ent fr nation France [color C] [mood FACE] [year 1500] [named | label "WORDS"] [tool T]
+    [face left] [size H] at X,Y` (its feet there). Its shape is never turned over: east stays east as it turns."""
+
+    D = {"HIP": 0.2, "TORSO": 0.27, "NECK": 0.0, "HEAD": 0.0, "UPPER": 0.14, "FORE": 0.13, "THIGH": 0.105,
+         "SHIN": 0.095, "FACE_UP": 0.03}
+    face_k = 1.7
+
+    def __init__(self, country: str, mods: dict | None = None, c=None, size: float = 2.6):
+        VGroup.__init__(self)
+        import geo
+        mods = mods or {}
+        self.mods = mods
+        seed = zlib.crc32(str(mods.get("_name", country)).encode())
+        k = size / 1.8
+        ink = col("ink")
+        self.ow = ow = 2.4 * k
+        fill = col(mods.get("color") or c) if (mods.get("color") or c) else \
+            col(_pick(["coral", "teal", "navy", "gold", "green", "sky", "red"], seed, "c"))
+        self.skin, self.cloth = fill, fill
+        self.rigid = []
+        self.rest = dict(REST)
+        self.rest.update(fa1=0.35, fa2=0.25, ba1=-0.35, ba2=-0.25, fl1=0.04, fl2=0.0, bl1=-0.04, bl2=0.0)
+        self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
+        self.alpha_now = 1.0
+
+        def rigid(m, part):
+            for x in m.family_members_with_points():
+                self.rigid.append((x, x.points[:, :2].copy(), part))
+            return m
+
+        # the body: the country's shape (its main land and what lies near it), fitted to the body's box
+        year = mods.get("year")
+        g, self.country = geo.shape(country, int(year) if year else None)
+        g = geo._biggest(g)
+        parts = [p for p in getattr(g, "geoms", [g])]
+        big = max(p.area for p in parts)
+        parts = [p for p in parts if p.area > big * 0.02]
+        lat = sum(p.centroid.y for p in parts) / len(parts)
+        kx = math.cos(math.radians(lat))
+        rings = [[(x * kx, y) for x, y in p.simplify(math.sqrt(big) / 90, preserve_topology=True).exterior.coords]
+                 for p in parts]
+        xs = [x for r in rings for x, _ in r]
+        ys = [y for r in rings for _, y in r]
+        bw, bh = 0.8, 0.62
+        sc = min(bw / (max(xs) - min(xs)), bh / (max(ys) - min(ys)))
+        cx, y0 = (max(xs) + min(xs)) / 2, min(ys)
+        self.body_w = (max(xs) - min(xs)) * sc
+        body = VGroup()
+        for r in rings:
+            pts = [np.array([(x - cx) * sc, (y - y0) * sc - 0.015, 0.0]) for x, y in r[:-1]]
+            if len(pts) >= 3:
+                m = VMobject(fill_color=fill, fill_opacity=1, stroke_color=ink, stroke_width=ow * 1.1)
+                m.set_points_smoothly([*pts, pts[0]])
+                body.add(m)
+        self.hips = ((0.075, 0.0), (-0.075, 0.0))
+        self.shoulders = ((self.body_w * 0.4, -0.06), (-self.body_w * 0.4, -0.06))
+
+        # stick limbs, feet and hands in ink
+        lw = 3.2 * k
+
+        def stick():
+            return (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=lw),
+                    Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=lw * 0.5))
+        self.legs = {n: stick() for n in ("bl", "bs", "fl", "fs")}
+        self.arms = {n: stick() for n in ("ba", "bf", "fa", "ff")}
+        self.shoes = {n: rigid(Ellipse(width=0.075, height=0.028, fill_color=ink, fill_opacity=1, stroke_width=0)
+                               .move_to([0.022, 0.012, 0]), "foot_" + n) for n in ("b", "f")}
+        self.hands = {n: rigid(Circle(radius=0.014, fill_color=ink, fill_opacity=1, stroke_width=0), "hand_" + n)
+                      for n in ("b", "f")}
+        self.neck = Line([0, 0, 0], [0, 0.1, 0], stroke_opacity=0, stroke_width=0)
+        self.head = rigid(Circle(radius=0.12, stroke_width=0, fill_opacity=0), "head")   # where words come from
+        self.seat = None
+        self.add(rigid(Ellipse(width=0.5, height=0.05, fill_color=ink, fill_opacity=0.12, stroke_width=0), "ground"))
+        self.add(*self.legs["bl"], *self.legs["bs"], self.shoes["b"], *self.arms["ba"], *self.arms["bf"],
+                 self.hands["b"], *self.legs["fl"], *self.legs["fs"], self.shoes["f"])
+        self.add(rigid(body, "body"), self.neck, self.head)
+        self._build_face(ink, ow, fill, ink, "none", mods)
+        self.tool = _tool(str(mods.get("tool") or "").lower(), ink, ow, k)
+        self.add(*self.arms["fa"], *self.arms["ff"])
+        if self.tool is not None:
+            self.add(rigid(self.tool, "hand_f"))
+        self.add(self.hands["f"])
+        if mods.get("named") or mods.get("label"):      # its name under its feet (`named`, or `label "WORDS"`)
+            from look import label
+            words = mods["label"] if isinstance(mods.get("label"), str) else self.country
+            t = label(str(words), 0.05, "ink").move_to([0.0, -self.D["HIP"] - 0.05, 0])
+            self.add(rigid(t, "body"))          # (never turned over: it reads as it faces either way)
+        self.hand = Dot(radius=0.001).set_opacity(0)
+        self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
+        self.add(self.hand, self._ref)
+        self.pose = dict(self.rest)
+        self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
+        self.set_pose(self.pose)
+
+
+def nation(country: str, mods: dict, size: float, c=None) -> Nation:
+    size = size or 2.6
+    n = Nation(country, mods, c, size)
+    n.scale(size, about_point=np.array([0.0, 0.0, 0.0]))
+    return n
 
 
 # ---------------------------------------------------------------- clothes --------------------------------------------

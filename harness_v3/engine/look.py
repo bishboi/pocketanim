@@ -427,7 +427,8 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind == "map":
         m = GeoMap(args[0] if args else "world", float(mods.get("w", 12)), float(mods.get("h", 6.6)),
                    int(mods["year"]) if mods.get("year") is not None else None, bool(mods.get("names")),
-                   bool(mods.get("rivers")), mods.get("fill"), bool(mods.get("compass")), bool(mods.get("scale")))
+                   bool(mods.get("rivers")), mods.get("fill"), bool(mods.get("compass")), bool(mods.get("scale")),
+                   str(mods.get("frame") or "classic"))
     elif kind in ("region", "pin", "river"):
         ref = mods.get("map") or mods.get("on")
         on = find(ref) if find and ref else None
@@ -493,6 +494,9 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind == "person":
         import people
         m = people.person(mods, size or 2.8, c)
+    elif kind in ("nation", "country"):
+        import people
+        m = people.nation(args[0] if args else "France", mods, size or 2.6, c)
     elif kind == "phrase":
         m = phrase(args[0] if args else "", size or 0.5, float(mods.get("w", 9.0)), c, bool(mods.get("bold")),
                    bool(mods.get("serif")))
@@ -833,10 +837,13 @@ class GeoMap(VGroup):
     names]. Places on it: `NAME.place`."""
 
     def __init__(self, region: str, w: float = 12.0, h: float = 6.6, year: int | None = None, names: bool = False,
-                 rivers: bool = False, fill=None, compass: bool = False, scale: bool = False):
+                 rivers: bool = False, fill=None, compass: bool = False, scale: bool = False, frame: str = "plain"):
         super().__init__()
         import geo
         from shapely.geometry import box
+        # a classic frame (a mat, a degree band, its corners) takes its room from the w x h asked for
+        fm = 0.3 if frame == "classic" and min(w, h) > 2.5 else 0.0
+        w, h = w - 2 * fm, h - 2 * fm
         lon0, lat0, lon1, lat1 = geo.bounds(region)
         self.k = math.cos(math.radians((lat0 + lat1) / 2))
         # The window widened (or made taller) round its middle to fill w x h: the map takes the room it is given.
@@ -856,8 +863,7 @@ class GeoMap(VGroup):
         sw, sh = (lon1 - lon0) * self.k * self.s, (lat1 - lat0) * self.s
         # Three hidden points carried along when the map moves or scales: where its own coordinates go.
         self._ref = VGroup(*(Dot(p, radius=0.001).set_opacity(0) for p in (ORIGIN, RIGHT, UP)))
-        sea = Rectangle(width=sw, height=sh, fill_color=col("sky"), fill_opacity=0.32, stroke_color=col("soft"),
-                        stroke_width=1.5)
+        sea = Rectangle(width=sw, height=sh, fill_color=col("sky"), fill_opacity=0.32, stroke_width=0)
         land_c = col(fill or ("card" if L.get("_name") == "editorial" else "sand"))
         land, borders = VGroup(), VGroup()
         self.shapes = {}
@@ -882,7 +888,88 @@ class GeoMap(VGroup):
             self.add(self._compass(sw / 2, sh / 2))
         if scale:
             self.add(self._scale(sw / 2, sh / 2))
+        if fm:
+            self.add(self._frame(sw / 2, sh / 2, fm))
+        else:
+            sea.set_stroke(col("soft"), 1.5)
         self.places = _Places(self)
+
+    def _frame(self, hw: float, hh: float, fm: float):
+        """A map's frame, as an atlas plate has: a cream mat round it with a soft shadow, a double rule with the
+        alternating band of a degree scale between (one stretch a round number of degrees), the degrees named in the
+        margin, a square at each corner."""
+        ink, paper = col("ink"), col("card")
+
+        def ring(ow_, oh_, iw_, ih_, fill, opacity=1.0, stroke=0.0, sc=None, shift=(0.0, 0.0)):
+            m = VMobject(fill_color=fill, fill_opacity=opacity, stroke_color=sc or fill, stroke_width=stroke)
+            dx, dy = shift
+            outer = [np.array([x + dx, y + dy, 0.0]) for x, y in ((-ow_, -oh_), (ow_, -oh_), (ow_, oh_), (-ow_, oh_), (-ow_, -oh_))]
+            inner = [np.array([x + dx, y + dy, 0.0]) for x, y in ((-iw_, -ih_), (-iw_, ih_), (iw_, ih_), (iw_, -ih_), (-iw_, -ih_))]
+            m.set_points_as_corners(outer)
+            m.start_new_path(inner[0])
+            m.add_points_as_corners(inner[1:])
+            return m
+        g = VGroup()
+        ow_, oh_, dx, dy = hw + fm, hh + fm, 0.07, 0.09                                  # its shadow, outside it only
+        shadow = VMobject(fill_color=ink, fill_opacity=0.13, stroke_width=0)
+        shadow.set_points_as_corners([np.array([x, y, 0.0]) for x, y in (
+            (-ow_ + dx, -oh_ - dy), (ow_ + dx, -oh_ - dy), (ow_ + dx, oh_ - dy), (ow_, oh_ - dy), (ow_, -oh_),
+            (-ow_ + dx, -oh_), (-ow_ + dx, -oh_ - dy))])
+        g.add(shadow)
+        g.add(ring(hw + fm, hh + fm, hw, hh, paper, 1.0, 1.2, col("soft")))                 # the mat
+        band = 0.07
+        # the degree band: alternate stretches dark along each side, a round number of degrees each
+        lon0, lat0, lon1, lat1 = self.bounds
+
+        def step_for(span_deg, units):
+            want = span_deg / max(2.0, units / 0.9)
+            return min((s_ for s_ in (0.5, 1, 2, 5, 10, 15, 20, 30, 45, 60) if s_ >= want), default=60)
+        lon_step, lat_step = step_for(lon1 - lon0, 2 * hw), step_for(lat1 - lat0, 2 * hh)
+        marks = []                              # (where on the side, the degree there) for the names
+
+        def stretches(a0, a1, step):
+            first = math.floor(a0 / step) * step
+            cuts = [a0] + [first + step * i for i in range(1, int((a1 - first) / step) + 1) if a0 < first + step * i < a1] + [a1]
+            return cuts
+        lon_cuts, lat_cuts = stretches(lon0, lon1, lon_step), stretches(lat0, lat1, lat_step)
+        to_x = lambda lon: (lon - self.mid[0]) * self.k * self.s  # noqa: E731
+        to_y = lambda lat: (lat - self.mid[1]) * self.s  # noqa: E731
+        for i in range(len(lon_cuts) - 1):
+            x0, x1 = to_x(lon_cuts[i]), to_x(lon_cuts[i + 1])
+            for y in (hh + band / 2, -hh - band / 2):
+                g.add(Rectangle(width=max(0.001, x1 - x0), height=band, fill_color=ink if i % 2 == 0 else paper,
+                                fill_opacity=1, stroke_width=0).move_to([(x0 + x1) / 2, y, 0]))
+        for i in range(len(lat_cuts) - 1):
+            y0, y1 = to_y(lat_cuts[i]), to_y(lat_cuts[i + 1])
+            for x in (hw + band / 2, -hw - band / 2):
+                g.add(Rectangle(width=band, height=max(0.001, y1 - y0), fill_color=ink if i % 2 == 0 else paper,
+                                fill_opacity=1, stroke_width=0).move_to([x, (y0 + y1) / 2, 0]))
+        for d_ in (0.0, band):                  # the double rule
+            g.add(Rectangle(width=2 * (hw + d_), height=2 * (hh + d_), fill_opacity=0, stroke_color=ink,
+                            stroke_width=1.1 if d_ else 1.6))
+        for sx in (-1, 1):                      # the corners
+            for sy in (-1, 1):
+                g.add(Rectangle(width=band, height=band, fill_color=ink, fill_opacity=1, stroke_width=0)
+                      .move_to([sx * (hw + band / 2), sy * (hh + band / 2), 0]))
+        # the degrees named in the margin (where there is room)
+        def deg(v, pos, neg):
+            v = round(v, 1)
+            return f"{abs(v):g}°{pos if v >= 0 else neg}"
+        last = -1e9
+        for v in lon_cuts[1:-1]:
+            x = to_x(v)
+            if x - last < 0.9 or abs(x) > hw - 0.25:
+                continue
+            last = x
+            g.add(label(deg(v, "E", "W"), 0.06, "soft").move_to([x, hh + band + (fm - band) / 2, 0]))
+        last = -1e9
+        for v in lat_cuts[1:-1]:
+            y = to_y(v)
+            if y - last < 0.6 or abs(y) > hh - 0.2:
+                continue
+            last = y
+            g.add(label(deg(v, "N", "S"), 0.06, "soft").rotate(math.pi / 2).move_to([-hw - band - (fm - band) / 2, y, 0]))
+        return g
 
     def _compass(self, hw: float, hh: float):
         """North, in the map's top right corner."""

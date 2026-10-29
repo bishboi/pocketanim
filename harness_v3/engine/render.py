@@ -69,7 +69,7 @@ SIDES = ("left", "right", "up", "down")
 REL = ("below", "above", "left", "right")
 PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart", "layers", "circuit"}
 BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait",
-                "person", "phrase"}
+                "person", "phrase", "nation", "country"}
 HUD_Z = 970             # what stays on the screen (captions, the chapter bar) over everything but the grain
 
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
@@ -79,9 +79,12 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8,
                "walk": 2.0, "point": 0.6, "wave": 1.6, "talk": 2.0, "carry": 0.8, "sit": 0.7, "stand": 0.6,
                "turn": 0.4, "bring": 1.4, "chapter": 0.1, "run": 1.2, "cheer": 1.4, "shrug": 1.0,
-               "think": 1.6, "bow": 1.2, "jump": 0.7, "nod": 0.8, "emote": 0.5}
+               "think": 1.6, "bow": 1.2, "jump": 0.9, "nod": 0.8, "emote": 0.5, "dance": 3.0, "clap": 1.6,
+               "facepalm": 1.8, "laugh": 1.8, "cry": 2.4, "shiver": 1.6, "kick": 0.7, "look": 0.5, "faint": 1.0,
+               "hug": 1.6}
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
-                "bow", "jump", "nod", "emote")
+                "bow", "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look",
+                "faint", "hug")
 TAIL = 3.2              # seconds held after the last word
 
 
@@ -328,7 +331,8 @@ class ScoreScene(MovingCameraScene):
               "label", "timeline", "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "compare", "table",
               "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "portrait", "tree",
               "numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market",
-              "climate", "quiz", "clock", "odometer", "clipping", "layers", "globe", "who", "polaroids"}
+              "climate", "quiz", "clock", "odometer", "clipping", "layers", "globe", "who", "polaroids", "person",
+              "nation", "country"}
     HOLDERS = {"rect", "circle", "blob", "card", "photo", "split"}
 
     def _holder(self, e: S.Ent) -> bool:
@@ -529,7 +533,7 @@ class ScoreScene(MovingCameraScene):
             o = self._origin(e.shot)
             e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
 
-        if e.kind == "person":
+        if e.kind in ("person", "nation", "country"):
             e.mods.setdefault("_name", e.name)      # its looks picked from its name when the score does not say
         def one():
             return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot),
@@ -553,7 +557,7 @@ class ScoreScene(MovingCameraScene):
             at = e.mods.get("at", (0.0, 0.0))
             where = self._locate(at, e.shot) if isinstance(at, str) else self._origin(e.shot) + np.array([at[0], at[1], 0.0])
             m.move_to(where)
-            if e.kind == "person":              # a person stands where it is put: its feet there
+            if e.kind in ("person", "nation", "country"):     # a figure stands where it is put: its feet there
                 m.shift(where - m.feet())
             rel = self._relation(e)
             if rel:
@@ -863,7 +867,7 @@ class ScoreScene(MovingCameraScene):
         kind = self._kind(name)
         if not self.motion or m is not self.E.get(name):
             return "fade"
-        if kind == "person":
+        if kind in ("person", "nation", "country"):
             return "rise" if way == "in" else "fade"
         if kind in feel.CUTOUTS:
             return "slap" if way == "in" else "peel"
@@ -1795,6 +1799,10 @@ class ScoreScene(MovingCameraScene):
                 self._talk_bubble(name, m, words, t0, t1)
         elif v in ("sit", "stand"):
             def step(a):
+                if v == "stand" and getattr(m, "fallen", 0.0):        # up again from a faint
+                    ang = m.fallen * (1 - min(1.0, a * 1.5))
+                    m.rotate(ang - m.fallen, about_point=m.feet())
+                    m.fallen = ang
                 target = P.sit_pose(m.seat is not None) if v == "sit" else dict(m.rest)
                 target["face"], target["mouth"] = st["p0"]["face"], st["p0"]["mouth"]
                 if v == "stand" and getattr(m, "carrying", False):
@@ -1821,18 +1829,112 @@ class ScoreScene(MovingCameraScene):
                 pose_to(target, keys, tt)
         elif v == "jump":
             def step(a):
-                hop = math.sin(math.pi * a)
+                # down first (knees bent, arms back), then up and back down, landing soft
                 p = dict(m.pose)
-                p["bob"] = 0.22 * hop
-                for key, val in (("fl1", 0.5), ("fl2", -0.3), ("bl1", 0.3), ("bl2", -0.4), ("fa1", 2.2), ("fa2", 2.4),
-                                 ("ba1", 2.0), ("ba2", 2.3)):
-                    p[key] = st["p0"][key] + (val - st["p0"][key]) * hop
+                crouch = math.sin(math.pi * min(1.0, a / 0.3)) if a < 0.3 else 0.0
+                hop = math.sin(math.pi * (a - 0.3) / 0.7) if a >= 0.3 else 0.0
+                p["drop"] = 0.05 * crouch
+                p["bob"] = 0.24 * hop
+                for key, low, high in (("fl1", 0.55, 0.5), ("fl2", -0.45, -0.3), ("bl1", 0.45, 0.3), ("bl2", -0.55, -0.4),
+                                       ("fa1", -0.5, 2.3), ("fa2", -0.3, 2.5), ("ba1", -0.6, 2.1), ("ba2", -0.4, 2.4)):
+                    p[key] = st["p0"][key] + (low - st["p0"][key]) * crouch + (high - st["p0"][key]) * hop
+                p["smile"] = st["p0"]["smile"] + (1.0 - st["p0"]["smile"]) * hop
                 m.set_pose(p)
         elif v == "nod":
             def step(a):
                 p = dict(m.pose)
                 p["nod"] = 0.22 * math.sin(a * math.pi * 4) * (1 - a)
                 m.set_pose(p)
+        elif v in ("dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick"):
+            moods = {"dance": "joy", "clap": "happy", "facepalm": "annoyed", "laugh": "laugh", "cry": "crying",
+                     "shiver": "scared", "kick": "angry"}
+            face = P.MOODS[moods[v]]
+            back = v not in ()
+
+            def step(a):
+                tt = a * dur
+                q = dict(st["p0"])
+                q.update(face)
+                if v == "dance":                # arms up and swinging, legs stepping, a bounce on the beat
+                    s1 = math.sin(tt * 7.0)
+                    q.update(fa1=2.3 + 0.5 * s1, fa2=2.6 + 0.4 * s1, ba1=2.3 - 0.5 * s1, ba2=2.6 - 0.4 * s1,
+                             fl1=0.35 * s1, fl2=0.35 * s1 - 0.3 * max(0.0, s1), bl1=-0.35 * s1,
+                             bl2=-0.35 * s1 - 0.3 * max(0.0, -s1), bob=0.035 * abs(math.sin(tt * 7.0)),
+                             lean=0.12 * math.sin(tt * 3.5))
+                    keys = ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2", "bl1", "bl2", "bob", "lean") + P.FACE_KEYS
+                elif v == "clap":               # hands meeting in front, again and again
+                    s1 = math.sin(tt * 13.0)
+                    q.update(fa1=0.95, ba1=1.15, fa2=1.55 + 0.45 * s1, ba2=1.75 - 0.45 * s1)
+                    keys = ("fa1", "fa2", "ba1", "ba2") + P.FACE_KEYS
+                elif v == "facepalm":           # a hand to the face, the head bowed
+                    q.update(fa1=0.25, fa2=2.95, nod=0.28, lids=0.7)
+                    keys = ("fa1", "fa2", "nod") + P.FACE_KEYS
+                elif v == "laugh":              # bent with it, shaking
+                    q.update(lean=0.18 + 0.05 * math.sin(tt * 17.0), bob=0.012 * abs(math.sin(tt * 17.0)),
+                             fa1=0.9, fa2=2.2)
+                    keys = ("lean", "bob", "fa1", "fa2") + P.FACE_KEYS
+                elif v == "cry":                # shoulders shaking, head down, a hand to the eyes
+                    q.update(bob=0.008 * math.sin(tt * 13.0), nod=0.2, fa1=0.3, fa2=2.7)
+                    keys = ("bob", "nod", "fa1", "fa2") + P.FACE_KEYS
+                elif v == "shiver":             # trembling all over, arms held in
+                    q.update(lean=0.035 * math.sin(tt * 45.0), fa1=0.6, fa2=2.3, ba1=0.5, ba2=2.2,
+                             fl1=0.04 * math.sin(tt * 45.0))
+                    keys = ("lean", "fa1", "fa2", "ba1", "ba2", "fl1") + P.FACE_KEYS
+                else:                           # kick: the front leg swung out and back
+                    sw = math.sin(math.pi * min(1.0, tt / max(dur, 0.1)))
+                    q.update(fl1=-0.3 + 1.7 * sw, fl2=-0.2 + 1.4 * sw, lean=-0.15 * sw, fa1=-0.4 * sw, ba1=0.6 * sw)
+                    keys = ("fl1", "fl2", "lean", "fa1", "ba1") + P.FACE_KEYS
+                pose_to(q, keys, tt)
+        elif v == "look":
+            # the face and eyes to a thing (`look P at T`), and held
+            ref = act.args[act.args.index("at") + 1] if "at" in act.args else (act.args[0] if act.args else "")
+
+            def step(a):
+                if "goal" not in st:
+                    st["goal"] = self._locate(ref, self.SCORE.ents[name].shot)
+                goal = st["goal"]
+                c = m.head.get_center()
+                face = 1.0 if goal[0] >= c[0] else -1.0
+                up = max(-1.0, min(1.0, (goal[1] - c[1]) / 2.0))
+                pose_to({**st["p0"], "face": face, "side": 1.0, "gaze": up}, ("face", "side", "gaze"), a * dur)
+        elif v == "faint":
+            # falls flat (back to its feet with `stand`): the whole figure turned about its feet
+            def step(a):
+                p = dict(m.pose)
+                p.update({k_: st["p0"][k_] + (P.MOODS["dazed"][k_] - st["p0"][k_]) * min(1.0, a * 2) for k_ in P.FACE_KEYS})
+                m.set_pose(p)
+                ang = -m.facing() * (math.pi / 2) * rate_functions.ease_in_quad(a)
+                d_ = ang - getattr(m, "fallen", 0.0)
+                m.rotate(d_, about_point=m.feet())
+                m.fallen = ang
+        elif v == "hug":
+            # two figures meet and hold each other: P walks to the other, both arms round
+            other = act.args[0] if act.args else ""
+            (on, om), = self._targets(other)[:1]
+
+            def step(a):
+                if "f0" not in st:
+                    st["f0"] = m.feet().copy()
+                    side = 1.0 if om.feet()[0] >= st["f0"][0] else -1.0
+                    # close enough to hold: their bodies just touching (a country is wider than a person)
+                    gap = max(0.32 * m.unit(), 0.42 * (getattr(m, "body_w", 0.2) * m.unit() +
+                                                       getattr(om, "body_w", 0.2) * getattr(om, "unit", m.unit)()))
+                    st["f1"] = om.feet() - np.array([side * gap, 0, 0])
+                    m.pose["face"] = side
+                    if isinstance(om, P.Person):
+                        om.pose["face"] = -side
+                        om.set_pose(om.pose)
+                walk_a = min(1.0, a / 0.5)
+                m.shift(st["f0"] + (st["f1"] - st["f0"]) * rate_functions.ease_in_out_sine(walk_a) - m.feet())
+                arms = max(0.0, (a - 0.4) / 0.6)
+                for who in (m, om):
+                    if not isinstance(who, P.Person):
+                        continue
+                    p = dict(who.pose)
+                    p.update(fa1=p["fa1"] + (1.25 - p["fa1"]) * arms, fa2=p["fa2"] + (2.0 - p["fa2"]) * arms,
+                             ba1=p["ba1"] + (1.25 - p["ba1"]) * arms, ba2=p["ba2"] + (2.0 - p["ba2"]) * arms,
+                             smile=p["smile"] + (0.95 - p["smile"]) * arms, joy=p["joy"] + (0.9 - p["joy"]) * arms)
+                    who.set_pose(p)
         elif v == "turn":
             def step(a):
                 face = -1.0 if (act.args and act.args[0] == "left") else 1.0 if act.args else -st["p0"]["face"]
@@ -1862,9 +1964,11 @@ class ScoreScene(MovingCameraScene):
                     return
                 ph = (self.clock + shift) % period
                 b = max(0.0, 1 - abs(ph - 0.07) / 0.07) if ph < 0.14 else 0.0
-                if abs(b - m.pose.get("blink", 0.0)) > 1e-3:
+                # never quite still: a slow breath (a few frames' steps, so a held figure is mostly kept as it was)
+                br = round(0.006 * math.sin((self.clock + shift) * 2 * math.pi / 3.6), 3)
+                if abs(b - m.pose.get("blink", 0.0)) > 1e-3 or abs(br - m.pose.get("breath", 0.0)) > 1e-4:
                     p = dict(m.pose)
-                    p["blink"] = b
+                    p["blink"], p["breath"] = b, br
                     m.set_pose(p)
             self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, step, None, rate_functions.linear))
 

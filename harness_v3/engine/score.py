@@ -95,7 +95,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
         "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None,
         "hat": "s", "tool": "s", "seat": None, "face": "s", "wear": "s", "hair": "s", "beard": None,
-        "longbeard": None, "mustache": None, "stubble": None, "skin": "s", "mood": "s", "old": None, "kid": None}
+        "longbeard": None, "mustache": None, "stubble": None, "named": None, "frame": "s", "skin": "s", "mood": "s", "old": None, "kid": None}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")
@@ -205,7 +205,8 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "grow", "cam", "flow", "float", "bracket", "spotlight", "chapter", "bring", "ring", "circle", "mark",
                "underline", "highlight", "strike", "box", "tick", "cross", "stamp", "callout", "pan", "type", "fill",
                "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
-               "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote"}
+               "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote", "dance", "clap",
+               "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
 KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
@@ -213,7 +214,7 @@ KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
          "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
          "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
-         "backdrop", "portrait", "person", "phrase"}
+         "backdrop", "portrait", "person", "phrase", "nation", "country"}
 ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
 
 

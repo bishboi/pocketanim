@@ -287,3 +287,22 @@ t95        chapter "Carried over"
 t95-t96.4  cam ends
 t95-t96.4  bring big to ends 0,0
 t96.6      in hde fade
+
+# ---- countries as characters, a framed map, more of what people do
+shot powers at 54,-33
+ent hdn    label "nation · faces · dance · faint · hug · a framed map" size 0.18 at -4.8,3.4
+ent pr     nation Germany year 1900 color sky mood smug named size 3.0 at 3.0,-2.0
+ent osz    nation Austria color coral mood nervous named size 2.0 at -1.6,-2.0
+ent alb    nation Albania color green mood dazed named size 1.1 at -5.6,-2.6
+ent atlas  map europe w 5.4 h 3.4 at -3.4,1.4
+t97        cam powers
+t97.4      in hdn fade
+t97.6      in atlas fade
+t98        in pr,osz,alb
+t98.6-t99.6 point pr at osz
+t98.8-t100.4 talk pr "SHHHHH"
+t99.4-t101 shiver osz
+t100-t101  faint alb
+t101.2-t101.8 stand alb
+t101.6-t102.8 hug osz pr
+t102-t102.6 emote pr happy

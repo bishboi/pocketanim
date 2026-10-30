@@ -1,6 +1,8 @@
 """People drawn with a pen, who move: little cartoon figures (a round head with a face and hair, clothes, outlined
 limbs, hands and shoes, a soft shadow at their feet) posed over time.
 
+    ent ann person as ROLE (attire.py: king, knight, nun, bishop, peasant, maharaja...: a whole outfit; what the line
+                   adds wins)
     ent ann person [wear shirt|tunic|robe|habit|dress|gown|coat|suit|armor|apron|toga|uniform|lab|overalls|vest]
                    [color C] [hair short|long|bob|bun|ponytail|curly|spiky|bald[-black|brown|blonde|red|grey|white]]
                    [beard | longbeard] [mustache] [skin fair|light|tan|brown|dark]
@@ -29,6 +31,7 @@ import zlib
 import numpy as np
 from manim import Circle, Dot, Ellipse, Line, Mobject, VGroup, VMobject
 
+import attire
 from look import STROKE, col
 
 # A body one unit tall (feet at 0): where each part is, and how long. The head is big: a cartoon's proportions.
@@ -176,7 +179,7 @@ def _stroke(points, ink, w) -> VMobject:
 class Person(VGroup):
     def __init__(self, mods: dict | None = None, c=None, size: float = 1.8):
         super().__init__()
-        mods = mods or {}
+        mods = attire.role(mods or {})
         self.mods = mods
         seed = zlib.crc32(str(mods.get("_name", "")).encode())
         k = size / 1.8                          # line widths are on the screen: kept in step with the figure's size
@@ -247,9 +250,10 @@ class Person(VGroup):
         # -- the head: hair behind it, the head, the face, hair over it, a beard, a hat -----------------------------
         R = HEAD
         hat = str(mods.get("hat") or "").lower()
-        covered = hat in ("hood", "veil", "headscarf", "turban", "helmet")
+        covered = hat in COVERED
         back, front = _hair(hair_s if not covered else "none", hair, ink, ow, R)
         hb, hf = _hat(hat, ink, ow, R, cloth)
+        hf.add(attire.plume(mods.get("decor") or {}, ink, ow, R))
         self.add(rigid(hb, "head"))
         self.add(rigid(back, "head"))
         self.add(*self.legs["bl"], *self.legs["bs"], self.shoes["b"], *self.arms["ba"], *self.arms["bf"],
@@ -392,6 +396,7 @@ class Person(VGroup):
             self.add(fixed(_blob([(-0.03, -0.03), (0.0, -0.022), (0.03, -0.03), (0.034, -0.042), (0.0, -0.036),
                                   (-0.034, -0.042)], hair, ink, ow * 0.6), ("face", 0)))
         self.add(fixed(_face("", ink, ow, HEAD), ("face", 0)))
+        self.add(fixed(attire.on_face(mods.get("decor") or {}, ink, ow), ("face", 0)))
         self.managed_ids = {id(x) for x, *_ in self.feats}
 
     def refade(self, a: float) -> None:
@@ -868,6 +873,9 @@ def _hat(kind: str, ink, ow, R, cloth):
     top = R * 0.72
     if not kind:
         return back, front
+    more = attire.hat(kind, ink, ow, R, cloth)
+    if more is not None:
+        return more
     if kind == "top":
         front.add(_poly([(-0.07, top), (0.07, top), (0.075, top + 0.17), (-0.075, top + 0.17)], ink, ink, ow),
                   _poly([(-0.071, top + 0.01), (0.071, top + 0.01), (0.072, top + 0.04), (-0.072, top + 0.04)], "#B83227", ink, ow * 0.5),
@@ -950,6 +958,9 @@ def _tool(kind: str, ink, ow, k):
     """A thing held in the front hand, in the hand's frame (the grip at 0, x toward the face)."""
     if not kind:
         return None
+    more = attire.tool(kind, ink, ow, k)
+    if more is not None:
+        return more
     wood, metal, gold = "#9A6B43", "#B8BEC2", "#F2C14E"
     stick = lambda y0, y1, c=wood, w=4.0: Line([0, y0, 0], [0, y1, 0], stroke_color=c, stroke_width=w * k)  # noqa: E731
     if kind == "book":
@@ -1019,6 +1030,9 @@ def _tool(kind: str, ink, ow, k):
 # hops as it walks), the same doodle face and every verb.
 
 FIGURE = os.environ.get("V3_FIGURE", "peg").strip().lower()
+# hats that hide the hair
+COVERED = ("hood", "veil", "headscarf", "turban", "helmet", "greathelm", "kettle", "legion", "viking", "wimple",
+           "coif", "nemes", "pagdi", "pagdi_white", "mughal", "pallu", "wig", "jester", "pith", "topknot")
 
 
 class Peg(Person):
@@ -1030,7 +1044,7 @@ class Peg(Person):
 
     def __init__(self, mods: dict | None = None, c=None, size: float = 2.6):
         VGroup.__init__(self)
-        mods = mods or {}
+        mods = attire.role(mods or {})
         self.mods = mods
         seed = zlib.crc32(str(mods.get("_name", "")).encode())
         k = size / 1.8
@@ -1049,6 +1063,7 @@ class Peg(Person):
         legs = skin if spec["legs"] == "skin" else (col(spec["legs"]) if spec["legs"] else cloth)
         self.skin, self.cloth = skin, cloth
         self.rigid = []
+        decor = mods.get("decor") or {}
         self.rest = dict(REST)
         self.rest.update(fa1=0.18, fa2=0.1, ba1=-0.15, ba2=-0.08)
         self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
@@ -1081,16 +1096,22 @@ class Peg(Person):
         self.shoes = {}
         R = self.R
         hat = str(mods.get("hat") or "").lower()
-        covered = hat in ("hood", "veil", "headscarf", "turban", "helmet")
+        covered = hat in COVERED
         back, front = _hair(hair_s if not covered else "none", hair, ink, ow, R)
         hb, hf = _hat(hat, ink, ow, HEAD, cloth)
+        hf.add(attire.plume(decor, ink, ow, HEAD))
         for g in (hb, hf):                      # hats are cut for the jointed figure's head: grown to this one
             g.scale(R / HEAD, about_point=np.zeros(3))
         self.hair_back = back
         self.add(rigid(hb, "head"), rigid(back, "head"))
-        self.add(*self.arms["ba"], *self.arms["bf"], self.hands["b"])
-        self.torso_m = rigid(_peg_body(wear, spec, cloth, legs, ink, ow, skin, self.W, self.D["TORSO"] + 0.08), "torso")
-        self.add(self.torso_m)
+        H = self.D["TORSO"] + 0.08
+        self.add(rigid(attire.behind(decor, ink, ow, self.W, -0.035, H), "torso"))
+        self.add(*self.arms["ba"], *self.arms["bf"])
+        held = attire.offhand(str(decor.get("offhand") or ""), ink, ow, k)
+        if held is None:
+            self.add(self.hands["b"])
+        self.torso_m = rigid(_peg_body(wear, spec, cloth, legs, ink, ow, skin, self.W, H), "torso")
+        self.add(self.torso_m, rigid(attire.on_body(decor, ink, ow, self.W, -0.035, H), "torso"))
         self.neck = Line([0, 0, 0], [0, 0.1, 0], stroke_width=0, stroke_opacity=0)
         self.add(self.neck)
         self.head = Circle(radius=R, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow)
@@ -1106,6 +1127,8 @@ class Peg(Person):
         if self.tool is not None:
             self.add(rigid(self.tool, "hand_f"))
         self.add(self.hands["f"])
+        if held is not None:                    # a shield (in the far hand, carried over the body: in front)
+            self.add(self.hands["b"], rigid(held, "hand_b"))
         self.hand = Dot(radius=0.001).set_opacity(0)
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
         self.add(self.hand, self._ref)
@@ -1185,6 +1208,7 @@ def _peg_body(wear: str, spec: dict, cloth, legs, ink, ow, skin, W: float, H: fl
 
 
 def person(mods: dict, size: float, c=None) -> Person:
+    mods = attire.role(mods)
     size = (size or 2.8) * (0.66 if mods.get("kid") else 1.0)
     style = str(mods.get("style") or FIGURE).lower()
     p = (Person if style == "stick" else Peg)(mods, c, size)

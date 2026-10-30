@@ -203,7 +203,8 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
                                 "settings": {"model": settings.get("model") or os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL,
                                              "videos": int(settings.get("videos") or 3),
                                              "seconds": int(settings.get("seconds") or 40),
-                                             "notes": str(settings.get("notes") or "")},
+                                             "notes": str(settings.get("notes") or ""),
+                                             "language": settings.get("language") if settings.get("language") in runs.LANGUAGES else "en"},
                                 "status": "running", "started": time.time(), "videos": []})
         save(book)
         _busy.add(bid)
@@ -226,7 +227,8 @@ def _script(bid: str, sid: str) -> None:
     st = sc["settings"]
     calls: list[dict] = []
     try:
-        system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"], st["notes"])
+        system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"], st["notes"],
+                                             st.get("language"))
         rec = {"settings": {"model": st["model"]}, "calls": calls}
         text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user, max_tokens=min(32000, max(4000, int(st["videos"] * st["seconds"] * 4.2) + 600)),
                          saver=lambda _: _keep(bid, sc, calls))
@@ -275,7 +277,7 @@ def build(bid: str, sid: str, which: int | None, settings: dict) -> list[str]:
         for k in ks:
             v = sc["videos"][k]
             run = runs.create(f"{book['title']} · {v['title']}", v["narration"],
-                              settings | {"book": {"id": bid, "title": book["title"], "script": sid, "video": k,
+                              {"language": sc["settings"].get("language") or "en"} | settings | {"book": {"id": bid, "title": book["title"], "script": sid, "video": k,
                                                    "pages": f"{sc['from']}-{sc['to']}"}})
             v["run"] = run["id"]
             v.setdefault("runs", []).append(run["id"])

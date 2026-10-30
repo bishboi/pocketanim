@@ -201,11 +201,22 @@ def listing() -> list[dict]:
     return out
 
 
+LANGUAGES = {"en": "English", "hinglish": "Hinglish (Hindi in Roman letters, with English words)"}
+
+
+def default_voice() -> str:
+    """Gemini TTS (V3_TTS_VOICE, Kore) when a Gemini key is set, else the offline Piper voice."""
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return "gemini:" + (os.environ.get("V3_TTS_VOICE") or "Kore")
+    return "en_US-ryan-high"
+
+
 def create(title: str, narration: str, settings: dict) -> dict:
     rid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
     run = {"id": rid, "title": title.strip() or narration.strip().split("\n")[0][:60], "created": time.time(),
            "status": "new",
-           "settings": {"model": settings.get("model") or DEFAULT_MODEL, "voice": settings.get("voice") or "en_US-ryan-high",
+           "settings": {"model": settings.get("model") or DEFAULT_MODEL, "voice": settings.get("voice") or default_voice(),
+                        "language": settings.get("language") if settings.get("language") in LANGUAGES else "en",
                         "quality": settings.get("quality") or "m", "critic": bool(settings.get("critic")),
                         "speed": float(settings.get("speed") or 1.22), "pause": float(settings.get("pause") or 0.85),
                         "models": step_models(settings.get("models")),
@@ -295,7 +306,8 @@ def _voice(run: dict) -> None:
     d = run_dir(run["id"])
     s = run["settings"]
     p = _proc(run["id"], [sys.executable, str(HERE / "voice.py"), str(d / "narration.txt"), str(d), "--voice", s["voice"],
-                          "--speed", str(s["speed"]), "--pause", str(s["pause"])], on_line=follow(run, run["steps"]["voice"]))
+                          "--speed", str(s["speed"]), "--pause", str(s["pause"]), "--language", s.get("language") or "en"],
+              on_line=follow(run, run["steps"]["voice"]))
     if p.returncode != 0:
         raise RuntimeError(_tail(p))
     words = json.loads((d / "words.json").read_text())
@@ -338,7 +350,7 @@ def _storyboard(run: dict) -> None:
         text = last["output"]
         run["steps"]["storyboard"]["notes"] = ["the last answer read again (no new call)"]
     else:
-        system, user = prompts.storyboard_prompt(words)
+        system, user = prompts.storyboard_prompt(words, language=_lang(run))
         text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=1300)
     shots = prompts.parse_storyboard(text, len(words))
     if not shots:
@@ -359,7 +371,7 @@ def _storyboard_long(run: dict) -> None:
     d = run_dir(run["id"])
     words = _words(run)
     ps = _parts(run)
-    system, user = prompts.cast_prompt(words)
+    system, user = prompts.cast_prompt(words, _lang(run))
     text = chat(run, "storyboard", "Cast (the whole video)", system, user, max_tokens=900)
     cast = prompts.parse_cast(text)
     (d / "cast.score").write_text("\n".join(cast) + ("\n" if cast else ""))
@@ -369,7 +381,7 @@ def _storyboard_long(run: dict) -> None:
         mine = [w for w in words if p["a"] <= w["i"] <= p["b"]]
         before = " ".join(w["w"] for w in words[max(0, p["a"] - 40):p["a"]])
         info = {"k": p["k"], "n": len(ps), "minutes": minutes, "seconds": p["t1"] - p["t0"]}
-        system, user = prompts.storyboard_prompt(mine, info, cast, before)
+        system, user = prompts.storyboard_prompt(mine, info, cast, before, _lang(run))
         out = chat(run, "storyboard", f"Storyboard: part {p['k'] + 1} of {len(ps)}", system, user,
                    max_tokens=400 + int(14 * (p["t1"] - p["t0"])))
         shots = prompts.parse_storyboard(out, len(words))
@@ -400,6 +412,10 @@ def _storyboard_long(run: dict) -> None:
         [f"cast: {', '.join(c.split()[1] for c in cast)}"] if cast else [])
 
 
+def _lang(run: dict) -> str:
+    return run["settings"].get("language") or "en"
+
+
 def _cast(run: dict) -> list[str]:
     p = run_dir(run["id"]) / "cast.score"
     return [ln for ln in p.read_text().splitlines() if ln.strip()] if p.exists() else []
@@ -409,7 +425,7 @@ def _score_shot(run: dict, shots: list[dict], k: int, words: list[dict], before:
     s = shots[k]
     at = ((k % 3) * SHOT_STEP, -(k // 3) * 11.0)
     mine = [w for w in words if s["a"] <= w["i"] <= s["b"]]
-    system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run))
+    system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run), _lang(run))
     text = chat(run, "score", f"Score: shot {k + 1} ({s['name']})", system, user)
     text = re.sub(r"^```\w*|```$", "", text.strip(), flags=re.M).strip()
     if not re.search(r"^\s*shot\s", text, re.M):
@@ -793,7 +809,7 @@ def _layout(run: dict) -> None:
             used = [int(x) for x in re.findall(r"\bw(\d+)", body)]
             mine = [w for w in words if used and min(used) <= w["i"] <= max(used)]
             system, user = prompts.repair_prompt(body, rep["problems"][shot], rep["sizes"].get(shot, []), mine,
-                                                 _cast(run))
+                                                 _cast(run), _lang(run))
             try:
                 out = chat(run, "layout", f"Layout fix: {shot}", system, user,
                            model=(st.get("models") or {}).get("score") or st["model"])

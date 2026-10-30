@@ -98,13 +98,21 @@ def _when(line: str, words: list[dict]) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def _shift(line: str, dt: float) -> str:
-    """An action's `tSECONDS` times moved to the part's own clock (its words are moved with words.json)."""
+def _shift(line: str, words: list[dict]) -> str:
+    """An action's `tSECONDS` times said from the word before them (`w123+0.40`): a part's words are timed from its
+    own start (words.json), so these move with them, and a time before the part (the shot carried in from the part
+    before) stays before it."""
     toks = line.split(None, 1)
     if not toks or not re.match(r"^[wt]\d", toks[0]):
         return line
     lead = line[: len(line) - len(line.lstrip())]
-    tok = re.sub(r"t(\d*\.?\d+)", lambda m: f"t{max(0.0, float(m.group(1)) - dt):.2f}", toks[0])
+
+    def as_word(m):
+        x = float(m.group(1))
+        k = max((i for i, w in enumerate(words) if float(w["start"]) <= x), default=0)
+        d = x - float(words[k]["start"])
+        return f"w{k}+{d:.2f}" if d >= 0 else f"w{k}{d:.2f}"
+    tok = re.sub(r"(?<![\w.])t(\d*\.?\d+)", as_word, toks[0])
     return lead + tok + (" " + toks[1] if len(toks) > 1 else "")
 
 
@@ -133,6 +141,12 @@ def split(score: str, words: list[dict], parts: list[dict]) -> list[str]:
     for p in parts:
         mine = [blk for blk, k in zip(blocks, owner) if k == p["k"]]
         body = [ln for _, a, b in mine for ln in lines[a:b]]
+        # the shot on the screen as the part before ends, played again before this part starts (its times before 0
+        # all done by the first frame): the part opens on what was up, and its first camera move goes from there
+        before = [blk for blk, k in zip(blocks, owner) if k < p["k"]]
+        lead_in = ["# (carried over from the part before: the shot that was up)"] + list(lines[before[-1][1]:before[-1][2]]) \
+            if before else []
+        body = lead_in + body
         own = {m.group(1) for ln in body if (m := ENT.match(ln))}
         bare = "\n".join(re.sub(r'"[^"]*"', " ", ln.split("#")[0]) for ln in body)    # (not the words in quotes)
         used = set(re.findall(r"[A-Za-z_][\w\-]*", bare))
@@ -152,7 +166,7 @@ def split(score: str, words: list[dict], parts: list[dict]) -> list[str]:
         text = list(head)
         for sl, ents in carried.items():
             text += ["# (carried over from the part before)", sl] + ents + [""]
-        text += [_shift(ln, p["t0"]) for ln in body]
+        text += [_shift(ln, words) for ln in body]
         out.append("\n".join(text) + "\n")
         for name, a, b in mine:
             for ln in lines[a:b]:
@@ -162,7 +176,7 @@ def split(score: str, words: list[dict], parts: list[dict]) -> list[str]:
     # what follows the last shot (a closing wide shot) goes with the last part
     tail = lines[blocks[-1][2]:] if blocks[-1][2] < len(lines) else []
     if tail and out:
-        out[-1] += "\n".join(_shift(ln, parts[-1]["t0"]) for ln in tail) + "\n"
+        out[-1] += "\n".join(_shift(ln, words) for ln in tail) + "\n"
     return out
 
 

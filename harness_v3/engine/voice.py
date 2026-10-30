@@ -2,10 +2,12 @@
 
     python voice.py narration.txt out_dir [--voice en_US-ryan-high] [--pause 0.45]
 
-Each line of the narration file is a sentence, spoken by itself (Piper, an offline neural voice; or, with
-ELEVENLABS_API_KEY set, ElevenLabs later) and joined with a pause between, so the quiet between ideas is ours. Then
-Whisper hears the whole take and each of the script's own words is given the time it is said (the transcript's words
-matched to the script's in order), so a score can say "w12" and mean the twelfth word as written.
+Each line of the narration file is a sentence, spoken by itself and joined with a pause between, so the quiet between
+ideas is ours: by Google's Gemini TTS (`--voice gemini:Kore`, tts_gemini.py; GEMINI_API_KEY), or by Piper (an offline
+neural voice: `--voice en_US-ryan-high`). Then each of the script's own words is given the time it is said, so a
+score can say "w12" and mean the twelfth word as written: in English, Whisper hears the take and its words are matched
+to the script's in order; in Hinglish or Hindi (`--language hinglish|hi`), each line's words are spread over the line
+by their syllables, held at the pauses heard in it.
 
 Writes out_dir/voice.wav and out_dir/words.json: {"seconds", "lines": [{"text", "start", "end"}],
 "words": [{"i", "w", "start", "end", "line"}]}.
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import os
 import json
 import re
 import wave
@@ -64,6 +67,87 @@ def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -
         wf.setframerate(model.config.sample_rate)
         wf.writeframes(bytes(frames))
     return spans
+
+
+def speak_gemini(lines: list[str], out: Path, voice: str, pause: float, language: str) -> list[tuple[float, float]]:
+    import numpy as np
+
+    import tts_gemini as G
+    name = voice.split(":", 1)[1] if ":" in voice else "Kore"
+    style = os.environ.get("V3_TTS_STYLE") or G.STYLES.get(language, G.STYLES["en"])
+    print(f"speaking {len(lines)} lines (Gemini TTS {G.MODEL}, voice {name}, {language})", flush=True)
+    a, spans = G.speak(lines, name, style, pause, on_line=lambda k: print(f"progress: {k}/{len(lines)} lines spoken",
+                                                                         flush=True))
+    with wave.open(str(out), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(G.RATE)
+        wf.writeframes((np.clip(a, -1, 1) * 32767).astype(np.int16).tobytes())
+    return spans
+
+
+def _syllables(w: str) -> float:
+    """How long a word takes, roughly: its vowel groups (Roman letters or Devanagari), a pause after punctuation."""
+    plain = _plain(w)
+    n = (len(plain) * 1.4 if plain.isdigit() else len(re.findall(r"[aeiouy]+", plain))
+         or len(re.findall(r"[\u0900-\u097F]", plain)) / 2 or 1)
+    return max(1.0, n) + (0.8 if re.search(r"[,;:]$", w) else 1.4 if re.search(r"[.?!]$", w) else 0.0)
+
+
+def paced_words(wav: Path, lines: list[str], spans: list[tuple[float, float]]) -> list[dict]:
+    """Each word's time without hearing it (Hinglish in Roman letters, Hindi): a line's words spread over the line by
+    their syllables, and held at the line's pauses (a quiet of 0.12 s or more inside it falls between two words: the
+    words nearest it are moved to it)."""
+    import numpy as np
+
+    with wave.open(str(wav), "rb") as wf:
+        rate = wf.getframerate()
+        a = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+    hop = int(0.02 * rate)
+    out = []
+    for li, (line, (s0, s1)) in enumerate(zip(lines, spans)):
+        ws = words_of(line)
+        if not ws:
+            continue
+        seg = a[int(s0 * rate): int(s1 * rate)]
+        rms = np.array([np.sqrt(np.mean(seg[k:k + hop] ** 2)) for k in range(0, max(0, len(seg) - hop), hop)]) \
+            if len(seg) > hop else np.zeros(0)
+        quiet = rms < max(0.01, 0.12 * (np.percentile(rms, 90) if len(rms) else 0))
+        gaps, k = [], 0
+        while k < len(quiet):
+            if quiet[k]:
+                j = k
+                while j < len(quiet) and quiet[j]:
+                    j += 1
+                if (j - k) * 0.02 >= 0.12 and k > 0 and j < len(quiet):
+                    gaps.append((s0 + k * 0.02, s0 + j * 0.02))
+                k = j
+            else:
+                k += 1
+        wt = [_syllables(w) for w in ws]
+        cum = np.concatenate([[0], np.cumsum(wt)]) / sum(wt)
+        est = s0 + cum * (s1 - s0)              # boundaries: before word 0 .. after the last
+        anchors = {0: (s0, s0), len(ws): (s1, s1)}
+        for g0, g1 in gaps:                     # a pause: at the boundary nearest it (not the ends)
+            mid = (g0 + g1) / 2
+            b = min(range(1, len(ws)), key=lambda x: abs(est[x] - mid), default=None)
+            if b is not None and b not in anchors and abs(est[b] - mid) < 0.6 + 0.15 * (s1 - s0) / len(ws):
+                anchors[b] = (g0, g1)
+        keys = sorted(anchors)
+        bounds = [(s0, s0)] * (len(ws) + 1)
+        for x, y in zip(keys, keys[1:]):        # between two anchors, by syllables
+            t0, t1 = anchors[x][1], anchors[y][0]
+            tot = sum(wt[x:y]) or 1
+            acc = 0.0
+            for i in range(x, y + 1):
+                t = t0 + (t1 - t0) * acc / tot
+                bounds[i] = (anchors[i][0], anchors[i][1]) if i in anchors else (t, t)
+                if i < y:
+                    acc += wt[i]
+        for i, w in enumerate(ws):
+            out.append({"i": len(out), "w": w, "start": round(bounds[i][1], 3), "end": round(bounds[i + 1][0], 3),
+                        "line": li})
+    return out
 
 
 def _samples16k(wav: Path):
@@ -128,15 +212,23 @@ def main() -> None:
     ap.add_argument("--voice", default="en_US-ryan-high")
     ap.add_argument("--pause", type=float, default=0.45)
     ap.add_argument("--speed", type=float, default=1.05, help="Piper's length scale: above 1 is slower")
+    ap.add_argument("--language", default="en", help="en | hinglish | hi: how it is spoken and how its words are timed")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     lines = [l.strip() for l in Path(a.narration).read_text().splitlines() if l.strip()]
     wav = out / "voice.wav"
-    spans = speak(lines, wav, a.voice, a.pause, a.speed)
+    if a.voice.startswith("gemini"):
+        spans = speak_gemini(lines, wav, a.voice, a.pause, a.language)
+    else:
+        spans = speak(lines, wav, a.voice, a.pause, a.speed)
     print(f"progress: {len(lines)}/{len(lines)} lines spoken", flush=True)
-    print("hearing every word's time (Whisper; its model is fetched the first time)", flush=True)
-    words = timed_words(wav, lines, spans)
+    if a.language == "en":
+        print("hearing every word's time (Whisper; its model is fetched the first time)", flush=True)
+        words = timed_words(wav, lines, spans)
+    else:
+        print(f"timing every word by its syllables and the pauses ({a.language})", flush=True)
+        words = paced_words(wav, lines, spans)
     seconds = spans[-1][1] + 0.6
     (out / "words.json").write_text(json.dumps({
         "seconds": round(seconds, 3),

@@ -58,8 +58,8 @@ def chat(system: str, user: str, model: str, images: list[str] | None = None, ma
     return text
 
 
-def storyboard(words: list[dict], model: str) -> list[dict]:
-    system, user = prompts.storyboard_prompt(words)
+def storyboard(words: list[dict], model: str, language: str = "en") -> list[dict]:
+    system, user = prompts.storyboard_prompt(words, language=language)
     text = chat(system, user, model, max_tokens=900)
     shots = prompts.parse_storyboard(text, len(words))
     if not shots:
@@ -67,13 +67,13 @@ def storyboard(words: list[dict], model: str) -> list[dict]:
     return shots
 
 
-def score(shots: list[dict], words: list[dict], model: str) -> str:
+def score(shots: list[dict], words: list[dict], model: str, language: str = "en") -> str:
     """Each shot written in its own call, in order: shots laid out in rows of three on the canvas."""
     out, before = ["look paper"], ""
     for k, s in enumerate(shots):
         at = ((k % 3) * SHOT_STEP, -(k // 3) * 11.0)
         mine = [w for w in words if s["a"] <= w["i"] <= s["b"]]
-        system, user = prompts.score_prompt(s["plan"], mine, at, before)
+        system, user = prompts.score_prompt(s["plan"], mine, at, before, language=language)
         text = chat(system, user, model)
         text = re.sub(r"^```\w*|```$", "", text.strip(), flags=re.M).strip()
         if not re.search(r"^\s*shot\s", text, re.M):
@@ -106,20 +106,21 @@ def main() -> None:
     ap.add_argument("--quality", default="m")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--critic", action="store_true")
-    ap.add_argument("--voice", default="en_US-ryan-high")
+    ap.add_argument("--voice", default="en_US-ryan-high", help="a Piper voice, or gemini:Kore (Gemini TTS)")
+    ap.add_argument("--language", default="en", help="en | hinglish")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     if not (out / "words.json").exists():
         subprocess.run([sys.executable, str(HERE / "voice.py"), a.narration, str(out), "--voice", a.voice,
-                        "--speed", "1.22", "--pause", "0.85"], check=True)
+                        "--speed", "1.22", "--pause", "0.85", "--language", a.language], check=True)
     words = json.loads((out / "words.json").read_text())["words"]
     if a.score:
         text = Path(a.score).read_text()
     else:
-        shots = storyboard(words, a.model)
+        shots = storyboard(words, a.model, a.language)
         (out / "storyboard.json").write_text(json.dumps(shots, indent=1))
-        text = score(shots, words, a.model)
+        text = score(shots, words, a.model, a.language)
     (out / "video.score").write_text(text)
     import render
     notes = render.render(text, out, out / "video.mp4", a.quality)

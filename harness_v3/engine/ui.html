@@ -314,7 +314,8 @@ function showNew() {
       <div class="full"><label>Narration: one sentence a line (about 40 s is 80-100 words)</label>
         <textarea id="n-text" rows="8" placeholder="In 1853, four American warships sailed into Tokyo Bay."></textarea></div>
       <div><label>Model (storyboard, score, critic)</label><input id="n-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
-      <div><label>Voice</label><select id="n-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
+      <div><label>Voice (gemini: Google's Gemini TTS; the rest offline Piper)</label><select id="n-voice">${opt(config.voices, config.default_voice || "en_US-ryan-high")}</select></div>
+      <div><label>Language</label><select id="n-lang">${Object.entries(config.languages || {en: "English"}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
       <div><label>Look</label><select id="n-look"><option value="editorial" selected>editorial (paper, cards, pictures)</option><option value="paper">paper (line icons)</option></select></div>
       <div><label>Quality</label><select id="n-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
       <div><label>Voice speed (length scale) / pause</label><div class="row" style="flex-wrap:nowrap"><input id="n-speed" value="1.22"><input id="n-pause" value="0.85"></div></div>
@@ -347,6 +348,7 @@ function readModels(p) {
 
 async function create() {
   const body = {title: $("#n-title").value, narration: $("#n-text").value, model: $("#n-model").value, voice: $("#n-voice").value,
+    language: $("#n-lang").value,
     quality: $("#n-q").value, speed: $("#n-speed").value, pause: $("#n-pause").value, critic: $("#n-critic").checked,
     models: readModels("n"), look: $("#n-look").value, mp4: $("#n-mp4").checked,
     score: $("#n-score").value.trim() || undefined};
@@ -439,14 +441,14 @@ function renderBook() {
           <div><label>Model</label><input id="s-model" list="models" value="${esc(config.script_model || config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Videos (at most)</label><input id="s-videos" type="number" min="1" max="12" value="3"></div>
           <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="1500" value="40" title="up to 1200 (20 minutes): a long video is made in parts"></div>
-          <div></div>
+          <div><label>Language</label><select id="s-lang">${Object.entries(config.languages || {en: "English"}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
           <div class="full"><label>Notes for the writer (optional)</label><input id="s-notes" placeholder="for class 8; start from the monsoon; skip the dates"></div>
         </div>
         <p><button class="primary" onclick="writeScript()" ${d.busy ? "disabled" : ""}>${d.busy ? "Writing…" : `Write the script of pages ${range.from}–${range.to}`}</button></p></div>
       <div class="card"><b>3. Build the videos</b> <span class="soft">(each video a run; they are made one at a time)</span>
         <div class="form" style="margin-top:6px">
           <div><label>Model (storyboard, score, critic)</label><input id="v-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
-          <div><label>Voice</label><select id="v-voice">${opt(config.voices, "en_US-ryan-high")}</select></div>
+          <div><label>Voice</label><select id="v-voice">${opt(config.voices, config.default_voice || "en_US-ryan-high")}</select></div>
           <div><label>Quality</label><select id="v-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
           <div><label><input type="checkbox" id="v-critic" style="width:auto"> Critic</label></div>
           ${modelFields("v")}
@@ -484,7 +486,7 @@ async function reread() {
 
 async function writeScript() {
   const body = {from: range.from, to: range.to, model: $("#s-model").value, videos: +$("#s-videos").value,
-    seconds: +$("#s-seconds").value, notes: $("#s-notes").value};
+    seconds: +$("#s-seconds").value, notes: $("#s-notes").value, language: $("#s-lang").value};
   try { await api(`/api/books/${bsel}/script`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }
   catch (e) { alert(e.message); }
 }

@@ -23,7 +23,8 @@ w58-w62     morph fields works stagger .14
 
 | File | |
 |---|---|
-| `engine/voice.py` | The narration spoken (Piper, offline; one take, a pause between lines) and every written word timed (Whisper, matched to the script's words). |
+| `engine/voice.py` | The narration spoken (Gemini TTS with `gemini:VOICE`, or Piper offline; a line at a time, a pause between) and every written word timed (English: Whisper, matched to the script's words; Hinglish: by syllables, held at the pauses heard). |
+| `engine/tts_gemini.py` | Google's Gemini TTS (`gemini-3.8-flash-lite-tts`): a line a call, several at once, its silence trimmed; the voices; each language's speaking style (English, Hinglish). |
 | `engine/score.py` | The score's grammar and its parser (times: `w12`, `w12-w19`, `w12+0.4`, `t3.5`, `end`). |
 | `engine/look.py` | The look (palette, fonts) and the primitives. |
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
@@ -55,6 +56,34 @@ w58-w62     morph fields works stagger .14
 ./setup.sh
 ../.venv3/bin/python engine/pipeline.py demo/japan.txt out/japan --score demo/japan.score --quality h
 ```
+
+## Voice and language
+
+**Gemini TTS.** With `GEMINI_API_KEY` in `.env.local`, the narration is spoken by Google's Gemini TTS, and
+`gemini:Kore` is then the default voice. The model is `gemini-3.8-flash-lite-tts` (`V3_TTS_MODEL`; or
+`gemini-3.8-flash-tts`).
+- **How it works:** one call per line, `V3_TTS_JOBS` (4) at once, through the Gemini API's Interactions endpoint.
+  Each line comes back as 24 kHz WAV and its silence is trimmed.
+- **Voices:** pick one in the app (`gemini:Puck`, `gemini:Leda`, ...). The offline Piper voices are still listed
+  after them. Without the key, Piper is the default.
+- **Style:** `V3_TTS_STYLE` says how it is spoken. Left blank, each language has its own: a warm documentary
+  narrator in English; a friendly Indian explainer in Hinglish.
+
+**Hinglish.** Pick **Language: Hinglish** on a new run, or on a book's script; a script's videos are built in its
+language. Then:
+- **Writing:** the script call writes the narration as a popular Indian YouTube explainer speaks: everyday Hindi in
+  Roman letters, English words where people naturally use them, numbers as digits ("Socho, 1440 mein ek kitaab
+  banane mein mahine lagte the.").
+- **Planning and pictures:** the storyboard, score, cast and layout-fix calls are told the narration is Hinglish.
+  Their plans and picture prompts stay in English, because the image model reads English.
+- **On screen:** words (tags, labels, cards, notes, bubbles) are short, in the narration's own Hinglish or plain
+  English, always in Roman letters. A `phrase` uses the narration's exact words.
+- **Voice:** it is told to say Hindi words as Hindi and English words in an Indian English accent.
+- **Word timing:** Whisper does not hear Roman-letter Hindi as written. Each line's words are spread over the line
+  by their syllables instead, and held at the pauses heard inside it. Each line is spoken separately, so a line's
+  start and end are exact.
+
+From the command line: `python engine/pipeline.py narration.txt out/x --voice gemini:Kore --language hinglish`.
 
 ## Long videos (up to 20 minutes and more)
 

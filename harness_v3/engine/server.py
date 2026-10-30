@@ -51,7 +51,10 @@ import runs  # noqa: E402
 from urllib.parse import parse_qs, unquote  # noqa: E402
 
 PAGE = HERE / "ui.html"
-VOICES = sorted(p.stem for p in (HERE.parent / ".cache" / "voices").glob("*.onnx"))
+import tts_gemini  # noqa: E402
+PIPER_VOICES = sorted(p.stem for p in (HERE.parent / ".cache" / "voices").glob("*.onnx"))
+# Gemini TTS voices first (GEMINI_API_KEY), then the offline Piper ones
+VOICES = [f"gemini:{v}" for v in tts_gemini.VOICES] + PIPER_VOICES
 MODELS = ["anthropic/claude-haiku-4.5", "google/gemini-2.5-flash", "openai/gpt-4.1-mini", "qwen/qwen3-30b-a3b",
           "meta-llama/llama-3.3-70b-instruct"]
 SERVED = {"video.mp4", "voice.wav", "words.json", "storyboard.json", "video.score", "narration.txt", "shots.json",
@@ -90,6 +93,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"models": models, "default_model": runs.DEFAULT_MODEL, "problems": problems(),
                             "steps": runs.STEPS, "step_models": runs.step_models(), "render_mp4": runs.RENDER_MP4,
                             "script_model": os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL, "voices": VOICES,
+                            "default_voice": runs.default_voice(), "languages": runs.LANGUAGES,
                             "key": bool(os.environ.get("OPENROUTER_API_KEY")),
                             "datalab": bool(os.environ.get("DATALAB_API_KEY", "").strip())})
             elif path == "/api/runs":

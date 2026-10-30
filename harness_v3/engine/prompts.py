@@ -263,13 +263,36 @@ narration with every word numbered and timed, and what the shot before left up. 
 lines: its `shot` line, its `ent` lines, then its actions in time order."""
 
 
+# The language a video is told in, said to every call that writes it (English needs no note).
+LANG = {
+    "hinglish": """
+THE NARRATION IS IN HINGLISH: everyday Hindi in Roman letters, with English words where people naturally use them
+("Socho, 1440 mein ek kitaab banane mein mahine lagte the."). Plans, and the words a picture is made from (pic,
+photo, backdrop, img), stay in English: the image model reads English. Words ON THE SCREEN (tag, label, card, title,
+note, bubble, callout, stamp) are short and read as an Indian viewer reads them: the narration's own Hinglish words or
+plain English terms, in Roman letters (never Devanagari). A `phrase` uses the narration's exact words.""",
+}
+SCRIPT_LANG = {
+    "hinglish": """
+WRITE IN HINGLISH, as a popular Indian YouTube explainer speaks: everyday Hindi in Roman letters (never Devanagari),
+mixing in English words where people naturally use them (technical terms, names, many nouns), e.g. "Socho, 1440 mein
+ek kitaab banane mein mahine lagte the. Ek monk, ek candle, aur bas." Simple common spellings (hai, mein, kya, nahi,
+bahut, kyunki, lekin, aur); numbers as digits; friendly and direct ("dekho", "socho", "aapko pata hai?"). The VIDEO
+titles in Hinglish too.""",
+}
+
+
+def with_language(system: str, language: str | None) -> str:
+    return system + LANG.get(language or "en", "")
+
+
 def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[str] | None = None,
-                      before: str = "") -> tuple[str, str]:
+                      before: str = "", language: str | None = None) -> tuple[str, str]:
     """The storyboard call: the whole narration, or (a long video) one part of it, told where it stands, what came
     just before, and the cast already made for the whole video."""
     said = " ".join(f"w{w['i']}:{w['w']}" for w in words)
     if not part:
-        return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
+        return with_language(STORYBOARD, language), f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
     user = (f"This is PART {part['k'] + 1} of {part['n']} of a long video (about {part['minutes']:.0f} minutes in all; "
             f"this part about {part['seconds'] / 60:.1f} minutes). Storyboard only this part's words, w{words[0]['i']} "
             f"to w{words[-1]['i']}, every one of them.\n"
@@ -278,7 +301,7 @@ def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[st
                "lines):\n" + "\n".join(cast) + "\n" if cast else "")
             + "When this part opens a new chapter of the story, its first shot's plan says `chapter: TITLE`.\n"
             + f"NARRATION: {said}\n\nWrite this part's shots, one line each.")
-    return STORYBOARD, user
+    return with_language(STORYBOARD, language), user
 
 
 CAST = """You plan the recurring characters of a long animated explainer. Read the whole narration and list each
@@ -292,9 +315,9 @@ NAME is one short lowercase word (gutenberg, monk, prussia, coin). At most 8 cha
 (answer `none`)."""
 
 
-def cast_prompt(words: list[dict]) -> tuple[str, str]:
+def cast_prompt(words: list[dict], language: str | None = None) -> tuple[str, str]:
     said = " ".join(w["w"] for w in words)
-    return CAST, f"NARRATION: {said}\n\nWrite the cast lines."
+    return with_language(CAST, language), f"NARRATION: {said}\n\nWrite the cast lines."
 
 
 CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic)\b.*?)[`\s]*$", re.I)
@@ -348,7 +371,7 @@ def _cast_card(cast: list[str] | None) -> str:
 
 
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "",
-                 cast: list[str] | None = None) -> tuple[str, str]:
+                 cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
     user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n" + _cast_card(cast)
             + (f"THE SHOT BEFORE (for continuity; it is written at the same time, so make every thing you use): {before}\n"
@@ -357,7 +380,7 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
             + "Write the shot's lines.")
     kit = kit_for(plan)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
-    return SCORE + "\n\n" + GRAMMAR + cards, user
+    return with_language(SCORE + "\n\n" + GRAMMAR + cards, language), user
 
 
 REPAIR = """You fix one SHOT of an animated explainer's score. The engine built it with the real sizes of everything
@@ -373,7 +396,7 @@ on a card) are not reported and stay as they are: move only what the problems na
 
 
 def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict],
-                  cast: list[str] | None = None) -> tuple[str, str]:
+                  cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
     kit = kit_for(shot_text)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
@@ -381,7 +404,7 @@ def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: 
             + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)
             + (f"\n\nWORDS: {said}" if said else "") + ("\n\n" + _cast_card(cast) if cast else "")
             + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
-    return REPAIR + "\n\n" + GRAMMAR + cards, user
+    return with_language(REPAIR + "\n\n" + GRAMMAR + cards, language), user
 
 
 CRITIC = """You judge frames of an animated explainer, each with its time and the words being said. Point out only
@@ -425,11 +448,12 @@ A LONG VIDEO (this one runs MINUTES minutes): tell it as a documentary in CHAPTE
 - End on the answer to the opening question and one line that looks forward."""
 
 
-def script_prompt(pages: str, videos: int, seconds: int, notes: str = "") -> tuple[str, str]:
+def script_prompt(pages: str, videos: int, seconds: int, notes: str = "", language: str | None = None) -> tuple[str, str]:
     words = f"{int(seconds * 2.2)}-{int(seconds * 2.7)}"
     system = SCRIPT.replace("SECONDS", str(seconds)).replace("WORDS", words)
     if seconds >= 300:                          # minutes, not seconds: a long video has chapters (runs.py parts)
         system += LONG.replace("MINUTES", f"{seconds / 60:.0f}")
+    system += SCRIPT_LANG.get(language or "en", "")
     user = (f"Write {videos} video{'s' if videos != 1 else ''} at most (fewer when the pages hold less).\n"
             + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
             + f"\nTHE PAGES:\n{pages}")

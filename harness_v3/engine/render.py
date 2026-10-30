@@ -702,7 +702,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                 if not tw.started:
                     tw.started = True
                     tw.start()
-                a = min(1.0, (t - tw.t0) / (tw.t1 - tw.t0))
+                # (one that ended before the clock started, a part's lead-in played before its 0: done at once)
+                a = 1.0 if t >= tw.t1 or tw.t1 <= tw.t0 else min(1.0, (t - tw.t0) / (tw.t1 - tw.t0))
                 tw.step(tw.rate(a))
                 if a >= 1.0:
                     tw.done = True

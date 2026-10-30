@@ -22,13 +22,22 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            A THING READY DRAWN, in the people's hand and scale (it stands on its `at`: its bottom middle there; set
            it on the ground at y -2.9 beside people, or on a table's top). USE A PROP FIRST whenever the thing is on
            this shelf (no picture is searched for or made); `size 6-9` to show one big, alone:
-           money: moneybag coins coin goldbars cash gem crown chest | writing: book books openbook ledger scroll
-           letter document charter newspaper oldmap quill inkwell seal | furniture: table desk chair stool throne
-           bench bookshelf lectern bed | containers: barrel crate box sack basket pot jar bucket | light: candle diya
-           lantern campfire | tools, arms: sword shield spear bow cannon anvil plough wheel charkha scales hourglass
-           key bell goblet telescope lightbulb printingpress | places: tree palm bush rock well tent hut house tower
-           gate fence signpost flagpole cart boat ship.  `open X` / `shut X`: a chest (its gold shows), box, letter,
-           gate
+           money, trade: moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt abacus safe
+           stall scales | writing, office: book books openbook ledger scroll letter document charter newspaper oldmap
+           quill inkwell seal pencil notebook clipboard folder stamp typewriter briefcase ballotbox | modern: laptop
+           computer phone oldphone radio tv camera microphone megaphone clock lightbulb battery | science, industry:
+           flask testtube microscope magnet gear telescope rocket satellite solarpanel windmill factory oilwell
+           printingpress | furniture, home: table desk chair stool throne bench bookshelf lectern bed charpai rug vase
+           broom umbrella ladder rope chain padlock key bell gift balloon kite ball trophy medal | containers: barrel
+           crate box sack basket pot jar bucket milkcan tiffin | food: bread apple mango banana coconut wheat bowl
+           (of rice|dal|soup) thali teacup kulhad fish | care: medkit pills syringe | light: candle diya lantern
+           campfire | arms: sword shield spear bow axe musket cannon bomb helmet | work: anvil plough wheel charkha
+           | getting about: cart carriage bicycle rickshaw autorickshaw car bus truck tractor train plane boat ship
+           | places: house hut tent well tower castle palace temple mosque church school hospital bank shop
+           skyscraper lighthouse bridge gate fence signpost flagpole flagindia bunting | nature: tree palm bush rock
+           mountain cloud sun moon flower lotus cactus mushroom | India: diya charkha charpai thali kulhad tiffin
+           lattu rangoli autorickshaw rickshaw flagindia.  `open X` / `shut X`: a chest (its gold shows), box,
+           letter, gate
          | animal KIND [mood FACE] [plain] [howdah] [face left] [size H]   AN ANIMAL, drawn, alive (feet at its `at`):
            horse pony donkey zebra cow ox bull buffalo elephant camel dog wolf fox cat tiger lion leopard sheep goat
            pig deer rat bear chicken rooster peacock duck eagle bird crow parrot. (`plain`: no saddle, cloth or

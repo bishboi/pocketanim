@@ -192,7 +192,7 @@ class UseActs:
             def step(a):
                 k = self._approach(pm, xm, st, a, 0.4)
                 bend = math.sin(math.pi * min(1.0, k / 0.75))
-                down = {"lean": 0.45, "fa1": 0.25, "fa2": 0.25, "ba1": 0.15, "ba2": 0.15}
+                down = {"lean": 0.3, "fa1": 0.35, "fa2": 0.3, "ba1": 0.25, "ba2": 0.2, "brow": 0.3}
                 up_ = P.carry_pose()
                 if k < 0.5:
                     self._blend(pm, st["p0"], down, bend)
@@ -249,7 +249,8 @@ class UseActs:
                     return
                 reach = math.sin(math.pi * k)
                 ang = self._aim(pm, st["goal"])
-                self._blend(pm, st["p0"], {"fa1": ang, "fa2": ang, "ba1": ang * 0.9, "ba2": ang, "lean": 0.15}, reach)
+                base = st["p0"] if k < 0.5 else {**st["p0"], **{key: pm.rest[key] for key in arms}, "lean": 0.0}
+                self._blend(pm, base, {"fa1": ang, "fa2": ang, "ba1": ang * 0.9, "ba2": ang, "lean": 0.15}, reach)
                 kk = min(1.0, k / 0.55)
                 held.move_to(st["x0"] + (st["goal"] - st["x0"]) * rate_functions.ease_in_out_sine(kk))
 
@@ -288,29 +289,34 @@ class UseActs:
             def step(a):
                 tt = a * dur
                 k = min(1.0, a / 0.25)
+                k = k * k * (3 - 2 * k)
+                out = max(0.0, min(1.0, (a - 0.8) / 0.2))       # the last of it: arms down, face back to itself
+                out = out * out * (3 - 2 * out)
+                held = pm.hand.get_center() + UP * xm.height * 0.4
                 if v == "read":                 # held before the eyes, the eyes running along its lines
-                    self._blend(pm, st["p0"], {"fa1": 1.25, "fa2": 2.3, "ba1": 1.15, "ba2": 2.2, "nod": 0.12,
-                                               "gaze": -0.5, "side": 0.8 * math.sin(tt * 3.2), "smile": 0.2}, k)
+                    tgt = {"fa1": 1.25, "fa2": 2.3, "ba1": 1.15, "ba2": 2.2, "nod": 0.12, "gaze": -0.5,
+                           "side": 0.8 * math.sin(tt * 3.2), "smile": 0.2}
                     goal = pm.hand.get_center() + UP * xm.height * 0.45
                 elif v == "phone":              # at the ear, talking
-                    self._blend(pm, st["p0"], {"fa1": 0.55, "fa2": 2.75, "mouth": 0.5 + 0.5 * math.sin(tt * 11) *
-                                               math.sin(tt * 3.7), "side": 0.4}, k)
+                    tgt = {"fa1": 0.55, "fa2": 2.75, "mouth": 0.5 + 0.5 * math.sin(tt * 11) * math.sin(tt * 3.7),
+                           "side": 0.4}
                     goal = pm.head.get_center() + RIGHT * f() * pm.head.width * 0.45
                 elif v == "eat":                # bite after bite, the food smaller each time
-                    bite = max(0.0, math.sin(tt * 3.6))
-                    self._blend(pm, st["p0"], {"fa1": 0.7 + 0.9 * bite, "fa2": 1.5 + 1.3 * bite, "mouth": 0.6 * bite,
-                                               "joy": 0.5}, k)
-                    goal = pm.hand.get_center() + UP * xm.height * 0.3
+                    bite = max(0.0, math.sin(tt * 3.6)) * (1 - out)
+                    tgt = {"fa1": 0.7 + 0.9 * bite, "fa2": 1.5 + 1.3 * bite, "mouth": 0.6 * bite, "joy": 0.5}
+                    R = pm.head.width / 2
+                    mouth = pm.head.get_center() + RIGHT * f() * R * 0.7 + DOWN * R * 0.35
+                    hand = pm.hand.get_center() + UP * xm.height * 0.3
+                    goal = hand + (mouth - hand) * 0.75 * bite
                     n = int(tt * 3.6 / (2 * math.pi) + 0.25)
-                    if n > st.get("bites", 0):
+                    if n > st.get("bites", 0) and a < 0.85:
                         st["bites"] = n
                         xm.scale(0.78)
-                    if a > 0.92:
-                        self._alpha(xm).set(max(0.0, (1 - a) / 0.08))
+                    if a > 0.85:
+                        self._alpha(xm).set(max(0.0, (1 - a) / 0.15))
                 else:                           # drink: tipped up to the lips and held there
                     lift = math.sin(math.pi * min(1.0, a / 0.95)) if a < 0.95 else 0.0
-                    self._blend(pm, st["p0"], {"fa1": 0.8 + 1.0 * lift, "fa2": 1.6 + 1.2 * lift, "nod": -0.18 * lift,
-                                               "lids": 0.6 * lift}, k)
+                    tgt = {"fa1": 0.8 + 1.0 * lift, "fa2": 1.6 + 1.2 * lift, "nod": -0.18 * lift, "lids": 0.6 * lift}
                     R = pm.head.width / 2
                     lips = pm.head.get_center() + RIGHT * f() * R * 0.75 + DOWN * R * 0.35
                     hand = pm.hand.get_center() + UP * xm.height * 0.3
@@ -318,12 +324,17 @@ class UseActs:
                     tilt = -f() * 0.9 * lift
                     xm.rotate(tilt - st.get("tilt", 0.0))
                     st["tilt"] = tilt
+                after = {key: (P.carry_pose()[key] if key in arms and v != "eat" else pm.rest[key]) for key in tgt}
+                tgt = {key: val + (after[key] - val) * out for key, val in tgt.items()}
+                self._blend(pm, st["p0"], tgt, k)
+                goal = goal + (held - goal) * out
                 xm.move_to(st["x0"] + (goal - st["x0"]) * min(1.0, a / 0.2))
 
             def stop():
                 if v == "eat":
                     self._let_go(xm)
                 else:
+                    pm.carrying = True
                     self._keep(xm, pm.hand)
         elif v == "sweep":                      # the broom in both hands, swept to and fro along the ground
             def step(a):
@@ -350,7 +361,8 @@ class UseActs:
                     k = 1.0
                 if k <= 0:
                     return
-                e = min(1.0, k / 0.15, (1 - k) / 0.1 if v != "hammer" else 1.0)
+                e = min(1.0, k / 0.2, (1 - k) / 0.25)
+                e = e * e * (3 - 2 * e)
                 tgt = xm.get_top() if xm is not None else pm.w((0.45, 0.5))
                 base = self._aim(pm, tgt)
                 if v == "type":
@@ -379,14 +391,7 @@ class UseActs:
                 elif v == "count":
                     tap = abs(math.sin(tt * 5))
                     pose = {"fa1": base, "fa2": base + 0.35 * tap, "gaze": -0.5, "smile": 0.7, "lids": 0.3}
-                    if tap > 0.97 and not st.get("tapped"):
-                        st["tapped"] = True
-                        xm.scale(1.04)
-                        st["pulse"] = True
-                    elif tap < 0.5 and st.get("tapped"):
-                        st["tapped"] = False
-                        if st.pop("pulse", False):
-                            xm.scale(1 / 1.04)
+
                 elif v == "vote":               # a slip from the hand into the slot
                     if "slip" not in st:
                         import props
@@ -431,7 +436,7 @@ class UseActs:
                             "frown": 0.2}
                 if v in ("type", "count", "write", "stir", "hammer", "vote"):     # bent to reach what is low
                     low = (self._sh(pm)[1] - tgt[1]) / max(u(), 1e-3)
-                    pose["lean"] = max(0.0, min(0.45, (low - 0.25) * 0.9))
+                    pose["lean"] = max(0.0, min(0.45, (low - 0.05) * 0.9))
                 self._blend(pm, st["p0"], pose, e)
 
             def stop():
@@ -442,7 +447,6 @@ class UseActs:
                     self.remove(st["slip"])
                 if st.get("sw"):
                     xm.rotate(-st["sw"], about_point=xm.get_top())
-                self._blend(pm, pm.pose, {key: pm.rest[key] for key in arms}, 1.0)
         elif v in ("enter", "exit"):
             al = self._alpha(pm)
 
@@ -480,11 +484,12 @@ class UseActs:
                     pm.set_pose(p)
         elif v == "climb":
             def step(a):
-                if "f0" not in st:
+                if "f0" not in st:              # the ladder's rungs over the climber
+                    xm.set_z_index(max(x.z_index for x in pm.get_family()) + 1)
                     st["f0"] = pm.feet().copy()
                     st["foot"] = np.array([xm.get_center()[0] - pm.facing() * 0.05 * u(), xm.get_bottom()[1], 0.0])
                     st["top"] = np.array([xm.get_center()[0] - pm.facing() * 0.05 * u(),
-                                          xm.get_top()[1] - xm.height * 0.3, 0.0])
+                                          xm.get_bottom()[1] + xm.height * 0.42, 0.0])
                 if a < 0.3:
                     k = rate_functions.ease_in_out_sine(a / 0.3)
                     pm.shift(st["f0"] + (st["foot"] - st["f0"]) * k - pm.feet())
@@ -498,6 +503,35 @@ class UseActs:
             pass
         if step is None:
             raise ValueError(f"no way to {v} {xn}")
+        # what is not yet in its hands is fetched first: walked to, bent for, picked up (then the action itself)
+        held = any(r[0] is xm and r[1] is pm.hand for r in self.follows) if xm is not None else True
+        if v in ("read", "phone", "eat", "drink", "wear", "holdup", "sweep") and not held:
+            F = 0.4
+            act_step, act_start = step, start
+
+            def step(a):
+                if a < F:
+                    k = self._approach(pm, xm, st, a / F, 0.5)
+                    if k <= 0:
+                        return
+                    bend = math.sin(math.pi * k)
+                    self._blend(pm, st["p0"], {"lean": 0.3, "fa1": 0.35, "fa2": 0.3, "ba1": 0.25, "ba2": 0.2}, bend)
+                    if k > 0.35:
+                        if "g0" not in st:
+                            st["g0"] = xm.get_center().copy()
+                        kk = rate_functions.ease_in_out_sine(min(1.0, (k - 0.35) / 0.4))
+                        goal = pm.hand.get_center() + UP * xm.height * 0.4
+                        xm.move_to(st["g0"] + (goal - st["g0"]) * kk)
+                    return
+                if not st.get("fetched"):
+                    st["fetched"] = True
+                    p = dict(pm.pose)
+                    p["lean"] = 0.0
+                    pm.set_pose(p)
+                    st["p0"] = dict(pm.pose)
+                    st["x0"] = xm.get_center().copy()
+                act_step((a - F) / (1 - F))
+            start = act_start
         self.tweens.append(Call(t0, t1, start, step, stop or (lambda: None), rate_functions.linear))
 
     def _do(self, act):
@@ -580,6 +614,7 @@ class UseActs:
                 self._blend(pm, st["p0"], {"lids": 1.0, "smile": 0.3, "fa1": 0.3, "fa2": 0.4, "drop": 0.0}, k)
                 if "c0" not in st:
                     st["c0"] = pm.get_center().copy()
+                    pm.abed, pm.abed_feet = st["c0"].copy(), pm.feet().copy()     # where `stand` puts it back
                 ang = -pm.facing() * (math.pi / 2) * k
                 pm.rotate(ang - getattr(pm, "fallen", 0.0), about_point=pm.get_center())
                 pm.fallen = ang
@@ -603,8 +638,10 @@ class UseActs:
             if k <= 0:
                 return
             sw = math.sin(math.pi * min(1.0, k / 0.4))
-            self._blend(pm, st["p0"], {"fl1": -0.3 + 1.7 * sw, "fl2": -0.2 + 1.4 * sw, "lean": -0.15 * sw,
-                                       "fa1": -0.4 * sw, "ba1": 0.6 * sw}, 1.0)
+            # a run-up lean back, then a lunge into it with a little hop (a peg figure has no leg to swing)
+            self._blend(pm, st["p0"], {"fl1": -0.3 + 1.7 * sw, "fl2": -0.2 + 1.4 * sw,
+                                       "lean": -0.25 * sw if k < 0.2 else 0.2 * sw, "bob": 0.05 * sw,
+                                       "fa1": -0.6 * sw, "ba1": 0.9 * sw, "mouth": 0.4 * sw, "brow": 0.5 * sw}, 1.0)
             if k > 0.25:
                 if "b0" not in st:
                     st["b0"] = xm.get_center().copy()

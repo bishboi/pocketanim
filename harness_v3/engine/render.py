@@ -417,6 +417,18 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                     for x in riders[e.name]:
                         self.E[x.name].shift(self.E[e.name].get_center() - before)
             ridden = {x.name for xs in riders.values() for x in xs}
+            # two the score has meet (a rider and a horse, a person and the book it picks up): left as placed
+            together = set()
+            for act in sc.acts:
+                others = [x for x in act.args if x in sc.ents and x != act.target]
+                for x in others:
+                    together.add(frozenset((act.target, x)))
+
+            def resting(top_e, base_e) -> bool:
+                """A thing set on another (a book on a table, a cup on a desk): its bottom on the other's top."""
+                t, b_ = self.E[top_e.name], self.E[base_e.name]
+                return (abs(t.get_bottom()[1] - b_.get_top()[1]) < 0.25 and b_.get_left()[0] - 0.1 <= t.get_center()[0]
+                        <= b_.get_right()[0] + 0.1)
             for _ in range(3):
                 moved = False
                 for j, b in enumerate(ents):
@@ -426,6 +438,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                         if a.name in ridden or a in riders[b.name] or b in riders[a.name]:
                             continue
                         if a.mods.get("layer") != b.mods.get("layer"):     # one put over the other on purpose
+                            continue
+                        if frozenset((a.name, b.name)) in together or resting(a, b) or resting(b, a):
                             continue
                         (a0, a1), (b0, b1) = times.get(a.name, (0, 1e9)), times.get(b.name, (0, 1e9))
                         if a1 <= b0 or b1 <= a0:
@@ -1974,8 +1988,14 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 st["f1"] = self._dest(name, m, act)
             elif mt is not None:
                 am = mt[1]
-                side = -am.facing()
-                st["f1"] = am.feet() + RIGHT * side * (am.width * 0.5 + 0.35 * m.unit())
+                # down on whichever side has room (away from the nearest other thing on the screen)
+                spots = [am.feet() + RIGHT * sd * (am.width * 0.5 + 0.35 * m.unit()) for sd in (-am.facing(), am.facing())]
+                others = [x for x in self.E.values() if x is not m and x is not am and id(x) in self.up
+                          and abs(x.get_center()[1] - am.feet()[1]) < 3.0]
+
+                def room(p):
+                    return min((abs(x.get_center()[0] - p[0]) - x.width / 2 for x in others), default=9.0)
+                st["f1"] = max(spots, key=room) if room(spots[0]) < 0.5 * m.unit() else spots[0]
             else:
                 st["f1"] = st["f0"] + DOWN * 0.5 * m.unit()
 
@@ -2131,7 +2151,18 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 self._talk_bubble(name, m, words, t0, t1)
         elif v in ("sit", "stand"):
             def step(a):
-                if v == "stand" and getattr(m, "fallen", 0.0):        # up again from a faint
+                if v == "stand" and getattr(m, "abed", None) is not None:  # up from a bed: turned upright, onto the floor
+                    if "c0" not in st:
+                        st["c0"], st["ang0"] = m.get_center().copy(), m.fallen
+                    k = rate_functions.ease_in_out_sine(min(1.0, a * 1.4))
+                    ang = st["ang0"] * (1 - k)
+                    m.rotate(ang - m.fallen, about_point=m.get_center())
+                    m.fallen = ang
+                    m.move_to(st["c0"] + (m.abed - st["c0"]) * k)
+                    if k >= 1.0:
+                        m.shift(m.abed_feet - m.feet())
+                        m.abed = None
+                elif v == "stand" and getattr(m, "fallen", 0.0):        # up again from a faint
                     ang = m.fallen * (1 - min(1.0, a * 1.5))
                     m.rotate(ang - m.fallen, about_point=m.feet())
                     m.fallen = ang

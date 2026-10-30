@@ -1,6 +1,7 @@
 # The kit's gallery: every bigger piece and every mark, one shot each, timed in seconds. Baked to stills to check
 # that each one draws (python engine/timeline.py demo/gallery.score RUN OUT; RUN holds any words.json).
 look editorial
+cast keeper pic "a heavy iron padlock" alive mood smug
 
 # ---- timeline: years, events kept clear of each other, a span, a marker moved to a year
 shot years at 0,0
@@ -306,3 +307,51 @@ t100-t101  faint alb
 t101.2-t101.8 stand alb
 t101.6-t102.8 hug osz pr
 t102-t102.6 emote pr happy
+
+# ---- a cast character, a thing come alive, reactions, a margin note, a picture row
+shot alive at 0,-44
+ent hda    label "cast · pic alive · react · note · isotype · give" size 0.18 at -4.8,3.4
+ent monk2  person wear habit hat hood longbeard mood calm at -5,-2.6
+ent lk     keeper at -1.6,-2.6 size 2.4
+ent bible  pic "a large leather-bound Bible, closed, spine worn" size 0.6 at -5.2,-1.2
+ent iso    isotype 24 "monks" per 2 lit 3 shape person at 3.6,1.2
+ent nt     note "only 3 in 12 / could read!" to iso at 3.6,-2.2
+t103       chapter "Characters"
+t103       cam alive
+t103.3     in hda fade
+t103.4     in monk2,lk
+t103.6     in bible
+t104-t105.6 give monk2 lk bible
+t104.4     react monk2 idea
+t105.6     react lk love
+t106       in iso stagger 0.04
+t107       in nt
+t107.6     react monk2 question
+
+# ---- land changing hands, a ship on its route, two people at once
+shot pairs at 18,-44
+ent hdp    label "annex · travel · shake · argue · tug · throw · whisper" size 0.18 at -4.8,3.4
+ent eu2    map europe w 6.2 h 3.6 at -3.4,1.2
+ent dek    region "Germany" on eu2 color sky
+ent auk    region "Austria" on eu2 color coral
+ent rte    path -6.2,-0.4 -4.4,0.2 -2.4,-0.6 -0.6,0.2
+ent boat   pic "a small sixteenth-century Spanish three-masted sailing ship with square canvas sails and a wooden hull" size 0.9 at -6.2,-0.4
+ent pa     person wear suit at 1.2,-2.6
+ent pb     person wear dress at 4.2,-2.6 face left
+ent pc     person wear tunic at -5.6,-2.6
+ent pd     person wear apron at -2.6,-2.6 face left
+ent coin2  pic "a beeswax candle in an iron holder, flame flickering" size 0.45 at 0.6,-1.4
+t108.4     cam pairs
+t108.6     in hdp fade
+t108.6     in eu2 fade
+t108.8     in dek,auk
+t108.8     in pa,pb,pc,pd
+t109-t110.2 annex dek auk
+t109.2-t111.8 travel boat rte
+t109.6-t111.2 shake pa pb
+t110.4-t112 argue pc pd "Mine!" "No, mine!" "#@!"
+t112.2-t113.8 tug pc pd
+t112-t113.2 throw pa pb coin2
+t113.4-t114.8 whisper pb pa "a secret"
+t114.4     react pa shock
+

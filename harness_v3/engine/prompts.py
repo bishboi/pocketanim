@@ -27,6 +27,8 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
          | phrase "KEY WORDS" [w W] (a key phrase the voice says: `wA-wB in P speak` puts each word on as it is said)
+         | note "WORDS" [to T] (a handwritten note in the margin, a curved arrow to T; `/` breaks its line: an aside,
+           a correction, "← not this one!")
   MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline; a picture at a flow's node goes beside it) |
         below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
@@ -38,6 +40,8 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   out T [fade|shrink|drop|peel] [stagger S]   (with no way said, a cut-out is peeled off and flicked away)
   move T to X,Y | to ENT | by DX,DY [arc A] [stagger S]
   along T PATH | flow PATH n N COLOR | float T AMP
+  travel T PATH (a ship, cart, train or rider along a route: it turns to face its way, tilts with the slope, bobs,
+        and the route is drawn behind it as dashes; `face left` on its ent if its picture faces left)
   morph A B [stagger S] (A becomes B; B never shown before)
   count NUM V | grow BAR V | color T C | dim T O | lift T | scale T K | spin T DEG | pulse T | shake T
   MARKS (stay until the thing goes): ring T C | underline T | highlight T | strike T | box T | tick T | cross T |
@@ -45,6 +49,8 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
         veiled; `lift X` brings one back)
   pan PHOTO [zoom K] (a slow push into a still) | type T (letter by letter) | fill SHAPE 60 C (fills like water)
   connect A B "WORDS" (an arrow drawn between them) | follow T [zoom Z] (the camera keeps a moving thing in view)
+  react T idea|question|exclaim|shock|love|zzz|anger|sweat|sparkle (a doodle pops over its head, then goes: a
+  person's or anything's reaction, on the word that causes it)
   glow T C (a soft light behind it) | era MAP YEAR (its borders change to that year's) | tip BALANCE left|right
   cam SHOT | cam SHOT X,Y zoom Z | cam ENT zoom Z | cam wide | cam SHOT via page|tear|whip (a page turned, torn
   paper, a fast swing: for a change of chapter) | cam SHOT via dive into M.place (into a pin or a picture, which
@@ -84,6 +90,10 @@ KIT = {
   pin "PLACE" on M     a town marked, its name beside (`side left`)  |  river "NAME" on M
   shade "WHAT" on M K:V ...   countries coloured by a value, with a key (a choropleth)
   march M.a M.b M.c [width W]   a thick arrow swelling along a route (armies, migrations, trade winds)
+  annex A B    B goes over to A (a war won, a land annexed, a vote flipped): B takes A's colour, its border flares;
+               A and B regions (or B a region not yet shown: it comes on in A's colour). A front line that moves:
+               two paths, then `morph LINE1 LINE2`
+  travel SHIP ROUTE   along a route, turning, tilting, its dashed track drawn behind it (`ent route path M.a M.b M.c`)
   inset on M   a small world map in its corner, where M is boxed | `era M 1500`: borders change to 1500's
   globe LON,LAT   the Earth as a globe | layers "TOP" ... "BOTTOM" [round]   bands or a cut-away globe's rings
   Where things happen, use a map, never a blob for a country; routes are `path M.a M.b M.c` (then `along SHIP
@@ -116,6 +126,9 @@ KIT = {
   chart donut K:V ...       shares of a whole; `label "WORDS"` in the middle
   chart stack K:V ...       shares in one bar  |  chart waffle K:V ...  a hundred squares shared out (died:20 lived:80)
   stat V "WHAT IT MEANS" [suffix "%"]   a big figure (`count st 20` counts it up)
+  isotype N "WHAT" [per K] [shape person|coin|book|house|box|drop|tree|bread] [cols C] [lit L] [img "..."]
+            a picture row: N/K little figures in rows, the first L lit in the accent colour, a key "= K WHAT"
+            under them ("1 in 4 could read": isotype 4 "people" lit 1; `in iso stagger .05` one by one)
   Parts: one a value (`in pop stagger .4` draws it point by point; `highlight pop[2]`).""",
     "diagram": """  flow "A>B>C" "B>D:WORDS"   a flow diagram: nodes and arrows laid out in layers (`down`: top to bottom);
                `NAME*` a key node; words after `:` go on the arrow into that node. Parts: the nodes in order,
@@ -152,6 +165,10 @@ KIT = {
   for words the narration quotes) | carry P THING (it goes into the hands) | sit P | stand P | turn P left|right
   | cheer P | shrug P | think P | bow P | jump P | nod P | dance P | clap P | facepalm P | laugh P | cry P | shiver P
   | kick P | look P at T | faint P (falls flat; `stand P` gets it up) | hug P OTHER
+  TWO AT ONCE: give A B THING (handed over; it stays in B's hands) | throw A B THING (flies in an arc, caught)
+  | shake A B (a handshake: a deal, a treaty) | push A B (shoved aside) | tug A B [THING] (a tug of war, a rope
+  between them: two sides wanting one thing) | argue A B "WORDS" "WORDS" ... (turn by turn, angry bubbles)
+  | whisper A B "WORDS" (a hand to the mouth, B surprised). A walks up to B first when they stand apart.
   | emote P FACE (the face turns into another and stays;
   `mood FACE` on the ent line is how it looks to begin with). FACES: happy calm joy laugh excited playful proud smug
   cool sad crying angry furious annoyed suspicious surprised shocked scared worried nervous embarrassed confused
@@ -161,14 +178,20 @@ KIT = {
   nation NAME [year Y] [color C] [mood FACE] [named] [size H] [face left]   a COUNTRY AS A CHARACTER: its real shape
                for a body, stick legs and arms, a face; every verb above works (walk, talk, point, emote, shiver,
                hug...). For history told as countries' relations (a big power leaning on a small one, two rivals
-               squabbling, an ally's hug): 2-4 a shot, sized by their importance (size 1.2-3.4), feet at y about -2.6.""",
+               squabbling, an ally's hug): 2-4 a shot, sized by their importance (size 1.2-3.4), feet at y about -2.6.
+  pic "WHAT" alive [mood FACE] [size H]   A THING COME ALIVE: the picture with a face, stick legs and arms; every
+               verb above works (a coin that walks off, a lock that crosses its arms, a book that cries); feet at y
+               about -2.6. One a shot, for the idea the story turns on.
+  react P idea|question|exclaim|shock|love|zzz|anger|sweat|sparkle   a doodle over the head: a feeling at a glance""",
     "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
                (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
 }
 KIT_WORDS = {
-    "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast|march|migrat|globe|earth's|layers|literacy|rate in",
+    "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast|march|migrat|globe|earth's|layers|literacy|rate in|"
+           r"annex|conquer|seiz|sail|voyage|front line|province|territor",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
-    "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million",
+    "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million|"
+             r"isotype|out of|in every|\bone in\b|thousand",
     "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|process|orders|tree|venn|overlap|both",
     "science": r"number line|graph of|equation|formula|triangle|angle|molecule|atom|circuit|current|solve|plot|curve",
     "civics": r"election|parliament|seats|vote|supply|demand|market|price|climate|rainfall|rain|temperature|race|rank|overtook",
@@ -180,7 +203,8 @@ KIT_WORDS = {
     "labels": r"label|parts? of|named parts|inside",
     "people": r"\bperson|people|\bm[ae]n\b|wom[ae]n|merchant|monk|farmer|worker|soldier|travell?er|\bwalk|"
               r"carr(y|ied)|pointed|buyer|seller|peasant|crowd|alliance|allies|\brival|treaty|neighbou?r|invad|"
-              r"annex|bull(y|ied)|nation",
+              r"annex|bull(y|ied)|nation|\bga(ve|ive)\b|thr(ew|ow)|argu|quarrel|whisper|handshake|shook hands|"
+              r"deal\b|push|tug|alive|character",
 }
 
 
@@ -198,7 +222,8 @@ def kit_for(plan: str) -> list[str]:
              "parliament": "civics", "market": "civics", "climate": "civics", "scatter": "civics", "area": "civics",
              "quiz": "story", "lens": "story", "split": "story", "clock": "story", "odometer": "story",
              "clipping": "story", "who": "story", "polaroids": "story", "shade": "map", "march": "map",
-             "inset": "map", "globe": "map", "layers": "map", "era": "map", "person": "people", "walk": "people", "nation": "people", "country": "people",
+             "inset": "map", "globe": "map", "layers": "map", "era": "map", "annex": "map", "travel": "map",
+             "isotype": "chart", "alive": "people", "react": "people", "person": "people", "walk": "people", "nation": "people", "country": "people",
              "figure": "people"}
     named = {alias.get(w, w) for w in named}
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
@@ -218,11 +243,19 @@ pressure), balance (one thing outweighing another), backdrop (a place behind the
 parts named), numberline, plot (a graph of a function), triangle, molecule, equation, circuit, race (bars racing
 through years), parliament, market (supply and demand), climate, quiz (ask the viewer, then reveal), lens (a detail
 magnified), split (two halves), clock, odometer, clipping (a newspaper), who (a person brought in), polaroids, shade (a
-map coloured by value), march (an army or migration arrow), inset, globe, layers, people (stick figures who walk,
-point, talk, carry things, sit: acting out what is said).
+map coloured by value), march (an army or migration arrow), inset, globe, layers, annex (land changing hands),
+travel (a ship, cart or train along a route), isotype (a picture row: "1 in 4"), people (stick figures who walk,
+point, talk, carry things, give, argue, shake hands: acting out what is said; countries as characters; a thing come
+alive with a face and legs).
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
-transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot."""
+transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot.
+After the shots, give each CHARACTER seen in two or more shots (a person, a country as a character, a thing come alive)
+one line, so it looks the same every time:
+cast NAME person [wear W] [hat H] [hair H] [beard] [tool T] [mood FACE]   (wear habit|gown|coat|suit|armor|tunic...)
+cast NAME nation COUNTRY [color C] [mood FACE] [named]
+cast NAME pic "WHAT, as a cut-out" alive [mood FACE]   (an object with a face, legs and arms)
+for example: cast monk person wear habit hat hood longbeard mood calm"""
 
 SCORE = """You write one SHOT of an animated explainer's score, in the grammar below. You get the shot's plan, its
 narration with every word numbered and timed, and what the shot before left up. Answer with only the shot's
@@ -231,7 +264,24 @@ lines: its `shot` line, its `ent` lines, then its actions in time order."""
 
 def storyboard_prompt(words: list[dict]) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}" for w in words)
-    return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each."
+    return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
+
+
+CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic)\b.*?)[`\s]*$", re.I)
+
+
+def parse_cast(text: str) -> list[str]:
+    """The storyboard's `cast` lines (a character made once for the whole video), each a line of the score."""
+    out, seen = [], set()
+    for line in text.splitlines():
+        m = CAST_LINE.match(line.strip().replace("**", ""))
+        if m:
+            ln = re.sub(r"^cast", "cast", m.group(1), flags=re.I)
+            name = ln.split()[1].lower()
+            if name not in seen:
+                seen.add(name)
+                out.append(re.sub(r"^(cast\s+)(\S+)", lambda x: x.group(1) + x.group(2).lower(), ln))
+    return out
 
 
 SHOT_LINE = re.compile(
@@ -259,9 +309,18 @@ def parse_storyboard(text: str, words: int) -> list[dict]:
     return sorted(shots, key=lambda x: x["a"])
 
 
-def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "") -> tuple[str, str]:
+def _cast_card(cast: list[str] | None) -> str:
+    if not cast:
+        return ""
+    return ("CAST (characters made once for the whole video; none needs its own look again: put one in this shot "
+            "with `ent NAME at X,Y` and its name, e.g. `ent " + cast[0].split()[1] + " at -3,-2.6`, then `in` it; "
+            "`mood FACE` on that line changes its face):\n" + "\n".join(cast) + "\n")
+
+
+def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "",
+                 cast: list[str] | None = None) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
-    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n"
+    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n" + _cast_card(cast)
             + (f"THE SHOT BEFORE (for continuity; it is written at the same time, so make every thing you use): {before}\n"
                if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
@@ -283,13 +342,15 @@ Things set wholly on a bigger thing on purpose (pins and pictures on a map, lett
 on a card) are not reported and stay as they are: move only what the problems name."""
 
 
-def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict]) -> tuple[str, str]:
+def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict],
+                  cast: list[str] | None = None) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
     kit = kit_for(shot_text)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     user = ("PROBLEMS:\n" + "\n".join(f"- {p}" for p in problems)
             + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)
-            + (f"\n\nWORDS: {said}" if said else "") + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
+            + (f"\n\nWORDS: {said}" if said else "") + ("\n\n" + _cast_card(cast) if cast else "")
+            + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
     return REPAIR + "\n\n" + GRAMMAR + cards, user
 
 

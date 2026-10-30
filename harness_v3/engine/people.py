@@ -26,7 +26,7 @@ import math
 import zlib
 
 import numpy as np
-from manim import Circle, Dot, Ellipse, Line, VGroup, VMobject
+from manim import Circle, Dot, Ellipse, Line, Mobject, VGroup, VMobject
 
 from look import STROKE, col
 
@@ -596,6 +596,16 @@ class Nation(Person):
                 body.add(m)
         self.hips = ((0.075, 0.0), (-0.075, 0.0))
         self.shoulders = ((self.body_w * 0.4, -0.06), (-self.body_w * 0.4, -0.06))
+        self._stick_rig(body, mods, k, self.country)
+
+    def _stick_rig(self, body, mods: dict, k: float, name: str) -> None:
+        """Stick legs and arms in ink, round a body (a country's shape, a picture), the doodle face over it."""
+        ink, ow, fill = col("ink"), self.ow, self.skin
+
+        def rigid(m, part):
+            for x in m.family_members_with_points():
+                self.rigid.append((x, x.points[:, :2].copy(), part))
+            return m
 
         # stick limbs, feet and hands in ink
         lw = 3.2 * k
@@ -624,7 +634,7 @@ class Nation(Person):
         self.add(self.hands["f"])
         if mods.get("named") or mods.get("label"):      # its name under its feet (`named`, or `label "WORDS"`)
             from look import label
-            words = mods["label"] if isinstance(mods.get("label"), str) else self.country
+            words = mods["label"] if isinstance(mods.get("label"), str) else name
             t = label(str(words), 0.05, "ink").move_to([0.0, -self.D["HIP"] - 0.05, 0])
             self.add(rigid(t, "body"))          # (never turned over: it reads as it faces either way)
         self.hand = Dot(radius=0.001).set_opacity(0)
@@ -633,6 +643,55 @@ class Nation(Person):
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
+
+
+class Critter(Nation):
+    """A thing come alive (`pic "a teapot" alive`): its picture for a body, stick legs and arms, the doodle face on it,
+    and every verb a person has. The picture is never turned over."""
+
+    face_k = 2.3
+
+    def __init__(self, pic, mods: dict | None = None, size: float = 2.6):
+        VGroup.__init__(self)
+        mods = mods or {}
+        self.mods = mods
+        k = size / 1.8
+        self.ow = 2.4 * k
+        self.skin = self.cloth = col("card")
+        self.rigid = []
+        self.rest = dict(REST)
+        self.rest.update(fa1=0.35, fa2=0.25, ba1=-0.35, ba2=-0.25, fl1=0.04, fl2=0.0, bl1=-0.04, bl2=0.0)
+        self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
+        self.alpha_now = 1.0
+        # the picture fitted to the body's box (its foot on the hips), what shows of it measured (a cut-out's margin)
+        fx, fy = getattr(pic, "shown", (1.0, 1.0))
+        w, h = pic.width * fx, pic.height * fy
+        sc = min(0.72 / w, 0.72 / h)
+        pic.scale(sc)
+        w, h = w * sc, h * sc
+        pic.move_to([0.0, h / 2 - 0.02, 0.0])  # (its margin is even round it: what shows stands on the hips)
+        self.body_w = w
+        self.D = dict(Nation.D, TORSO=0.48 * h, FACE_UP=0.05 * h)
+        self.hips = ((0.08 * min(1.0, w / 0.4), 0.0), (-0.08 * min(1.0, w / 0.4), 0.0))
+        self.shoulders = ((w * 0.46, -0.1 * h), (-w * 0.46, -0.1 * h))
+        self._stick_rig(pic, mods, k, str(mods.get("_name", "")))
+
+    # (a picture is no VMobject: taken as any Mobject is)
+    def add(self, *mobjects):
+        return Mobject.add(self, *mobjects)
+
+    def _assert_valid_submobjects(self, submobjects):
+        return Mobject._assert_valid_submobjects_internal(self, submobjects, Mobject)
+
+    def get_points_defining_boundary(self):
+        return Mobject.get_points_defining_boundary(self)
+
+
+def critter(pic, mods: dict, size: float) -> Critter:
+    size = size or 2.6
+    m = Critter(pic, mods, size)
+    m.scale(size, about_point=np.array([0.0, 0.0, 0.0]))
+    return m
 
 
 def nation(country: str, mods: dict, size: float, c=None) -> Nation:

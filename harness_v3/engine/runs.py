@@ -315,19 +315,29 @@ def _storyboard(run: dict) -> None:
         run["steps"]["storyboard"]["notes"] = ["the last answer read again (no new call)"]
     else:
         system, user = prompts.storyboard_prompt(words)
-        text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=900)
+        text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=1300)
     shots = prompts.parse_storyboard(text, len(words))
     if not shots:
         raise RuntimeError(f"the storyboard had no shot lines (name | words wA-wB | plan): {text[:300]}")
     (d / "storyboard.json").write_text(json.dumps(shots, indent=1))
+    cast = prompts.parse_cast(text)             # the characters seen in two shots or more, each made once
+    (d / "cast.score").write_text("\n".join(cast) + ("\n" if cast else ""))
+    if cast:
+        run["steps"]["storyboard"]["notes"] = run["steps"]["storyboard"].get("notes", []) + [
+            f"cast: {', '.join(c.split()[1] for c in cast)}"]
     run["steps"]["storyboard"]["notes"] = run["steps"]["storyboard"].get("notes", []) + [f"{len(shots)} shots"]
+
+
+def _cast(run: dict) -> list[str]:
+    p = run_dir(run["id"]) / "cast.score"
+    return [ln for ln in p.read_text().splitlines() if ln.strip()] if p.exists() else []
 
 
 def _score_shot(run: dict, shots: list[dict], k: int, words: list[dict], before: str) -> str:
     s = shots[k]
     at = ((k % 3) * SHOT_STEP, -(k // 3) * 11.0)
     mine = [w for w in words if s["a"] <= w["i"] <= s["b"]]
-    system, user = prompts.score_prompt(s["plan"], mine, at, before)
+    system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run))
     text = chat(run, "score", f"Score: shot {k + 1} ({s['name']})", system, user)
     text = re.sub(r"^```\w*|```$", "", text.strip(), flags=re.M).strip()
     if not re.search(r"^\s*shot\s", text, re.M):
@@ -359,7 +369,9 @@ def _score(run: dict, only: int | None = None) -> None:
             parts[k] = f.result()
     (d / "shots.json").write_text(json.dumps(parts, indent=1))
     look = run["settings"].get("look") or "editorial"
-    (d / "video.score").write_text(f"look {look}\n\n" + "\n\n".join(p for p in parts if p) + "\n")
+    cast = "\n".join(_cast(run))
+    (d / "video.score").write_text(f"look {look}\n" + (cast + "\n" if cast else "") + "\n"
+                                   + "\n\n".join(p for p in parts if p) + "\n")
     run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"]
 
 
@@ -660,7 +672,8 @@ def _layout(run: dict) -> None:
             body = "\n".join(lines[a:b])
             used = [int(x) for x in re.findall(r"\bw(\d+)", body)]
             mine = [w for w in words if used and min(used) <= w["i"] <= max(used)]
-            system, user = prompts.repair_prompt(body, rep["problems"][shot], rep["sizes"].get(shot, []), mine)
+            system, user = prompts.repair_prompt(body, rep["problems"][shot], rep["sizes"].get(shot, []), mine,
+                                                 _cast(run))
             try:
                 out = chat(run, "layout", f"Layout fix: {shot}", system, user,
                            model=(st.get("models") or {}).get("score") or st["model"])

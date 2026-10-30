@@ -497,6 +497,12 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind in ("nation", "country"):
         import people
         m = people.nation(args[0] if args else "France", mods, size or 2.6, c)
+    elif kind == "isotype":
+        import acts
+        m = acts.isotype(args, mods, size, c)
+    elif kind == "note":
+        import acts
+        m = acts.note(args[0] if args else "", mods, size, c)
     elif kind == "phrase":
         m = phrase(args[0] if args else "", size or 0.5, float(mods.get("w", 9.0)), c, bool(mods.get("bold")),
                    bool(mods.get("serif")))
@@ -543,6 +549,13 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         if mods.get("w") and not mods.get("h"):
             size = float(mods["w"])
         m = picture(kind, what, max(low, size) if size else dflt, mods)
+        if mods.get("alive") and kind == "pic":
+            # a thing come alive: its picture a body with legs, arms and a face (every person's verb works)
+            import people
+            body = getattr(m, "frame_of", m)
+            if hasattr(m, "shown") and not hasattr(body, "shown"):
+                body.shown = m.shown
+            m = people.critter(body, mods, size or 2.6)
     elif kind == "flag":
         m = flag(args[0] if args else "", size or 1.6)
     elif kind == "card":

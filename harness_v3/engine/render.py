@@ -25,6 +25,8 @@ VERBS (TIME VERB TARGET [ARGS]):
     chapter "TITLE"                                  (the chapter bar along the bottom moves on to it)
     walk P to X,Y|ENT|MAP.place | point P at REF | wave P | talk P ["WORDS"] | carry P THING | sit P | stand P
         | turn P left|right                          (a person's poses)
+    react T KIND | annex A B | travel T PATH | give/throw A B THING | shake/push/tug A B | argue/whisper A B "WORDS"
+                                                     (acts.py)
 
 The paper world (feel.py): a cut-out comes on slapped down and leaves peeled off unless the score says how; moves
 overshoot a little and settle; what lands nudges its neighbours; outlines boil and lines are drawn by a pen; grain and
@@ -54,6 +56,7 @@ from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, I
                    tempconfig)
 from manim.utils.color import ManimColor, interpolate_color
 
+import acts
 import feel
 import look
 import score as S
@@ -81,7 +84,7 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "turn": 0.4, "bring": 1.4, "chapter": 0.1, "run": 1.2, "cheer": 1.4, "shrug": 1.0,
                "think": 1.6, "bow": 1.2, "jump": 0.9, "nod": 0.8, "emote": 0.5, "dance": 3.0, "clap": 1.6,
                "facepalm": 1.8, "laugh": 1.8, "cry": 2.4, "shiver": 1.6, "kick": 0.7, "look": 0.5, "faint": 1.0,
-               "hug": 1.6}
+               "hug": 1.6, **acts.RUN}
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
                 "bow", "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look",
                 "faint", "hug")
@@ -161,7 +164,7 @@ class Call(Tween):
 
 # ---------------------------------------------------------------- the scene ----------------------------------------------
 
-class ScoreScene(MovingCameraScene):
+class ScoreScene(acts.MoreActs, MovingCameraScene):
     SCORE: S.Score
     WORDS: dict
     WAV: str | None = None
@@ -557,7 +560,7 @@ class ScoreScene(MovingCameraScene):
             o = self._origin(e.shot)
             e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
 
-        if e.kind in ("person", "nation", "country"):
+        if self._figure(e):
             e.mods.setdefault("_name", e.name)
         if e.kind == "map" and e.mods.get("full") and e.shot in self.SCORE.shots:
             # the whole screen: edge to edge, no frame, in the middle of its shot
@@ -587,13 +590,23 @@ class ScoreScene(MovingCameraScene):
             at = e.mods.get("at", (0.0, 0.0))
             where = self._locate(at, e.shot) if isinstance(at, str) else self._origin(e.shot) + np.array([at[0], at[1], 0.0])
             m.move_to(where)
-            if e.kind in ("person", "nation", "country"):     # a figure stands where it is put: its feet there
+            if self._figure(e):     # a figure stands where it is put: its feet there
                 m.shift(where - m.feet())
             rel = self._relation(e)
             if rel:
                 self._beside(m, rel[0], rel[1], e)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
+        if e.kind == "note" and e.mods.get("to"):
+            # its arrow to what it is about (drawn after the words, with them)
+            try:
+                to = e.mods["to"]
+                tm = self.E.get(to)
+                if tm is None:
+                    tm = Dot(self._locate(to, e.shot), radius=0.05)
+                m.add(acts.note_arrow(m, tm, e.mods.get("color")))
+            except Exception as ex:  # noqa: BLE001 -- a note pointing at nothing known: the words alone
+                print(f"note {e.name}: no arrow ({ex})", file=sys.stderr)
         if e.kind == "map" and e.shot in self.SCORE.shots and not e.mods.get("full"):
             # Kept on its screen as it is placed, before anything is drawn on it (its regions and pins follow).
             self._on_screen(m, self.SCORE.shots[e.shot])
@@ -745,6 +758,8 @@ class ScoreScene(MovingCameraScene):
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
+        if v in acts.RUN and self._more(act, t0, t1):
+            return
         if v == "in" and how == "speak" and any(self._kind(n) not in ("phrase", "text", "label", "tag", "title", "quote")
                                                 for n, _ in self._targets(act.target)):
             how = None                          # (only words are spoken on: anything else comes on its own way)
@@ -888,6 +903,11 @@ class ScoreScene(MovingCameraScene):
         return m if len(m.points) else next((x for x in m.get_family() if len(x.points)), m)
 
     # ------------------------------------------------------------ verbs ------------------------------------------------
+    @staticmethod
+    def _figure(e) -> bool:
+        """A figure with legs (a person, a country, a thing come alive): it stands where it is put, feet there."""
+        return e is not None and (e.kind in ("person", "nation", "country") or bool(e.mods.get("alive")))
+
     def _kind(self, name: str) -> str:
         e = self.SCORE.ents.get(name)
         return e.kind if e else ""
@@ -898,8 +918,10 @@ class ScoreScene(MovingCameraScene):
         kind = self._kind(name)
         if not self.motion or m is not self.E.get(name):
             return "fade"
-        if kind in ("person", "nation", "country"):
+        if self._figure(self.SCORE.ents.get(name)):
             return "rise" if way == "in" else "fade"
+        if kind == "note":
+            return "write" if way == "in" else "fade"
         if kind in feel.CUTOUTS:
             return "slap" if way == "in" else "peel"
         return "fade"
@@ -2503,6 +2525,8 @@ class ScoreScene(MovingCameraScene):
                 named |= {re.sub(r"\[.*", "", x) for x in a.target.split(",")}
             if a.verb == "morph" and a.args:
                 named |= {re.sub(r"\[.*", "", x) for x in a.args[0].split(",")}
+            if a.verb == "travel" and a.args and "off" not in a.args:
+                named.add(a.args[0])            # a route travelled is drawn behind what goes along it
         starts: dict[str, float] = {}
         for a in sc.acts:
             sh = S.shot_of(sc, a.target)

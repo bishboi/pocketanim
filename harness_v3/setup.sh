@@ -71,7 +71,8 @@ mkdir -p .cache/voices
 mkdir -p .cache/fonts
 GF=https://raw.githubusercontent.com/google/fonts/main/ofl
 for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono-Medium.ttf:IBMPlexMono-Medium.ttf" \
-         "ibmplexmono/IBMPlexMono-Regular.ttf:IBMPlexMono-Regular.ttf" "inter/Inter%5Bopsz,wght%5D.ttf:Inter.ttf"; do
+         "ibmplexmono/IBMPlexMono-Regular.ttf:IBMPlexMono-Regular.ttf" "inter/Inter%5Bopsz,wght%5D.ttf:Inter.ttf" \
+         "caveat/Caveat%5Bwght%5D.ttf:Caveat[wght].ttf"; do
   [ -f ".cache/fonts/${f#*:}" ] || curl -sfL -o ".cache/fonts/${f#*:}" "$GF/${f%%:*}" || echo "could not fetch the font ${f#*:}"
 done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \

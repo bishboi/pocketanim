@@ -20,6 +20,7 @@ Lines:
     shot NAME [at X,Y] [zoom Z]     a new shot; later `ent` lines belong to it (their `at` is in its frame,
                                     the screen being 14.2 x 8 at zoom 1)
     ent NAME KIND ARGS [mods]       an entity (KIND and ARGS: look.py `build`)
+    cast NAME KIND ARGS [mods]      a character made once: `ent NAME at X,Y` (or `ent X NAME ...`) in any shot
     TIME VERB TARGET [ARGS]         an action (render.py `VERBS`)
 
 TIME: `w12` (as the 12th word is said), `w12-w19` (over those words), `w12+0.4` (seconds after), `t3.5` (seconds
@@ -82,6 +83,7 @@ class Score:
     motion: str | None = None       # `motion plain`: plain fades instead of the paper world's slaps and peels
     captions: bool | None = None    # `captions on`: the narration's words at the bottom, the one said lit
     progress: bool | None = None    # `progress on|off`: the chapter bar (on when the score has `chapter` lines)
+    cast: dict = field(default_factory=dict)   # `cast NAME KIND ARGS MODS`: a character made once, used by name
 
 
 # What a modifier is followed by (its value's shape).
@@ -95,7 +97,8 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
         "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None,
         "hat": "s", "tool": "s", "seat": None, "face": "s", "wear": "s", "hair": "s", "beard": None,
-        "longbeard": None, "mustache": None, "stubble": None, "named": None, "frame": "s", "full": None, "skin": "s", "mood": "s", "old": None, "kid": None}
+        "longbeard": None, "mustache": None, "stubble": None, "named": None, "frame": "s", "full": None, "skin": "s", "mood": "s", "old": None, "kid": None,
+        "alive": None, "per": "n", "cols": "i", "lit": "i"}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")
@@ -189,7 +192,7 @@ VERB_ALIAS = {"appear": "in", "show": "in", "enter": "in", "reveal": "in", "add"
 # Ways a thing comes on or goes (`in X pop`), also written as the verb (`pop X` is `in X pop`).
 IN_WAYS = {"fade", "pop", "rise", "drop", "slide-left", "slide-right", "draw", "write", "grow", "unfold", "slap", "speak"}
 OUT_WAYS = {"fade", "shrink", "drop", "peel"}
-KEYWORDS = {"look", "music", "sound", "shot", "ent", "texture", "parallax", "motion", "captions", "progress"}
+KEYWORDS = {"look", "music", "sound", "shot", "ent", "texture", "parallax", "motion", "captions", "progress", "cast"}
 
 
 def _is_time(tok: str) -> bool:
@@ -206,7 +209,8 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "underline", "highlight", "strike", "box", "tick", "cross", "stamp", "callout", "pan", "type", "fill",
                "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
                "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote", "dance", "clap",
-               "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug"}
+               "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug", "react", "annex", "travel",
+               "give", "throw", "push", "tug", "argue", "whisper"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
 KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
@@ -214,7 +218,7 @@ KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
          "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
          "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
-         "backdrop", "portrait", "person", "phrase", "nation", "country"}
+         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note"}
 ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
 
 
@@ -372,6 +376,12 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             setattr(sc, head, (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0", "no"))
         elif head == "motion":
             sc.motion = toks[1] if len(toks) > 1 else "paper"
+        elif head == "cast":
+            # `cast monk person wear habit hat hood longbeard`: a character once, then `ent m1 monk at X,Y` anywhere,
+            # always looking the same (its looks are picked from the cast's name, not the thing's)
+            args, mods = parse_mods(toks[3:])
+            mods["_name"] = toks[1]
+            sc.cast[toks[1]] = (toks[2], args, mods)
         elif head == "shot":
             if len(toks) > 1 and toks[1] in ("at", "zoom"):          # `shot at X,Y`: no name
                 toks = [toks[0], f"shot{n}"] + toks[1:]
@@ -385,6 +395,13 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             shot = Shot(toks[1], x, y, float(mods.get("zoom", 1.0)), n)
             sc.shots[shot.name] = shot
         elif head == "ent":
+            cast = None
+            if len(toks) > 1 and toks[1] in sc.cast and (len(toks) == 2 or (toks[2] not in sc.cast and toks[2] in MODS)):
+                toks = [toks[0], toks[1]] + toks[1:]            # `ent monk at X,Y`: the cast's own name, used
+            if len(toks) > 2 and toks[2] in sc.cast:
+                # a cast member: its kind, words and looks, with what this line adds (where it stands, its mood...)
+                cast = sc.cast[toks[2]]
+                toks = toks[:2] + [cast[0]] + toks[3:]
             if len(toks) > 2 and toks[1] in KINDS and toks[2] not in KINDS:
                 # `ent map europe ...`: no name, the kind named; the thing is called by its kind (as its actions do)
                 name = toks[1]
@@ -401,6 +418,8 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
                 sc.shots["main"] = shot
             toks = toks[:3] + [_renamed(t, alias) for t in toks[3:]]
             args, mods = parse_mods(toks[3:])
+            if cast is not None:
+                args, mods = list(cast[1]) + args, {**cast[2], **mods}
             for k in ("below", "above", "left", "right"):
                 # `at X below 0.8`: below X, 0.8 apart
                 if isinstance(mods.get(k), str) and re.match(r"^-?[\d.]+$", mods[k]) and isinstance(mods.get("at"), str):

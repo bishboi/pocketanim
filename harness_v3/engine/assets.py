@@ -238,7 +238,7 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
             continue
         if len(toks) >= 2 and toks[0] == "look":
             look = toks[1]
-        if len(toks) < 4 or toks[0] != "ent":
+        if len(toks) < 4 or toks[0] not in ("ent", "cast"):     # (a cast line makes a character once)
             continue
         found = []
         if toks[2] == "backdrop":                  # a photo behind a whole shot
@@ -248,7 +248,7 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
             found.append((toks[2], f"commons:{toks[4]}" if toks[3] == "commons" and len(toks) > 4 else toks[3]))
         for i, t in enumerate(toks[:-1]):
             if t == "img" and i >= 3:            # a card's or a portrait's picture
-                found.append(("pic" if toks[2] == "card" else "photo", toks[i + 1]))
+                found.append(("pic" if toks[2] in ("card", "isotype") else "photo", toks[i + 1]))
         if toks[2] in ("portrait", "who") and "img" not in toks:   # a person with no picture named: one made of them
             found.append(("photo", toks[3] if toks[2] == "portrait" else f"a portrait of {toks[3]}"))
         if toks[2] == "icon" and os.environ.get("V3_ICONS", "0").strip() != "1":

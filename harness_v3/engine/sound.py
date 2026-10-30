@@ -162,6 +162,14 @@ def events(sc) -> list[tuple[float, str]]:
             out.append((a.t0 - lead + 0.05, "pop"))
         elif a.verb == "in" and how in ("draw", "write"):
             out.append((a.t0 - lead, "scratch"))
+        elif a.verb == "in" and bare and kind(a.target) == "note":
+            out.append((a.t0 - lead, "scratch"))
+        elif a.verb == "react":
+            out.append((a.t0 - lead + 0.05, "pop"))
+        elif a.verb == "throw":
+            out.append((a.t0 - lead + 0.4, "whoosh"))
+        elif a.verb == "annex":
+            out.append((a.t0 - lead + 0.2, "thud"))
         elif a.verb == "stamp":
             out.append((a.t0 - lead + 0.25, "thud"))
         elif a.verb == "tick":

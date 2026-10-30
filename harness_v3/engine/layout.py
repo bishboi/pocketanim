@@ -247,7 +247,7 @@ def _judged(scene, sc, a, b) -> bool:
     if a.kind in FREE or b.kind in FREE:
         return False
     for x, y in ((a, b), (b, a)):
-        if x.mods.get("on") in (y.name,) or x.mods.get("map") == y.name:
+        if x.mods.get("on") in (y.name,) or x.mods.get("map") == y.name or (x.kind == "note" and x.mods.get("to") == y.name):
             return False
         at = x.mods.get("at")
         if isinstance(at, str) and at.split(".", 1)[0] == y.name and not (

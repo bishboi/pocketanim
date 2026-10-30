@@ -37,7 +37,16 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            skyscraper lighthouse bridge gate fence signpost flagpole flagindia bunting | nature: tree palm bush rock
            mountain cloud sun moon flower lotus cactus mushroom | India: diya charkha charpai thali kulhad tiffin
            lattu rangoli autorickshaw rickshaw flagindia.  `open X` / `shut X`: a chest (its gold shows), box,
-           letter, gate
+           letter, gate. Flames flicker, flags wave, windmills turn, smoke and steam drift by themselves.
+           PEOPLE USE THEM (they walk up to it first): `use P X` does what the thing is for (eat bread, drink tea,
+           read a book, sit on a chair, enter a house, wear a crown, ride a bicycle, count coins, vote, ring a bell,
+           hammer an anvil, type on a laptop, phone, climb a ladder, kick a ball). Or say it: pickup P X | put P X on
+           Y | drop P X | wear P X | holdup P X | read P X | write P X | eat P X | drink P X | phone P X | type P X |
+           hammer P X | sweep P X | count P X | vote P X | ring P X | stir P X | open P X | shut P X | enter P X |
+           exit P X [to X,Y] | climb P X | sit P on X | sleep P on X (`stand P` gets up) | kick P X [to X,Y] |
+           ride P V (bicycle rickshaw cart tractor boat: on its seat; car bus truck train plane carriage ship: gone
+           inside) then drive V to X,Y (wheels turning, riders carried) and `dismount P`. One person, one thing, on
+           the words that say it ("he picked up the book" -> pickup)
          | animal KIND [mood FACE] [plain] [howdah] [face left] [size H]   AN ANIMAL, drawn, alive (feet at its `at`):
            horse pony donkey zebra cow ox bull buffalo elephant camel dog wolf fox cat tiger lion leopard sheep goat
            pig deer rat bear chicken rooster peacock duck eagle bird crow parrot. (`plain`: no saddle, cloth or
@@ -249,7 +258,8 @@ KIT_WORDS = {
               r"carr(y|ied)|pointed|buyer|seller|peasant|crowd|alliance|allies|\brival|treaty|neighbou?r|invad|"
               r"annex|bull(y|ied)|nation|\bga(ve|ive)\b|thr(ew|ow)|argu|quarrel|whisper|handshake|shook hands|"
               r"deal\b|push|tug|alive|character|horse|elephant|camel|\bride|rode|cattle|\bcows?\b|\box\b|"
-              r"\bdogs?\b|animal",
+              r"\bdogs?\b|animal|picked|\bate\b|\beat|drank|drink|\bread\b|wrote|sat\b|slept|climb|drove|"
+              r"\bvote|rang|cooked|hammer",
 }
 
 

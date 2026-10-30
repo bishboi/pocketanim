@@ -214,7 +214,9 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote", "dance", "clap",
                "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug", "react", "annex", "travel",
                "give", "throw", "push", "tug", "argue", "whisper", "ride", "dismount", "graze", "rear", "fly",
-               "open", "shut"}
+               "open", "shut", "pickup", "put", "drop", "wear", "holdup", "read", "write", "eat", "drink", "phone",
+               "type", "hammer", "sweep", "count", "vote", "ring", "stir", "enter", "exit", "climb", "sleep", "use",
+               "drive"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
 KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
@@ -273,8 +275,10 @@ def _mend_action(toks: list[str], names=frozenset()) -> list[list[str]] | None:
         verb, args = args[0].lower(), [rest[0]] + args[1:]     # `w46 church appear`: the thing first
     if verb == "fade" and args and args[0] in ("in", "out"):
         verb, args = args[0], args[1:] + ["fade"]
-    verb = VERB_ALIAS.get(verb, verb)
-    if verb in IN_WAYS - {"fade", "draw", "grow"} and args:
+    if not (verb in ("enter", "exit") and len(args) >= 2 and args[1] in names):     # `enter P HOUSE`: a person's
+        verb = VERB_ALIAS.get(verb, verb)
+    person_use = verb in ("write", "drop") and len(args) >= 2 and args[0] in names and args[1] in names
+    if verb in IN_WAYS - {"fade", "draw", "grow"} and args and not person_use:
         verb, args = "in", [args[0], verb] + args[1:]      # `pop X` is `in X pop`
     if verb in ("in", "out") and len(args) >= 2 and args[0] in (IN_WAYS | OUT_WAYS) \
             and args[1] not in (IN_WAYS | OUT_WAYS) and args[1] not in ARG_WORDS \

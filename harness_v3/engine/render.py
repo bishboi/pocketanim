@@ -57,6 +57,7 @@ from manim import (DOWN, LEFT, RIGHT, UP, Circle, Create, Dot, Ellipse, Group, I
 from manim.utils.color import ManimColor, interpolate_color
 
 import acts
+import handle
 import feel
 import look
 import score as S
@@ -87,7 +88,7 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "think": 1.6, "bow": 1.2, "jump": 0.9, "nod": 0.8, "emote": 0.5, "dance": 3.0, "clap": 1.6,
                "facepalm": 1.8, "laugh": 1.8, "cry": 2.4, "shiver": 1.6, "kick": 0.7, "look": 0.5, "faint": 1.0,
                "hug": 1.6, "ride": 0.9, "dismount": 0.8, "graze": 1.8, "rear": 1.3, "fly": 2.2, "open": 0.8,
-               "shut": 0.6, **acts.RUN}
+               "shut": 0.6, **acts.RUN, **handle.RUN}
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
                 "bow", "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look",
                 "faint", "hug", "ride", "dismount", "graze", "rear", "fly")
@@ -170,7 +171,7 @@ class Call(Tween):
 
 # ---------------------------------------------------------------- the scene ----------------------------------------------
 
-class ScoreScene(acts.MoreActs, MovingCameraScene):
+class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
     SCORE: S.Score
     WORDS: dict
     WAV: str | None = None
@@ -826,6 +827,9 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         stagger = self._opt(act, "stagger")
         if (v in acts.RUN or v in ("emote", "look")) and self._more(act, t0, t1):
             return
+        if v in ("ring", "count", "type", "write", "drop") and self._kind(act.target) == "person" and \
+                any(x in self.E for x in act.args):
+            return self._use(act, t0, t1)       # a person using a thing (`count P COINS`), not the mark or the counter
         if v == "in" and how == "speak" and any(self._kind(n) not in ("phrase", "text", "label", "tag", "title", "quote")
                                                 for n, _ in self._targets(act.target)):
             how = None                          # (only words are spoken on: anything else comes on its own way)
@@ -947,6 +951,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                        look.col(next((x for x in act.args if x in look.L), "coral")), t0, t1)
         elif v in ("open", "shut"):
             self._open(act, t0, t1)
+        elif v in handle.USE_VERBS:
+            self._use(act, t0, t1)
         elif v in PERSON_VERBS:
             self._person(act, t0, t1)
         elif v == "bring":
@@ -1929,8 +1935,11 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
             if not act.args:
                 raise ValueError("ride needs the animal: `ride P HORSE`")
             (an, am), = self._targets(act.args[0])[:1]
+            import props
+            if isinstance(am, props.Prop):
+                return self._ride_vehicle(name, m, an, am, t0, t1)
             if not isinstance(am, zoo.Animal):
-                raise ValueError(f"ride: {an} is not an animal")
+                raise ValueError(f"ride: {an} is not an animal or a vehicle")
 
             def start():
                 st["p0"] = dict(m.pose)
@@ -1976,6 +1985,10 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
             for key in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2", "bl1", "bl2", "drop", "lean"):
                 q[key] = st["p0"][key] + (m.rest[key] - st["p0"][key]) * k
             m.set_pose(q)
+            if getattr(m, "inside", False):     # out of the car, the bus, the train
+                self._alpha(m).set(min(1.0, a / 0.4))
+                if a >= 1.0:
+                    m.inside = False
             pos = st["f0"] + (st["f1"] - st["f0"]) * k + UP * 0.3 * m.unit() * math.sin(math.pi * a)
             m.shift(pos - m.feet())
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
@@ -1995,6 +2008,13 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
     def _open(self, act: S.Act, t0, t1) -> None:
         """`open X` / `shut X`: a thing with a lid (a chest, a box, a letter, a gate) opened or shut as it plays."""
         import props
+        import people as P
+        (n0, m0), = self._targets(act.target)[:1]
+        if isinstance(m0, P.Person):            # `open P X`: a person opens it
+            thing = next((x for x in act.args if x in self.E), None)
+            if thing is None:
+                raise ValueError(f"{act.verb} P X: what does {n0} open?")
+            return self._open_by(n0, m0, thing, self.E[thing], act.verb, t0, t1)
         for name, m in self._targets(act.target):
             if not isinstance(m, props.Prop) or m.lid is None:
                 raise ValueError(f"{act.verb}: {name} has nothing to open (a chest, box, letter or gate does)")
@@ -2021,6 +2041,11 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         v = act.verb
         if v in ("graze", "rear", "fly", "ride", "dismount"):
             return self._beast(name, m, act, t0, t1)
+        thing = next((x for x in act.args if x in self.E), None)
+        if v in ("sit", "sleep") and "on" in act.args and thing:      # on a chair, a bench, a bed
+            return self._sit_on(name, m, v, self.E[thing], t0, t1)
+        if v == "kick" and thing:                                       # a ball
+            return self._kick_ball(name, m, thing, self.E[thing], act, t0, t1)
         legs = ("fl1", "fl2", "bl1", "bl2", "bob", "drop", "lean")
         arms = ("fa1", "fa2", "ba1", "ba2")
         dur = max(t1 - t0, 0.05)
@@ -2258,9 +2283,17 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
 
     def _blinks(self) -> None:
-        """Every person blinks now and then (each on its own rhythm), while it is up; eyes on a map too."""
+        """Every person blinks now and then (each on its own rhythm), while it is up; eyes on a map too; things that
+        move by themselves (flames, flags, sails, smoke) do, a few times a second."""
         import people as P
+        import props
         for name, m in self.E.items():
+            if isinstance(m, props.Prop) and m.lives:
+                def life(_a, m=m):
+                    if id(m) in self.up:
+                        m.alive(round(self.clock * 12) / 12)
+                self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, life, None, rate_functions.linear))
+                continue
             if isinstance(m, acts.Eyes):
                 seed = feel.seed(name)
                 period, shift = 3.4 + (seed % 17) / 10, (seed % 7) * 0.37

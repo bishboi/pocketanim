@@ -84,6 +84,19 @@ def letters(txt, x, y, h, c="#3A3631"):
     return t
 
 
+def live(m, kind, anchor=None):
+    """Marks a part that moves on its own: a flame (flicker), a flag (wave), sails (spin about `anchor`), smoke (puff),
+    steam (steam), a clock's hand (tick about `anchor`). Prop.alive plays them."""
+    m.live = (kind, anchor)
+    return m
+
+
+def wheel_of(m):
+    """Marks a wheel (it turns as its vehicle is driven: Prop.roll)."""
+    m.wheel = True
+    return m
+
+
 def scribble(x0, x1, y, w, c="#6B6258"):
     """A line of handwriting."""
     n = 10
@@ -483,22 +496,22 @@ def _candle(m, w):
     return VGroup(ell(0.0, 0.01, 0.14, 0.03, GOLD_D, w), rect(-0.03, 0.01, 0.03, 0.2, "#F7F3E8", w),
                   fill_only([(-0.03, 0.2), (-0.02, 0.17), (0.0, 0.19)], "#E6DCC8"),
                   line((0.0, 0.2), (0.0, 0.215), zoo.INK, w),
-                  blob([(0.0, 0.21), (-0.02, 0.24), (0.0, 0.29), (0.02, 0.24)], "#F2C14E", w * 0.6),
-                  blob([(0.0, 0.215), (-0.008, 0.235), (0.0, 0.26), (0.008, 0.235)], "#E4572E", 0)), None
+                  live(blob([(0.0, 0.21), (-0.02, 0.24), (0.0, 0.29), (0.02, 0.24)], "#F2C14E", w * 0.6), "flame"),
+                  live(blob([(0.0, 0.215), (-0.008, 0.235), (0.0, 0.26), (0.008, 0.235)], "#E4572E", 0), "flame")), None
 
 
 def _diya(m, w):
     return VGroup(blob([(-0.12, 0.05), (-0.06, 0.0), (0.06, 0.0), (0.12, 0.05), (0.16, 0.07), (0.0, 0.06)], "#C2552B", w),
                   *(Dot([x, 0.03, 0], radius=0.008, color="#F2C14E") for x in (-0.06, 0.0, 0.06)),
-                  blob([(0.12, 0.07), (0.11, 0.11), (0.13, 0.17), (0.15, 0.11)], "#F2C14E", w * 0.6),
-                  blob([(0.13, 0.08), (0.125, 0.11), (0.13, 0.14), (0.137, 0.11)], "#E4572E", 0)), None
+                  live(blob([(0.12, 0.07), (0.11, 0.11), (0.13, 0.17), (0.15, 0.11)], "#F2C14E", w * 0.6), "flame"),
+                  live(blob([(0.13, 0.08), (0.125, 0.11), (0.13, 0.14), (0.137, 0.11)], "#E4572E", 0), "flame")), None
 
 
 def _lantern(m, w):
     return VGroup(stroke(zoo.P._arc(0.0, 0.3, 0.04, 0, 180, 8), zoo.INK, w),
                   poly([(-0.07, 0.28), (0.07, 0.28), (0.0, 0.33)], "#3A3631", w),
                   rect(-0.06, 0.06, 0.06, 0.28, "#FBE7A1", w),
-                  blob([(0.0, 0.1), (-0.025, 0.15), (0.0, 0.22), (0.025, 0.15)], "#F2A93B", 0),
+                  live(blob([(0.0, 0.1), (-0.025, 0.15), (0.0, 0.22), (0.025, 0.15)], "#F2A93B", 0), "flame"),
                   *(line((x, 0.06), (x, 0.28), "#3A3631", w * 1.2) for x in (-0.06, 0.0, 0.06)),
                   rect(-0.08, 0.0, 0.08, 0.06, "#3A3631", w)), None
 
@@ -506,9 +519,9 @@ def _lantern(m, w):
 def _campfire(m, w):
     return VGroup(*(poly([(x0, 0.0), (x0 + 0.03, 0.02), (x1 + 0.03, 0.08), (x1, 0.06)], WOOD_D, w) for x0, x1 in
                     ((-0.18, 0.12), (0.18, -0.12))),
-                  blob([(-0.12, 0.04), (-0.1, 0.18), (-0.04, 0.14), (0.0, 0.32), (0.05, 0.15), (0.1, 0.22), (0.12, 0.04)],
-                       "#E4572E", w),
-                  blob([(-0.06, 0.04), (-0.04, 0.14), (0.0, 0.22), (0.04, 0.12), (0.06, 0.04)], "#F2C14E", w * 0.5),
+                  live(blob([(-0.12, 0.04), (-0.1, 0.18), (-0.04, 0.14), (0.0, 0.32), (0.05, 0.15), (0.1, 0.22), (0.12, 0.04)],
+                            "#E4572E", w), "flame"),
+                  live(blob([(-0.06, 0.04), (-0.04, 0.14), (0.0, 0.22), (0.04, 0.12), (0.06, 0.04)], "#F2C14E", w * 0.5), "flame"),
                   *(circ(x, 0.015, 0.035, "#8E969C", w * 0.7) for x in (-0.2, -0.12, 0.12, 0.2))), None
 
 
@@ -567,7 +580,7 @@ def _wheel(m, w):
     for a in np.linspace(0, math.pi, 7)[:-1]:
         g.add(line((0.19 * math.cos(a), 0.2 + 0.19 * math.sin(a)), (-0.19 * math.cos(a), 0.2 - 0.19 * math.sin(a)), c, w * 1.6))
     g.add(circ(0.0, 0.2, 0.035, tint(c, -0.2), w))
-    return g, None
+    return wheel_of(g), None
 
 
 def _charkha(m, w):
@@ -718,7 +731,7 @@ def _tower(m, w):
     g.add(rect(-0.22, 0.9, 0.22, 0.96, tint(c, -0.1), w), blob([(-0.06, 0.0), (-0.06, 0.18), (0.0, 0.24), (0.06, 0.18), (0.06, 0.0)], WOOD_D, w),
           blob([(-0.03, 0.55), (-0.03, 0.66), (0.0, 0.7), (0.03, 0.66), (0.03, 0.55)], "#3A3631", w),
           *(line((-0.18, y), (0.18, y), tint(c, -0.2), w * 0.5) for y in (0.3, 0.45, 0.78)),
-          line((0.0, 1.04), (0.0, 1.22), WOOD, w * 1.4), poly([(0.0, 1.22), (0.16, 1.17), (0.0, 1.12)], col(m.get("flag") or RED), w * 0.7))
+          line((0.0, 1.04), (0.0, 1.22), WOOD, w * 1.4), live(poly([(0.0, 1.22), (0.16, 1.17), (0.0, 1.12)], col(m.get("flag") or RED), w * 0.7), "flag"))
     return g, None
 
 
@@ -751,7 +764,7 @@ def _signpost(m, w):
 def _flagpole(m, w):
     c = col(m["color"]) if m.get("color") else RED
     return VGroup(line((0.0, 0.0), (0.0, 1.1), "#9AA3A9", w * 1.8), circ(0.0, 1.11, 0.015, GOLD, w * 0.5),
-                  blob([(0.0, 1.08), (0.15, 1.1), (0.32, 1.06), (0.32, 0.86), (0.15, 0.9), (0.0, 0.88)], c, w)), None
+                  live(blob([(0.0, 1.08), (0.15, 1.1), (0.32, 1.06), (0.32, 0.86), (0.15, 0.9), (0.0, 0.88)], c, w), "flag")), None
 
 
 def _cart(m, w):
@@ -971,7 +984,7 @@ def _clock(m, w):
     return VGroup(circ(0.0, 0.2, 0.2, "#8C5A3C", w), circ(0.0, 0.2, 0.16, "#F7F3E8", w * 0.7),
                   *(line((0.13 * math.cos(a), 0.2 + 0.13 * math.sin(a)), (0.15 * math.cos(a), 0.2 + 0.15 * math.sin(a)), zoo.INK, w * 0.8)
                     for a in np.linspace(0, 2 * math.pi, 13)[:-1]),
-                  line((0.0, 0.2), (0.0, 0.31), zoo.INK, w * 1.4), line((0.0, 0.2), (0.07, 0.17), zoo.INK, w * 1.8),
+                  live(line((0.0, 0.2), (0.0, 0.31), zoo.INK, w * 1.4), "tick", (0.0, 0.2)), line((0.0, 0.2), (0.07, 0.17), zoo.INK, w * 1.8),
                   circ(0.0, 0.2, 0.012, RED, 0)), None
 
 
@@ -1083,8 +1096,9 @@ def _windmill(m, w):
     for a in (45, 135, 225, 315):
         r = math.radians(a)
         ca, sa = math.cos(r), math.sin(r)
-        g.add(poly([(0.03 * -sa, 0.72 + 0.03 * ca), (0.42 * ca - 0.05 * sa, 0.72 + 0.42 * sa + 0.05 * ca),
-                    (0.42 * ca + 0.05 * sa, 0.72 + 0.42 * sa - 0.05 * ca), (0.03 * sa, 0.72 - 0.03 * ca)], "#F3EEE4", w * 0.8))
+        g.add(live(poly([(0.03 * -sa, 0.72 + 0.03 * ca), (0.42 * ca - 0.05 * sa, 0.72 + 0.42 * sa + 0.05 * ca),
+                    (0.42 * ca + 0.05 * sa, 0.72 + 0.42 * sa - 0.05 * ca), (0.03 * sa, 0.72 - 0.03 * ca)], "#F3EEE4", w * 0.8),
+                   "spin", (0.0, 0.72)))
     g.add(circ(0.0, 0.72, 0.035, WOOD_D, w))
     return g, None
 
@@ -1097,7 +1111,7 @@ def _factory(m, w):
     for x in (-0.4, -0.22, 0.15):
         g.add(rect(x, 0.22, x + 0.1, 0.32, "#F2C14E", w * 0.7))
     if not m.get("plain"):                       # smoke
-        g.add(*(circ(0.3 + i * 0.07, 1.02 + i * 0.08, 0.05 + i * 0.015, "#B9B2A4", w * 0.5) for i in range(3)))
+        g.add(*(live(circ(0.3 + i * 0.07, 1.02 + i * 0.08, 0.05 + i * 0.015, "#B9B2A4", w * 0.5), "puff") for i in range(3)))
     return g, None
 
 
@@ -1171,13 +1185,14 @@ def _thali(m, w):
 def _teacup(m, w):
     return VGroup(ell(0.0, 0.01, 0.28, 0.04, "#F7F5F0", w), blob([(-0.11, 0.16), (-0.09, 0.05), (0.0, 0.02), (0.09, 0.05), (0.11, 0.16)], "#F7F5F0", w),
                   ell(0.0, 0.16, 0.22, 0.04, "#A0633A", w * 0.7), stroke(zoo.P._arc(0.12, 0.1, 0.04, 90, -90, 8), "#F7F5F0", w * 2.2),
-                  stroke([(-0.03, 0.19), (-0.05, 0.24), (-0.02, 0.29)], "#C9C2B2", w), stroke([(0.03, 0.19), (0.01, 0.25), (0.04, 0.3)], "#C9C2B2", w),
+                  live(stroke([(-0.03, 0.19), (-0.05, 0.24), (-0.02, 0.29)], "#C9C2B2", w), "steam"),
+                  live(stroke([(0.03, 0.19), (0.01, 0.25), (0.04, 0.3)], "#C9C2B2", w), "steam"),
                   stroke([(-0.1, 0.1), (0.1, 0.1)], "#3E7CB1", w * 0.8)), None
 
 
 def _kulhad(m, w):
     return VGroup(poly([(-0.07, 0.0), (0.07, 0.0), (0.09, 0.17), (-0.09, 0.17)], "#B5643C", w), ell(0.0, 0.17, 0.18, 0.035, "#C98A55", w * 0.7),
-                  stroke([(-0.02, 0.2), (-0.04, 0.25), (-0.01, 0.3)], "#C9C2B2", w)), None
+                  live(stroke([(-0.02, 0.2), (-0.04, 0.25), (-0.01, 0.3)], "#C9C2B2", w), "steam")), None
 
 
 def _fish(m, w):
@@ -1215,12 +1230,18 @@ def _syringe(m, w):
 # -- getting about -----------------------------------------------------------------------------------------------
 
 def wheelset(xs, r, w, c="#2B2826"):
-    return [VGroup(circ(x, r, r, c, w), circ(x, r, r * 0.45, "#B8BEC2", w * 0.6)) for x in xs]
+    return [wheel_of(VGroup(circ(x, r, r, c, w), circ(x, r, r * 0.45, "#B8BEC2", w * 0.6),
+                            line((x - r * 0.42, r), (x + r * 0.42, r), "#6E747A", w * 0.8),
+                            line((x, r * 0.58), (x, r * 1.42), "#6E747A", w * 0.8))) for x in xs]
 
 
 def _bicycle(m, w):
     c = col(m["color"]) if m.get("color") else RED
-    g = VGroup(*(Circle(radius=0.14, stroke_color=zoo.INK, stroke_width=w * 1.6).move_to([x, 0.14, 0]) for x in (-0.2, 0.22)))
+    g = VGroup(*(wheel_of(VGroup(Circle(radius=0.14, stroke_color=zoo.INK, stroke_width=w * 1.6).move_to([x, 0.14, 0]),
+                                 *(line((x + 0.13 * math.cos(t), 0.14 + 0.13 * math.sin(t)),
+                                        (x - 0.13 * math.cos(t), 0.14 - 0.13 * math.sin(t)), "#9AA3A9", w * 0.5)
+                                   for t in np.linspace(0, math.pi, 4)[:-1])))
+                 for x in (-0.2, 0.22)))
     g.add(*(line(a, b, c, w * 2) for a, b in (((-0.2, 0.14), (0.0, 0.14)), ((0.0, 0.14), (0.12, 0.32)), ((-0.08, 0.3), (0.12, 0.32)),
                                              ((-0.2, 0.14), (-0.08, 0.3)), ((0.0, 0.14), (-0.08, 0.3)), ((0.12, 0.32), (0.22, 0.14)))),
           line((-0.1, 0.34), (-0.04, 0.34), "#3A3631", w * 2.6), line((0.12, 0.32), (0.11, 0.38), c, w * 1.6),
@@ -1263,7 +1284,7 @@ def _train(m, w):
                rrect(0.05, 0.12, 0.5, 0.36, 0.1, tint(c, 0.15), w), rect(0.32, 0.36, 0.4, 0.56, "#22201E", w),
                poly([(0.28, 0.56), (0.44, 0.56), (0.42, 0.6), (0.3, 0.6)], "#22201E", w),
                poly([(0.5, 0.12), (0.62, 0.02), (0.5, 0.02)], RED, w), rect(-0.6, 0.6, 0.1, 0.65, RED, w))
-    g.add(*(circ(0.38 + i * 0.07, 0.66 + i * 0.07, 0.04 + i * 0.012, "#C9C2B2", w * 0.5) for i in range(3)))
+    g.add(*(live(circ(0.38 + i * 0.07, 0.66 + i * 0.07, 0.04 + i * 0.012, "#C9C2B2", w * 0.5), "puff") for i in range(3)))
     g.add(*wheelset((-0.42, -0.15, 0.15, 0.38), 0.1, w, RED))
     g.add(line((-0.42, 0.1), (0.38, 0.1), "#9AA3A9", w * 1.6))
     return g, None
@@ -1302,8 +1323,11 @@ def _tractor(m, w):
     c = col(m["color"]) if m.get("color") else "#B83227"
     g = VGroup(rect(-0.05, 0.2, 0.4, 0.38, c, w), rect(-0.28, 0.2, -0.02, 0.62, tint(c, -0.1), w),
                rect(-0.24, 0.42, -0.06, 0.58, "#9FC5DA", w * 0.6), rect(0.25, 0.38, 0.29, 0.52, "#3A3631", w * 0.7))
-    g.add(VGroup(circ(-0.2, 0.22, 0.22, "#2B2826", w), circ(-0.2, 0.22, 0.1, GOLD, w * 0.6)),
-          VGroup(circ(0.3, 0.12, 0.12, "#2B2826", w), circ(0.3, 0.12, 0.05, GOLD, w * 0.6)))
+    g.add(wheel_of(VGroup(circ(-0.2, 0.22, 0.22, "#2B2826", w), circ(-0.2, 0.22, 0.1, GOLD, w * 0.6),
+                          *(line((-0.2, 0.22), (-0.2 + 0.1 * math.cos(t), 0.22 + 0.1 * math.sin(t)), "#C9962B", w)
+                            for t in (0.0, 2.1, 4.2)))),
+          wheel_of(VGroup(circ(0.3, 0.12, 0.12, "#2B2826", w), circ(0.3, 0.12, 0.05, GOLD, w * 0.6),
+                          line((0.3, 0.12), (0.35, 0.12), "#C9962B", w))))
     return g, None
 
 
@@ -1342,7 +1366,7 @@ def _castle(m, w):
           blob([(-0.14, 0.0), (-0.14, 0.3), (0.0, 0.42), (0.14, 0.3), (0.14, 0.0)], WOOD_D, w),
           *(line((x, 0.0), (x, 0.3), "#3A2A1E", w * 0.6) for x in (-0.07, 0.0, 0.07)),
           *(line((-0.36, y), (0.36, y), tint(c, -0.15), w * 0.4) for y in (0.5, 0.62)),
-          line((0.0, 0.79), (0.0, 1.05), WOOD, w * 1.4), poly([(0.0, 1.05), (0.18, 1.0), (0.0, 0.95)], col(m.get("flag") or RED), w * 0.7))
+          line((0.0, 0.79), (0.0, 1.05), WOOD, w * 1.4), live(poly([(0.0, 1.05), (0.18, 1.0), (0.0, 0.95)], col(m.get("flag") or RED), w * 0.7), "flag"))
     return g, None
 
 
@@ -1686,8 +1710,8 @@ def _flagindia(m, w):
     g = VGroup(line((0.0, 0.0), (0.0, 1.1), "#9AA3A9", w * 1.8), circ(0.0, 1.11, 0.015, GOLD, w * 0.5))
     for i, c in enumerate(("#FF9933", "#F7F5F0", "#138808")):
         y = 1.06 - i * 0.07
-        g.add(poly([(0.0, y), (0.32, y), (0.32, y - 0.07), (0.0, y - 0.07)], c, w * 0.6))
-    g.add(Circle(radius=0.025, stroke_color="#000080", stroke_width=w * 0.8).move_to([0.16, 0.955, 0]))
+        g.add(live(poly([(0.0, y), (0.32, y), (0.32, y - 0.07), (0.0, y - 0.07)], c, w * 0.6), "flag", (0.0, 0.32)))
+    g.add(live(Circle(radius=0.025, stroke_color="#000080", stroke_width=w * 0.8).move_to([0.16, 0.955, 0]), "flag", (0.0, 0.32)))
     return g, None
 
 
@@ -1741,12 +1765,91 @@ class Prop(VGroup):
         self.open_k = 0.0
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0), (0.1, 0), (0, 0.1))))
         self.add(self._ref)
+        # what moves on its own, its points kept in the thing's own frame; its wheels
+        import zlib
+        self.phase = (zlib.crc32(self.name.encode()) % 100) / 16.0
+        self.lives = []
+        for x in g.get_family():
+            tag = getattr(x, "live", None)
+            if tag:
+                kind, anchor = tag
+                parts = [(y, y.points[:, :2].copy()) for y in x.family_members_with_points()]
+                if not parts:
+                    continue
+                allp = np.vstack([b for _, b in parts])
+                if anchor is None:
+                    anchor = ((allp[:, 0].min() + allp[:, 0].max()) / 2, allp[:, 1].min()) if kind in ("flame", "steam") \
+                        else (allp[:, 0].min(), allp[:, 0].max() - allp[:, 0].min()) if kind == "flag" \
+                        else ((allp[:, 0].min() + allp[:, 0].max()) / 2, (allp[:, 1].min() + allp[:, 1].max()) / 2)
+                self.lives.append((kind, np.array(anchor, dtype=float), parts))
+        self.wheels = [x for x in g.get_family() if getattr(x, "wheel", False)]
+        self.f = 1.0
         if lid is not None:
             self.lid, hinge, self.how, self.reach = lid
             self.hinge = np.array(hinge, dtype=float)
             self.lid_base = [(x, x.points[:, :2].copy()) for x in self.lid.family_members_with_points()]
         if mods.get("open"):
             self.set_open(1.0)
+
+    # -- its own frame, and things that move by themselves -----------------------------------------------------------
+    def _frame(self):
+        o, xr, yr = (d.get_center() for d in self._ref)
+        return o, (xr - o) / 0.1, (yr - o) / 0.1
+
+    def alive(self, t: float) -> None:
+        """Flames flicker, flags wave, sails turn, smoke and steam drift (at time t, seconds)."""
+        if not self.lives:
+            return
+        o, ex, ey = self._frame()
+        t = t + self.phase
+        for kind, anc, parts in self.lives:
+            for y, base in parts:
+                q = base.copy()
+                if kind == "flame":
+                    sy = 1 + 0.13 * math.sin(9.3 * t) + 0.06 * math.sin(23.0 * t + 1.0)
+                    sx = 1 - 0.5 * (sy - 1) + 0.03 * math.sin(14.0 * t)
+                    q = anc + (q - anc) * np.array([sx, sy])
+                    q[:, 0] += 0.01 * math.sin(7.0 * t) * (q[:, 1] - anc[1]) / 0.05
+                elif kind == "flag":
+                    x0, length = anc
+                    d = np.clip((q[:, 0] - x0) / max(length, 1e-3), 0.0, 1.0)
+                    q[:, 1] += 0.045 * np.sin(6.5 * t - 9.0 * (q[:, 0] - x0)) * d
+                elif kind in ("spin", "tick"):
+                    a = (-1.1 if kind == "spin" else -0.35) * t
+                    ca, sa = math.cos(a), math.sin(a)
+                    q = anc + (q - anc) @ np.array([[ca, sa], [-sa, ca]])
+                elif kind == "puff":
+                    k = 1 + 0.12 * math.sin(2.2 * t + anc[0] * 20)
+                    q = anc + (q - anc) * k
+                    q[:, 1] += 0.02 * math.sin(1.6 * t + anc[0] * 10)
+                elif kind == "steam":
+                    q[:, 0] += 0.012 * np.sin(5.0 * t + 40.0 * q[:, 1])
+                y.points = o + np.outer(q[:, 0], ex) + np.outer(q[:, 1], ey)
+
+    # -- vehicles ------------------------------------------------------------------------------------------------
+    def facing(self) -> float:
+        return self.f
+
+    def feet(self) -> np.ndarray:
+        return self.get_bottom()
+
+    def turn(self) -> None:
+        """Turned round to go the other way (its own frame turns with it)."""
+        self.stretch(-1, 0, about_point=self.get_center())
+        self.f = -self.f
+
+    def roll(self, d: float) -> None:
+        """Its wheels turned by a distance travelled."""
+        for wh in self.wheels:
+            r = max(wh.width / 2, 1e-3)
+            wh.rotate(-self.f * d / r, about_point=wh.get_center())
+
+    def saddle(self) -> np.ndarray:
+        """Where a rider sits (a vehicle's seat; inside one that has no open seat)."""
+        import handle
+        o, ex, ey = self._frame()
+        x, y = handle.VEHICLE_SEATS.get(self.name, (0.0, self.height / max(np.linalg.norm(ey), 1e-6) * 0.4))
+        return o + x * ex + y * ey
 
     def set_open(self, k: float) -> None:
         if self.lid is None:

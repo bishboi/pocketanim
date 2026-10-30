@@ -45,6 +45,7 @@ RUNS = ROOT / "runs"
 sys.path.insert(0, str(HERE))
 
 import assets  # noqa: E402
+import library  # noqa: E402
 import parts as PT  # noqa: E402
 import prompts  # noqa: E402
 import score as S  # noqa: E402
@@ -570,6 +571,15 @@ def _assets(run: dict) -> None:
     if not assets.SEARCH and any(assets.is_archive(w[1]) for w in todo):
         notes.append("image search is off (V3_IMAGE_SEARCH=0): pictures asked for from the archive are made")
 
+    if library.ON and todo:                     # the illustration library first: only what it lacks is made
+        took = library.take_inbox()
+        if took:
+            notes.append(f"{len(took)} picture(s) taken into the library from its inbox")
+        found, lib_notes = _from_library(run, [w for w in todo if (w[0], w[1]) not in labelled
+                                               and not (assets.is_archive(w[1]) and assets.SEARCH)])
+        todo = [w for w in todo if w not in found]
+        notes += lib_notes
+
     said = _better_words(run, text, todo) if todo else {}
 
     def record(label: str, user: str, model: str = model) -> dict:
@@ -647,6 +657,15 @@ def _assets(run: dict) -> None:
         notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
         made_now = [w for w in todo if w[0] == "pic" and assets.path_for(w[0], w[1], w[2]).exists()]
         notes += _check_pictures(run, made_now, said, model_for)
+        if library.ON:                          # what was made kept in the library, for the next video
+            for kind, prompt, lk in todo:
+                p = assets.path_for(kind, prompt, lk)
+                if p.exists():
+                    try:
+                        library.add(p, prompt, kind, tags=library._words(said.get((kind, prompt)) or "")[:24],
+                                    source="made", license="made for this harness", finished=True)
+                    except Exception:  # noqa: BLE001
+                        pass
     notes += _find_parts(run, text, model)
     run["steps"]["assets"]["notes"] = notes
 
@@ -694,6 +713,76 @@ def _check_pictures(run: dict, items: list, said: dict, model_for) -> list[str]:
     with ThreadPoolExecutor(max_workers=min(jobs, len(items))) as pool:
         out = [r for r in pool.map(one, items) if r]
     return [f"{len(items)} cut-out(s) checked by eye; {len(out)} remade"] + out[:12]
+
+
+def _from_library(run: dict, items: list) -> tuple[list, list[str]]:
+    """Pictures found in the illustration library (and on Pixabay, with PIXABAY_API_KEY) instead of made: for each,
+    the closest candidates by their words, and the vision model chooses the one that truly shows it, or none.
+    Returns the items found and notes."""
+    from PIL import Image
+    import io as _io
+    vision = (run["settings"].get("models") or {}).get("critic") or run["settings"]["model"]
+    found, notes = [], []
+
+    def thumb(c) -> str:
+        if "file" in c:
+            return assets.data_url(library.path(c), 320)
+        im = assets._open(assets._get(c["url"])).convert("RGBA")
+        im.thumbnail((320, 320))
+        bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+        bg.alpha_composite(im)
+        buf = _io.BytesIO()
+        bg.convert("RGB").save(buf, "JPEG", quality=85)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    def one(item):
+        kind, prompt, lk = item
+        if kind not in ("pic", "photo"):
+            return None
+        words = assets.archive_query(prompt) if assets.is_archive(prompt) else prompt
+        cands = library.search(words, kind, 4) + library.pixabay(words, kind, 4)
+        if not cands:
+            return None
+        try:
+            shown = cands[:8]
+            images = [thumb(c) for c in shown]
+            system, user = library.choose_prompt(words, len(shown))
+            said = chat(run, "assets", f"library: {words[:50]}", system, user, images=images, max_tokens=20,
+                        model=vision)
+        except Exception:  # noqa: BLE001 -- no choice: made by the image model
+            return None
+        m = re.search(r"\d+", said)
+        if not m or not (1 <= int(m.group()) <= len(shown)) or said.strip().lower().startswith("none"):
+            return None
+        pick = shown[int(m.group()) - 1]
+        try:
+            if "file" in pick:
+                row = pick
+                img = Image.open(library.path(row))
+            else:                               # from Pixabay: kept in the library too
+                img = assets._open(assets._get(pick["large"]))
+                row = library.add(img, pick["title"] or words, kind, pick["tags"], "pixabay", "Pixabay Content License",
+                                  pick.get("user", ""), pick.get("page", ""))
+            out = assets.path_for(kind, prompt, lk)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            if row.get("finished"):
+                shutil.copyfile(library.path(row), out)
+            elif kind == "pic" and assets._plain_ground(img):
+                assets.cutout(img).save(out)
+            else:
+                assets.framed(img.convert("RGB")).save(out)
+            return item, f"{kind} \"{prompt[:40]}\" from the library ({row['source']}: {row['title'][:40]})"
+        except Exception as e:  # noqa: BLE001
+            return None
+    jobs = max(1, int(os.environ.get("V3_IMAGE_JOBS", "4")))
+    import shutil
+    with ThreadPoolExecutor(max_workers=min(jobs, max(1, len(items)))) as pool:
+        for r in pool.map(one, items):
+            if r:
+                found.append(r[0])
+                notes.append(r[1])
+    head = [f"{len(found)} of {len(items)} picture(s) taken from the illustration library (the rest made)"] if items else []
+    return found, head + notes[:15]
 
 
 def image_models(run: dict) -> dict:

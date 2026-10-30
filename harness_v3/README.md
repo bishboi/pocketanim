@@ -87,6 +87,24 @@ language. Then:
 
 From the command line: `python engine/pipeline.py narration.txt out/x --voice gemini:Kore --language hinglish`.
 
+## The illustration library
+
+Pictures are looked for in a library before any is made (`engine/library.py`, `harness_v3/library/`):
+
+- **What is in it:** your own illustrations, Pixabay's illustrations and vector art (with `PIXABAY_API_KEY`: free
+  to use with no credit needed, under its licence; never its photos), and every picture the image model makes. A
+  thing made once is reused by every later video that needs it.
+- **Your own:** drop PNG, JPG or WebP files in `library/inbox/`, each named for what it shows
+  (`an-indian-farmer-ploughing-with-two-oxen.png`; `photo-...` or `scene-...` for a scene). They are taken in at the
+  next run, or with `python engine/library.py import`.
+- **Seeding:** `python engine/library.py seed` takes in every picture made before, from the asset cache.
+- **Searching:** `python engine/library.py search WORDS` shows what the library has for those words.
+- **How one is chosen:** for each picture a score asks for, the closest candidates by their words (from the library
+  and from Pixabay) are shown to the vision model. It picks the one that truly shows the thing, as an illustration of
+  the right time and place (never an icon, logo, diagram or photograph), or none, and only then is it made. A chosen
+  illustration on a plain ground is cut out like the rest; one with a scene behind it is framed as a print.
+- **Turning it off:** `V3_LIBRARY=0`.
+
 ## Peg figures, faces on maps, people on maps
 
 **Peg figures** (the default; `style stick` on a person, or `V3_FIGURE=stick`, for the jointed one):

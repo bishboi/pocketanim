@@ -70,6 +70,9 @@ ios/build/
 harness_v3/.cache/
 harness_v3/out/
 harness_v3/runs/
+harness_v3/library/files/
+harness_v3/library/index.json
+harness_v3/library/inbox/
 harness_v3/books/
 harness_v3/.env
 harness_v3/.env.local

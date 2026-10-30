@@ -48,7 +48,7 @@ REGIONS = {
     "low countries": (2, 49.4, 7.3, 53.7), "balkans": (13, 36, 30, 47), "mediterranean": (-10, 29, 40, 47),
     "middle east": (24, 12, 64, 42), "near east": (24, 26, 50, 42), "anatolia": (25, 35.5, 45, 42.5),
     "north africa": (-17, 18, 35, 38), "africa": (-20, -36, 53, 38), "east asia": (95, 17, 148, 50),
-    "china": (72, 17, 136, 54), "japan": (127, 29, 147, 46), "korea": (124, 33, 131, 43.5), "india": (66, 6, 98, 37),
+    "china": (72, 17, 136, 54), "japan": (127, 29, 147, 46), "korea": (124, 33, 131, 43.5), "india": (66, 6, 98.5, 38),
     "south asia": (60, 4, 100, 38), "southeast asia": (92, -11, 142, 28), "central asia": (45, 30, 90, 56),
     "eurasia": (-12, 0, 150, 62), "silk road": (8, 18, 128, 56), "russia": (25, 40, 180, 78),
     "north america": (-170, 12, -50, 72), "south america": (-85, -57, -32, 14), "americas": (-170, -56, -30, 72),
@@ -191,11 +191,13 @@ def _biggest(g):
     return unary_union(near)
 
 
-# Whose view of disputed borders the countries are drawn in: blank, Natural Earth's own (de facto); `ind`: India's
-# official borders (Natural Earth's point-of-view layers, at the fine detail only: arg, bra, chn, deu, fra, gbr, idn,
-# ind, isr, jpn, kor, nep, pak, rus, tur, twn, ukr, usa, vnm...). A Hinglish run is drawn in India's.
+# Whose view of disputed borders the countries are drawn in. Made for India: India's official borders by default
+# (Natural Earth's point-of-view layer `ind`: the whole of Jammu and Kashmir and Ladakh, Aksai Chin included).
+# V3_MAP_VIEW=none: Natural Earth's own (de facto); another country's code for its view (Natural Earth's
+# point-of-view layers, at the fine detail only: chn, pak, usa, gbr, fra, deu, jpn, ...).
 def view() -> str:
-    return re.sub(r"[^a-z]", "", os.environ.get("V3_MAP_VIEW", "").lower())[:3]
+    v = re.sub(r"[^a-z]", "", os.environ.get("V3_MAP_VIEW", "ind").lower())[:4]
+    return "" if v in ("none", "") else v[:3]
 
 
 def countries_layer(b=None) -> str:
@@ -229,18 +231,61 @@ def _province_names(p: dict) -> set[str]:
     return names - {""}
 
 
+@lru_cache(None)
+def _view_country(admin: str):
+    """A country's whole shape in the map view (None: not in the layer)."""
+    for p, g in _layer(countries_layer()):
+        if admin in (p.get("ADMIN"), p.get("NAME"), p.get("NAME_LONG")):
+            return g.buffer(0)
+    return None
+
+
+@lru_cache(None)
+def _admin1() -> tuple:
+    """Every state and province (name, country, shape), as the map view has them: each cut to its country's borders
+    in that view; in India's, the land Pakistan holds of Kashmir is Jammu and Kashmir's and Gilgit-Baltistan and
+    Aksai Chin are Ladakh's, as India's official map has them."""
+    rows = [(str(p.get("name")), str(p.get("admin")), g.buffer(0)) for p, g in _layer(ADMIN1)]
+    if not view():
+        return tuple(rows)
+    from shapely.ops import unary_union
+    out = []
+    for name, admin, g in rows:
+        c = _view_country(admin)
+        if c is not None:
+            try:
+                g = g.intersection(c)
+            except Exception:  # noqa: BLE001
+                pass
+        if not g.is_empty:
+            out.append([name, admin, g])
+    if view() == "ind":
+        india = _view_country("India")
+        mine = [r for r in out if r[1] == "India"]
+        if india is not None and mine:
+            gap = india.difference(unary_union([r[2] for r in mine]))
+            ajk = unary_union([g for n, a, g in rows if a == "Pakistan" and n == "Azad Kashmir"]).buffer(0.02)
+            for r in mine:
+                if r[0] == "Jammu and Kashmir":
+                    r[2] = unary_union([r[2], gap.intersection(ajk)])
+                elif r[0] == "Ladakh":
+                    r[2] = unary_union([r[2], gap.difference(ajk)])
+    return tuple(tuple(r) for r in out)
+
+
 def provinces(b, of: set[str] | None = None) -> list[tuple[str, str, object]]:
     """The states and provinces (Natural Earth admin-1) that show in the window: (name, country, shape); `of`:
     only those of these countries."""
     from shapely.geometry import box
     clip = box(*b)
-    return [(str(p.get("name")), str(p.get("admin")), g) for p, g in _layer(ADMIN1)
-            if (of is None or p.get("admin") in of) and g.intersects(clip)]
+    return [(n, a, g) for n, a, g in _admin1() if (of is None or a in of) and g.intersects(clip)]
 
 
 def province(key: str, b=None):
     """A state or province by name (Uttar Pradesh, Bavaria, Texas), the one in the window when two share a name."""
-    hit = [(p, g) for p, g in _layer(ADMIN1) if key in _province_names(p)]
+    shapes = {(n, a): g for n, a, g in _admin1()}
+    hit = [(p, shapes.get((str(p.get("name")), str(p.get("admin"))), g)) for p, g in _layer(ADMIN1)
+           if key in _province_names(p)]
     if not hit:
         return None
     if b is not None and len(hit) > 1:

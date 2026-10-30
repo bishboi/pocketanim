@@ -186,8 +186,10 @@ Maps are drawn exactly as the data has them:
   coarser historical data, and the narrow strip it leaves along a shore is filled to meet the real coast.
 - **States and provinces.** `provinces` on a map draws them inside the countries that fill it (India's states, the
   US states, Germany's Länder), and `region "Uttar Pradesh" on M` shades one.
-- **Disputed borders** follow `V3_MAP_VIEW`: blank is Natural Earth's de facto view; `ind` is India's official
-  borders, the default for Hinglish runs.
+- **India's official borders, always.** Every map draws India whole, as its official map does: Jammu and Kashmir
+  includes the land Pakistan holds, and Ladakh includes Gilgit-Baltistan and Aksai Chin. Pakistan and China are
+  drawn without them, so no state or province of theirs crosses into India (`V3_MAP_VIEW`, default `ind`; `none`
+  for Natural Earth's de facto view).
 
 Small pictures (`pic`, and what were icons: `icon NAME` is drawn as a small picture of the thing unless
 `V3_ICONS=1`) are hand-drawn, like sketchbook doodles with people as simple stick-like figures (`V3_SMALL_STYLE`), and

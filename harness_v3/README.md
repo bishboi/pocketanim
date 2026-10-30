@@ -85,6 +85,28 @@ language. Then:
 
 From the command line: `python engine/pipeline.py narration.txt out/x --voice gemini:Kore --language hinglish`.
 
+## Peg figures, faces on maps, people on maps
+
+**Peg figures** (the default; `style stick` on a person, or `V3_FIGURE=stick`, for the jointed one):
+- **The look:** as history explainers draw people, a big round head over a rounded body, thin ink arms and no legs.
+  The clothes are painted on the body: trousers under a shirt, suspenders on a vest, a suit's lapels and tie, a
+  coat's buttons, a habit's rope belt, a toga's sash, armour plates.
+- **Everything carries over:** every hat, hair style, beard, tool, all 27 faces and every verb.
+- **Moving without legs:** a walk becomes a waddle and a hop, and a sit sinks onto the stool.
+- **Spacing:** figures are kept apart by their heads and bodies, not by what they hold out, and are only ever moved
+  along the ground.
+
+**Faces on maps.**
+- `ent e eyes angry on REGION`: big cartoon eyes and brows on a region of a map, at a point inside it, sized to it,
+  riding the map as it moves.
+- Moods: angry, furious, sad, worried, scared, surprised, suspicious, smug, happy, calm, sleepy.
+- `emote E MOOD` blinks into a new mood; `look E at OTHER` turns the pupils; they blink now and then.
+- Two rivals: a region each, eyes on both, looking at each other.
+
+**People on maps.** Small figures (`size 0.9-1.4`) may stand at a map's places (`at M.place`, feet there): protesters
+in the North, a king in his capital. They ride the map as the camera zooms or the map moves. A region named like a
+country of somewhere else (Georgia) is the state or province on the map.
+
 ## Voice acting, chapters and the house style
 
 **The narration can act.** Lines may carry cues:

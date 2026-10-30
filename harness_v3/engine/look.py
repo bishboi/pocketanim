@@ -529,6 +529,14 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind in ("nation", "country"):
         import people
         m = people.nation(args[0] if args else "France", mods, size or 2.6, c)
+    elif kind == "eyes":
+        # big cartoon eyes on a region of a map (`on REGION`), sized to it, or at a place (`at M.place`)
+        import acts
+        on = find(mods.get("on")) if find and mods.get("on") else None
+        w = float(size) if size else (max(0.9, min(3.0, 0.7 * min(on.width, on.height * 1.8))) if on is not None else 1.8)
+        m = acts.Eyes(args[0] if args else "angry", w)
+        if on is not None:
+            m.move_to(getattr(on, "anchor", on.get_center()))
     elif kind == "isotype":
         import acts
         m = acts.isotype(args, mods, size, c)
@@ -947,7 +955,7 @@ class GeoMap(VGroup):
             # the states and provinces inside the countries that fill the window (thin, lighter than borders)
             seen = self.clip.intersection(self.land_g).area or 1.0
             big = {n for n, g in today if g.intersection(self.clip).area > 0.12 * seen}
-            for _, admin, g in geo.provinces(self.bounds, {self._admin(n) for n in big}):
+            for _, admin, g in geo.provinces(self.bounds, {geo.admin_of(n) for n in big}):
                 borders.add(*self.shape_mob(g.intersection(self.land_g), fill=None, stroke=col("soft"), width=0.7))
         rv = VGroup()
         if rivers:
@@ -1083,12 +1091,6 @@ class GeoMap(VGroup):
             return [q for part in g.geoms for q in self._polys(part)]
         return []
 
-    @staticmethod
-    def _admin(name: str) -> str:
-        """A country's name as the admin-1 layer gives it (`admin`), from its NAME."""
-        return {"United States of America": "United States of America", "Dem. Rep. Congo": "Democratic Republic of the Congo",
-                "Bosnia and Herz.": "Bosnia and Herzegovina", "Czechia": "Czechia"}.get(name, name)
-
     def on_land(self, g):
         """A state's or region's shape cut to the real land (a sea, mostly water, as it is)."""
         land = getattr(self, "land_g", None)
@@ -1179,6 +1181,10 @@ def region(m: GeoMap, name: str, mods: dict, c=None):
     import geo
     year = mods.get("year", m.year)
     g, _ = geo.shape(name, int(year) if year is not None else None, m.bounds)
+    if not g.intersects(m.clip):                # a name two things share (Georgia): the one on this map
+        alt = geo.province(geo._norm(name.replace("_", " ")), m.bounds)
+        if alt is not None and alt[0].intersects(m.clip):
+            g = alt[0]
     g = m.on_land(g)
     colour = col(c or mods.get("fill") or "accent")
     if mods.get("outline"):
@@ -1186,6 +1192,12 @@ def region(m: GeoMap, name: str, mods: dict, c=None):
     out = m.shape_mob(g, fill=colour, stroke=colour, width=2.5, opacity=float(mods.get("opacity", 0.6)), screen=True)
     if not len(out):
         raise ValueError(f"{name!r} is not on this map")
+    try:                                        # a point surely inside it (eyes are set there), and how big it shows
+        seen = g.intersection(m.clip)
+        pt = seen.representative_point() if not seen.is_empty else g.representative_point()
+        out.anchor = m.to_screen(pt.x, pt.y)
+    except Exception:  # noqa: BLE001
+        out.anchor = out.get_center()
     return out
 
 

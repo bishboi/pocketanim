@@ -23,6 +23,7 @@ Angles are in radians from straight down, toward the way the figure faces.
 from __future__ import annotations
 
 import math
+import os
 import zlib
 
 import numpy as np
@@ -254,7 +255,8 @@ class Person(VGroup):
         self.add(*self.legs["bl"], *self.legs["bs"], self.shoes["b"], *self.arms["ba"], *self.arms["bf"],
                  self.hands["b"])
         self.add(*self.legs["fl"], *self.legs["fs"], self.shoes["f"])
-        self.add(rigid(_garment(wear, spec, cloth, ink, ow, skin), "torso"))
+        self.torso_m = rigid(_garment(wear, spec, cloth, ink, ow, skin), "torso")
+        self.add(self.torso_m)
         self.neck = Line([0, 0, 0], [0, 0.1, 0], stroke_color=skin, stroke_width=aw)
         self.add(self.neck)
         self.head = Circle(radius=R, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow)
@@ -281,6 +283,16 @@ class Person(VGroup):
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
+
+    @property
+    def core(self):
+        """The figure itself, its head and body (not what it holds out: a sword's tip, a staff), for what it covers."""
+        parts = [x for x in (getattr(self, "torso_m", None), getattr(self, "head", None)) if x is not None]
+        return VGroup(*parts) if parts else self
+
+    def sit_target(self) -> dict:
+        """The pose it sits in (a peg figure has its own)."""
+        return sit_pose(self.seat is not None)
 
     # the body's measures (a country character has its own)
     D = {"HIP": HIP, "TORSO": TORSO, "NECK": NECK, "HEAD": HEAD, "UPPER": UPPER, "FORE": FORE, "THIGH": THIGH,
@@ -1001,8 +1013,180 @@ def _tool(kind: str, ink, ow, k):
     return VGroup(_poly([(-0.01, -0.05), (0.08, -0.05), (0.08, 0.07), (-0.01, 0.07)], "#B83227", ink, ow))  # a book
 
 
+# ---------------------------------------------------------------- the peg figure -------------------------------------
+# The default figure (V3_FIGURE=peg; `style stick` for the jointed one): a peg doll, as history explainers draw
+# people: a big round head over a rounded body, the clothes painted on it, thin ink arms, no legs (it waddles and
+# hops as it walks), the same doodle face and every verb.
+
+FIGURE = os.environ.get("V3_FIGURE", "peg").strip().lower()
+
+
+class Peg(Person):
+    D = {"HIP": 0.03, "TORSO": 0.5, "NECK": 0.0, "HEAD": 0.2, "UPPER": 0.12, "FORE": 0.11, "THIGH": 0.004,
+         "SHIN": 0.004, "FACE_UP": -0.01}
+    face_k = 1.75
+    W = 0.37                                   # the body's width
+    R = 0.205                                  # the head's radius
+
+    def __init__(self, mods: dict | None = None, c=None, size: float = 2.6):
+        VGroup.__init__(self)
+        mods = mods or {}
+        self.mods = mods
+        seed = zlib.crc32(str(mods.get("_name", "")).encode())
+        k = size / 1.8
+        ink = col("ink")
+        self.ow = ow = 2.2 * k
+        old = bool(mods.get("old"))
+        skin = SKIN.get(str(mods.get("skin") or ""), None) or _pick(list(SKIN.values()), seed, "skin")
+        hair_s, _, hair_c = str(mods.get("hair") or _pick(["short", "short", "bob", "curly", "long", "bun", "bald"],
+                                                            seed, "hair")).partition("-")
+        hair = HAIR.get(hair_c) or (HAIR["grey"] if old else _pick([HAIR["black"], HAIR["brown"], HAIR["brown"],
+                                                                     HAIR["blonde"], HAIR["red"]], seed, "hc"))
+        wear = str(mods.get("wear") or "shirt").lower()
+        spec = WEAR.get(wear, WEAR["shirt"])
+        cloth = col(mods.get("color") or c) if (mods.get("color") or c) else (
+            spec["color"] if spec["color"] else col(_pick(["coral", "teal", "navy", "gold", "green", "sky"], seed, "c")))
+        legs = skin if spec["legs"] == "skin" else (col(spec["legs"]) if spec["legs"] else cloth)
+        self.skin, self.cloth = skin, cloth
+        self.rigid = []
+        self.rest = dict(REST)
+        self.rest.update(fa1=0.18, fa2=0.1, ba1=-0.15, ba2=-0.08)
+        self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
+        self.alpha_now = 1.0
+        self.body_w = self.W
+        if old:
+            self.rest["lean"] = 0.08
+
+        def rigid(m, part):
+            for x in m.family_members_with_points():
+                self.rigid.append((x, x.points[:, :2].copy(), part))
+            return m
+
+        self.add(rigid(Ellipse(width=0.46, height=0.06, fill_color=ink, fill_opacity=0.12, stroke_width=0), "ground"))
+        self.seat = None
+        if mods.get("seat"):
+            wood = "#9A6B43"
+            self.seat = rigid(VGroup(
+                _poly([(-0.2, 0.11), (0.2, 0.11), (0.2, 0.15), (-0.2, 0.15)], wood, ink, ow),
+                Line([-0.16, 0.11, 0], [-0.18, 0, 0], stroke_color=ink, stroke_width=ow * 2),
+                Line([0.16, 0.11, 0], [0.18, 0, 0], stroke_color=ink, stroke_width=ow * 2)), "ground")
+            self.add(self.seat)
+        # no legs: the jointed figure's leg lines kept (the walk drives them) but never drawn
+        nothing = lambda: (Line([0, 0, 0], [0, -0.01, 0], stroke_width=0, stroke_opacity=0),)  # noqa: E731
+        self.legs = {n: nothing() for n in ("bl", "bs", "fl", "fs")}
+        aw = 2.8 * k
+        self.arms = {n: (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=aw),) for n in ("ba", "bf", "fa", "ff")}
+        self.hands = {n: rigid(Circle(radius=0.017, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.8),
+                               "hand_" + n) for n in ("b", "f")}
+        self.shoes = {}
+        R = self.R
+        hat = str(mods.get("hat") or "").lower()
+        covered = hat in ("hood", "veil", "headscarf", "turban", "helmet")
+        back, front = _hair(hair_s if not covered else "none", hair, ink, ow, R)
+        hb, hf = _hat(hat, ink, ow, HEAD, cloth)
+        for g in (hb, hf):                      # hats are cut for the jointed figure's head: grown to this one
+            g.scale(R / HEAD, about_point=np.zeros(3))
+        self.hair_back = back
+        self.add(rigid(hb, "head"), rigid(back, "head"))
+        self.add(*self.arms["ba"], *self.arms["bf"], self.hands["b"])
+        self.torso_m = rigid(_peg_body(wear, spec, cloth, legs, ink, ow, skin, self.W, self.D["TORSO"] + 0.08), "torso")
+        self.add(self.torso_m)
+        self.neck = Line([0, 0, 0], [0, 0.1, 0], stroke_width=0, stroke_opacity=0)
+        self.add(self.neck)
+        self.head = Circle(radius=R, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow)
+        self.add(rigid(self.head, "head"))
+        self.add(rigid(front, "head"))
+        if mods.get("beard") or mods.get("longbeard"):
+            self.add(rigid(_beard(hair, ink, ow, R * 0.75, bool(mods.get("longbeard")) or old)
+                           .shift(np.array([0.0, -R * 0.25, 0.0])), "face"))
+        self._build_face(ink, ow, skin, hair, hair_s, mods)
+        self.add(rigid(hf, "head"))
+        self.tool = _tool(str(mods.get("tool") or ("cane" if old else "")).lower(), ink, ow, k)
+        self.add(*self.arms["fa"], *self.arms["ff"])
+        if self.tool is not None:
+            self.add(rigid(self.tool, "hand_f"))
+        self.add(self.hands["f"])
+        self.hand = Dot(radius=0.001).set_opacity(0)
+        self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
+        self.add(self.hand, self._ref)
+        self.pose = dict(self.rest)
+        self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
+        self.set_pose(self.pose)
+
+    hips = ((0.06, 0.0), (-0.06, 0.0))
+    shoulders = ((0.17, -0.13), (-0.17, -0.13))
+
+    def set_pose(self, p: dict) -> None:
+        """As a person's, but with no legs to walk on: the leg swing a walk gives becomes a rock from side to side
+        and a little hop."""
+        swing = p.get("fl1", 0.0) - REST["fl1"]
+        q = dict(p)
+        q["lean"] = p["lean"] + 0.16 * swing
+        q["bob"] = p["bob"] + 0.035 * min(1.0, abs(swing) / 0.42)
+        super().set_pose(q)
+        self.pose = dict(p)
+
+    def sit_target(self) -> dict:
+        q = dict(REST)
+        q.update(drop=-0.12 if self.seat is not None else 0.04, fa1=0.35, fa2=1.0, ba1=0.25, ba2=0.9, lean=-0.04)
+        return q
+
+
+def _peg_body(wear: str, spec: dict, cloth, legs, ink, ow, skin, W: float, H: float) -> VGroup:
+    """A peg figure's body (the hips at 0, its foot a little under): the clothes painted on a rounded block."""
+    from manim import RoundedRectangle
+    y0 = -0.035
+    full = H - y0
+    body = RoundedRectangle(width=W, height=full, corner_radius=W * 0.32, fill_color=cloth, fill_opacity=1,
+                            stroke_width=0).move_to([0, (H + y0) / 2, 0])
+    g = VGroup(body)
+    dark = _shade(cloth, 0.72)
+    line = lambda pts, c=ink, w=ow: _stroke(pts, c, w)  # noqa: E731
+    long_ = wear in ("dress", "gown", "robe", "habit", "toga", "tunic")
+    if not long_ and legs != cloth:             # trousers below the waist
+        band = RoundedRectangle(width=W, height=full * 0.38, corner_radius=W * 0.12, fill_color=legs, fill_opacity=1,
+                                stroke_width=0).move_to([0, y0 + full * 0.19, 0])
+        g.add(band, line([(-W / 2 + 0.01, y0 + full * 0.38), (W / 2 - 0.01, y0 + full * 0.38)], _shade(legs, 0.7), ow * 0.8),
+              line([(0.0, y0 + 0.01), (0.0, y0 + full * 0.3)], _shade(legs, 0.6), ow * 0.6))
+    top = H - 0.02
+    if wear in ("shirt", "suit", "coat", "uniform", "lab", "vest", "overalls", "apron"):
+        g.add(_poly([(-0.07, top), (0.0, top - 0.08), (-0.025, top + 0.005)], "#F7F5F0", ink, ow * 0.6),
+              _poly([(0.07, top), (0.0, top - 0.08), (0.025, top + 0.005)], "#F7F5F0", ink, ow * 0.6))
+    if wear == "suit":
+        g.add(_poly([(0.0, top - 0.07), (0.016, top - 0.1), (0.0, top - 0.24), (-0.016, top - 0.1)], "#B83227", ink, ow * 0.5),
+              line([(-0.07, top), (-0.02, top - 0.2)], dark, ow * 1.2), line([(0.07, top), (0.02, top - 0.2)], dark, ow * 1.2))
+    if wear in ("coat", "uniform", "lab"):
+        g.add(line([(0.0, top - 0.08), (0.0, y0 + full * 0.4)], ink, ow * 0.7))
+        for y in np.linspace(top - 0.12, y0 + full * 0.46, 3):
+            g.add(Dot([0.03, y, 0], radius=0.009, color="#F2C14E" if wear == "uniform" else ink))
+    if wear == "vest" or wear == "overalls":    # straps over the shirt (braces)
+        c_ = "#5B4A3A" if wear == "vest" else "#3E5C82"
+        g.add(line([(-0.09, top + 0.01), (-0.08, y0 + full * 0.38)], c_, ow * 2.2),
+              line([(0.09, top + 0.01), (0.08, y0 + full * 0.38)], c_, ow * 2.2))
+    if wear == "apron":
+        g.add(_poly([(-0.12, top - 0.12), (0.12, top - 0.12), (0.14, y0 + 0.04), (-0.14, y0 + 0.04)], "#F3EEE4", ink, ow * 0.8))
+    if wear in ("tunic", "robe", "habit", "armor", "uniform"):
+        belt = {"habit": "#E2D3B0", "robe": _shade(cloth, 0.6), "armor": "#5B4A3A"}.get(wear, "#4A3A2C")
+        yb = y0 + full * 0.45
+        g.add(_poly([(-W / 2, yb), (W / 2, yb), (W / 2, yb + 0.03), (-W / 2, yb + 0.03)], belt, ink, ow * 0.6))
+    if wear == "toga":
+        g.add(_poly([(-W / 2 + 0.03, top), (-W / 2 + 0.11, top), (W / 2 - 0.02, y0 + 0.12), (W / 2 - 0.07, y0 + 0.05)],
+                    "#B83227", ink, ow * 0.6))
+    if wear == "armor":
+        for y in np.linspace(top - 0.08, y0 + 0.08, 4):
+            g.add(line([(-W / 2 + 0.03, y), (W / 2 - 0.03, y)], ink, ow * 0.6))
+    if wear in ("dress", "gown"):
+        g.add(_poly([(-0.06, top), (0.06, top), (0.0, top - 0.06)], "#F7F5F0", ink, ow * 0.6),
+              line([(-W / 2 + 0.02, y0 + full * 0.55), (W / 2 - 0.02, y0 + full * 0.55)], dark, ow * 1.2))
+    outline = RoundedRectangle(width=W, height=full, corner_radius=W * 0.32, fill_opacity=0, stroke_color=ink,
+                               stroke_width=ow).move_to([0, (H + y0) / 2, 0])
+    g.add(outline)
+    return g
+
+
 def person(mods: dict, size: float, c=None) -> Person:
     size = (size or 2.8) * (0.66 if mods.get("kid") else 1.0)
-    p = Person(mods, c, size)
+    style = str(mods.get("style") or FIGURE).lower()
+    p = (Person if style == "stick" else Peg)(mods, c, size)
     p.scale(size, about_point=np.array([0.0, 0.0, 0.0]))
     return p

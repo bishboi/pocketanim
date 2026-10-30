@@ -98,7 +98,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None,
         "hat": "s", "tool": "s", "seat": None, "face": "s", "wear": "s", "hair": "s", "beard": None,
         "longbeard": None, "mustache": None, "stubble": None, "named": None, "frame": "s", "full": None, "skin": "s", "mood": "s", "old": None, "kid": None,
-        "alive": None, "per": "n", "cols": "i", "lit": "i", "provinces": None}
+        "alive": None, "per": "n", "cols": "i", "lit": "i", "provinces": None, "style": "s"}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")
@@ -218,7 +218,7 @@ KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
          "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
          "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
-         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note"}
+         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note", "eyes"}
 ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
 
 

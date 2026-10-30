@@ -238,7 +238,11 @@ class MoreActs:
     def _more(self, act, t0, t1) -> bool:
         """Plays one of these verbs; False: not one of them."""
         v = act.verb
-        if v == "react":
+        if v in ("emote", "look"):
+            if not isinstance(self.E.get(act.target), Eyes):
+                return False                    # (a person's: render's own)
+            self._eyes(act, t0, t1)
+        elif v == "react":
             self._react(act, t0, t1)
         elif v == "annex":
             self._annex(act, t0, t1)
@@ -251,6 +255,36 @@ class MoreActs:
         else:
             return False
         return True
+
+    # -- eyes -----------------------------------------------------------------------------------------------------
+    def _eyes(self, act, t0, t1) -> None:
+        """`emote E MOOD`: a blink, and it opens in the new mood. `look E at T`: the pupils turn to it."""
+        from render import Call
+        m = self.E[act.target]
+        st = {}
+        if act.verb == "emote":
+            mood = act.args[0] if act.args else "angry"
+
+            def step(a):
+                if a >= 0.5 and not st.get("swapped"):
+                    st["swapped"] = True
+                    m.set_mood(mood, blink=1.0)
+                m._draw(blink=math.sin(math.pi * a))
+            self.tweens.append(Call(t0, max(t1, t0 + 0.45), None, step, None, rate_functions.linear))
+        else:
+            ref = act.args[act.args.index("at") + 1] if "at" in act.args else (act.args[0] if act.args else "")
+
+            def start():
+                goal = self._locate(ref, self.SCORE.ents[act.target].shot)
+                st["g0"], st["g1"] = m.gaze.copy(), (goal - m.get_center())[:2]
+
+            def step(a):
+                d = st["g1"]
+                n = float(np.linalg.norm(d))
+                g1 = d / n * 0.55 if n > 1e-6 else np.zeros(2)
+                m.gaze = st["g0"] + (g1 - st["g0"]) * a
+                m._draw()
+            self.tweens.append(Call(t0, max(t1, t0 + 0.4), start, step, None, rate_functions.smooth))
 
     # -- react ------------------------------------------------------------------------------------------------------
     def _react(self, act, t0, t1) -> None:
@@ -675,3 +709,78 @@ class MoreActs:
             if v == "throw" and abs(st.get("spin", 0.0)) > 1e-4 and thing is not None:
                 thing[1].rotate(-st["spin"])
         self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.linear))
+
+
+# ---------------------------------------------------------------- eyes on a map --------------------------------------
+
+EYE_MOODS = {
+    # brow tilt (+: inner ends down, cross), brow height, pupil size, lids (0 open .. 1 shut), pupils' look
+    "angry": (0.42, 0.0, 0.42, 0.18, (0.0, -0.12)), "furious": (0.6, -0.05, 0.36, 0.3, (0.0, -0.1)),
+    "sad": (-0.4, 0.05, 0.42, 0.35, (0.0, -0.3)), "worried": (-0.3, 0.12, 0.34, 0.0, (0.0, 0.0)),
+    "scared": (-0.25, 0.25, 0.24, 0.0, (0.0, 0.0)), "surprised": (0.0, 0.3, 0.26, 0.0, (0.0, 0.0)),
+    "suspicious": (0.2, -0.02, 0.4, 0.55, (0.35, 0.0)), "smug": (-0.08, 0.06, 0.4, 0.5, (0.2, 0.1)),
+    "happy": (-0.1, 0.16, 0.42, 0.0, (0.0, 0.1)), "calm": (0.0, 0.08, 0.4, 0.15, (0.0, 0.0)),
+    "sleepy": (0.0, 0.02, 0.4, 0.7, (0.0, -0.2)),
+}
+
+
+class Eyes(VGroup):
+    """A pair of big cartoon eyes and brows set on a region of a map (a country glaring at its neighbour): `ent e
+    eyes angry on REGION` (or `at M.place`), `size W` across; `emote E MOOD` changes the look (with a blink),
+    `look E at T` turns the pupils."""
+
+    def __init__(self, mood: str = "angry", w: float = 1.8):
+        super().__init__()
+        ink, white = look.col("ink"), "#FFFFFF"
+        r = w / 4.4
+        self.r, self.w = r, w
+        self.whites = [Circle(radius=r, fill_color=white, fill_opacity=1, stroke_color=ink, stroke_width=r * 9)
+                       .move_to([s_ * r * 1.12, 0, 0]) for s_ in (-1, 1)]
+        self.pupils = [Circle(radius=r * 0.4, fill_color=ink, fill_opacity=1, stroke_width=0) for _ in range(2)]
+        self.lids = [VMobject(fill_color="#E9E2D2", fill_opacity=1, stroke_color=ink, stroke_width=r * 6) for _ in range(2)]
+        self.brows = [Polygon(*[np.zeros(3)] * 4, fill_color=ink, fill_opacity=1, stroke_width=0) for _ in range(2)]
+        self.add(*self.whites, *self.pupils, *self.lids, *self.brows)
+        self.gaze = np.zeros(2)
+        self.mood = None
+        self.set_mood(mood)
+
+    def set_mood(self, mood: str, blink: float = 0.0) -> None:
+        tilt, high, ps, lids, gaze = EYE_MOODS.get(str(mood).lower(), EYE_MOODS["angry"])
+        self.mood, self.cfg = mood, (tilt, high, ps, lids, gaze)
+        self._draw(blink)
+
+    def _draw(self, blink: float = 0.0) -> None:
+        tilt, high, ps, lids, gaze = self.cfg
+        r = self.r
+        for i, s_ in enumerate((-1, 1)):
+            c = self.whites[i].get_center()
+            look_ = np.array([*(np.array(gaze) + self.gaze), 0.0])
+            p = self.pupils[i]
+            p.scale_to_fit_width(2 * r * ps)
+            p.move_to(c + look_ * r * 0.45)
+            shut = max(0.0, min(1.0, max(lids, blink)))
+            # the lid: the top of the eye down to `shut`
+            h = r * (1 - 2 * shut)
+            t0 = math.asin(max(-0.999, min(0.999, h / r)))
+            pts = [c + np.array([r * math.cos(t), r * math.sin(t), 0.0]) for t in np.linspace(t0, math.pi - t0, 16)]
+            lid = self.lids[i]
+            if shut > 0.02:
+                lid.set_points_as_corners([*pts, pts[0]])
+                lid.set_opacity(1)
+            else:
+                lid.set_points_as_corners([c, c + RIGHT * 1e-3, c])
+                lid.set_fill(opacity=0).set_stroke(opacity=0)
+            # the brow: a thick bar over the eye, its inner end down by `tilt`
+            y = c[1] + r * (1.15 + high) - r * 0.25 * shut
+            # the inner end (toward the other eye) down by `tilt` (cross), up when it is negative (sad)
+            a = np.array([c[0] - s_ * r * 0.85, y - tilt * r * 0.4, 0.0])
+            b = np.array([c[0] + s_ * r * 1.0, y + tilt * r * 0.4, 0.0])
+            th = r * 0.32
+            n = np.array([0.0, th / 2, 0.0])
+            self.brows[i].set_points_as_corners([a - n, b - n, b + n, a + n, a - n])
+
+    def look_toward(self, d) -> None:
+        v = np.array(d[:2], dtype=float)
+        n = float(np.linalg.norm(v))
+        self.gaze = v / n * 0.55 if n > 1e-6 else np.zeros(2)
+        self._draw()

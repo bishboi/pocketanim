@@ -429,6 +429,11 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                             continue
                         ma, mb = self.E[a.name], self.E[b.name]
                         box = lambda m: (m.get_left()[0], m.get_bottom()[1], m.get_right()[0], m.get_top()[1])  # noqa: E731
+                        if self._figure(a) and self._figure(b):
+                            # two figures: what they are, not what they hold out (a sword's tip over a neighbour)
+                            fa, fb = getattr(ma, "core", ma), getattr(mb, "core", mb)
+                            if self._apart(fa, fb, False, False) is None:
+                                continue
                         # a holder holds what is set on it, but not over its words (a picture on a card's title)
                         push = self._apart(ma, mb, self._holder(a) and not self.on_words(ma, box(mb)),
                                            self._holder(b) and not self.on_words(mb, box(ma)))
@@ -437,7 +442,11 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                         group = [self.E[b.name]] + [self.E[x.name] for x in riders[b.name]]
                         before = self.E[b.name].get_center().copy()
                         # the shortest way out that stays on the screen (no room above a card: beside it, or below)
-                        for way in self._ways_out(ma, mb, push):
+                        ways = self._ways_out(ma, mb, push)
+                        if self._figure(b):             # a figure stands on the ground: moved along it, never up
+                            ways = [w for w in ways if abs(w[1]) < 1e-9] or ways
+                            push = ways[0]
+                        for way in ways:
                             mb.move_to(before + way)
                             self._on_screen(mb, shot)
                             if self._apart(ma, mb, False, False) is None:
@@ -622,7 +631,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
             m.rotate(math.radians(float(e.mods["rot"])))
         if self.texture and e.kind in ("arrow", "path"):
             feel.wobbled(m, 0.028, e.name)          # a line drawn by hand
-        on_map = e.kind in ON_PARENT        # drawn where it stands on its map, timeline or picture
+        # drawn where it stands on its map, timeline or picture (eyes set on a region too)
+        on_map = e.kind in ON_PARENT or (e.kind == "eyes" and bool(e.mods.get("on")))
         if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather", "march") and not on_map
                 and (m.width > 12 or m.height > 7)):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
@@ -809,7 +819,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
-        if v in acts.RUN and self._more(act, t0, t1):
+        if (v in acts.RUN or v in ("emote", "look")) and self._more(act, t0, t1):
             return
         if v == "in" and how == "speak" and any(self._kind(n) not in ("phrase", "text", "label", "tag", "title", "quote")
                                                 for n, _ in self._targets(act.target)):
@@ -1958,7 +1968,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                     ang = m.fallen * (1 - min(1.0, a * 1.5))
                     m.rotate(ang - m.fallen, about_point=m.feet())
                     m.fallen = ang
-                target = P.sit_pose(m.seat is not None) if v == "sit" else dict(m.rest)
+                target = m.sit_target() if v == "sit" else dict(m.rest)
                 target["face"], target["mouth"] = st["p0"]["face"], st["p0"]["mouth"]
                 if v == "stand" and getattr(m, "carrying", False):
                     target.update({k: P.carry_pose()[k] for k in arms})
@@ -2106,9 +2116,23 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
 
     def _blinks(self) -> None:
-        """Every person blinks now and then (each on its own rhythm), while it is up."""
+        """Every person blinks now and then (each on its own rhythm), while it is up; eyes on a map too."""
         import people as P
         for name, m in self.E.items():
+            if isinstance(m, acts.Eyes):
+                seed = feel.seed(name)
+                period, shift = 3.4 + (seed % 17) / 10, (seed % 7) * 0.37
+
+                def blink(_a, m=m, period=period, shift=shift):
+                    if id(m) not in self.up:
+                        return
+                    ph = (self.clock + shift) % period
+                    b = max(0.0, 1 - abs(ph - 0.08) / 0.08) if ph < 0.16 else 0.0
+                    if b > 0 or getattr(m, "_blinked", False):
+                        m._draw(blink=b)
+                        m._blinked = b > 0
+                self.tweens.append(Call(0.0, self.SCORE.end + TAIL, None, blink, None, rate_functions.linear))
+                continue
             if not isinstance(m, P.Person):
                 continue
             seed = feel.seed(name)
@@ -2242,7 +2266,9 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                 refs += list(e.args)
             for ref in refs:
                 base = ref.split(".", 1)[0] if isinstance(ref, str) else None
-                if base in maps and (ref == base and e.kind in ON_PARENT + ("march",) or "." in ref):
+                if base in sc.ents and sc.ents[base].kind in ("region", "shade") and e.kind == "eyes":
+                    base = ref = sc.ents[base].mods.get("on") or sc.ents[base].mods.get("map")   # eyes on a region
+                if base in maps and (ref == base and e.kind in ON_PARENT + ("march", "eyes") or "." in ref):
                     self.kids[base].append(n)
                     break
         self.map_at = {n: self._map_frame(n) for n in maps}

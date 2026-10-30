@@ -94,6 +94,10 @@ KIT = {
   pin "PLACE" on M     a town marked, its name beside (`side left`)  |  river "NAME" on M
   shade "WHAT" on M K:V ...   countries coloured by a value, with a key (a choropleth)
   march M.a M.b M.c [width W]   a thick arrow swelling along a route (armies, migrations, trade winds)
+  eyes MOOD on REGION   big cartoon eyes on a region of the map (a state or country glaring at its rival): angry,
+               furious, sad, worried, scared, surprised, suspicious, smug, happy, calm, sleepy; `emote E MOOD` (a
+               blink into the new look), `look E at OTHER`. Two rivals: a region each, eyes on both, looking at each
+               other. `size W` across (else fitted to the region)
   annex A B    B goes over to A (a war won, a land annexed, a vote flipped): B takes A's colour, its border flares;
                A and B regions (or B a region not yet shown: it comes on in A's colour). A front line that moves:
                two paths, then `morph LINE1 LINE2`
@@ -177,8 +181,10 @@ KIT = {
   `mood FACE` on the ent line is how it looks to begin with). FACES: happy calm joy laugh excited playful proud smug
   cool sad crying angry furious annoyed suspicious surprised shocked scared worried nervous embarrassed confused
   think dazed pained sleepy disgusted. Faces carry the story: emote on the word that turns the feeling.
-  People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart. Never put a person at
-  a map's place (they stand taller than a country): mark places on maps with pins.
+  People act out what the voice says: 1-3 a shot, feet at y about -2.9, at least 2 apart. They are peg figures (a big
+  round head on a rounded body, the clothes painted on: dress them for who they are). ON A MAP small figures (size
+  0.9-1.4) may stand at places (`at M.place`: feet there) to show who was where: protesters in the North, a king in
+  his capital, traders at a port; they move with the map. Mark a mere place with a pin.
   nation NAME [year Y] [color C] [mood FACE] [named] [size H] [face left]   a COUNTRY AS A CHARACTER: its real shape
                for a body, stick legs and arms, a face; every verb above works (walk, talk, point, emote, shiver,
                hug...). For history told as countries' relations (a big power leaning on a small one, two rivals
@@ -192,7 +198,8 @@ KIT = {
 }
 KIT_WORDS = {
     "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast|march|migrat|globe|earth's|layers|literacy|rate in|"
-           r"annex|conquer|seiz|sail|voyage|front line|province|territor",
+           r"annex|conquer|seiz|sail|voyage|front line|province|territor|rival|tension|north|south|"
+           r"state[s]?\b|glar|angry|feud",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
     "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million|"
              r"isotype|out of|in every|\bone in\b|thousand",
@@ -253,6 +260,7 @@ parts named), numberline, plot (a graph of a function), triangle, molecule, equa
 through years), parliament, market (supply and demand), climate, quiz (ask the viewer, then reveal), lens (a detail
 magnified), split (two halves), clock, odometer, clipping (a newspaper), who (a person brought in), polaroids, shade (a
 map coloured by value), march (an army or migration arrow), inset, globe, layers, annex (land changing hands),
+eyes (a region of a map with a face: rivals glaring), people on a map (small figures at their places),
 travel (a ship, cart or train along a route), isotype (a picture row: "1 in 4"), people (stick figures who walk,
 point, talk, carry things, give, argue, shake hands: acting out what is said; countries as characters; a thing come
 alive with a face and legs).

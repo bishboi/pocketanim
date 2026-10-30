@@ -232,6 +232,15 @@ def _province_names(p: dict) -> set[str]:
 
 
 @lru_cache(None)
+def admin_of(name: str) -> str:
+    """A country's name as the states-and-provinces layer gives it (ADMIN: "United States of America")."""
+    for p, _ in _layer(countries_layer()):
+        if name in (p.get("NAME"), p.get("NAME_LONG"), p.get("ADMIN")):
+            return str(p.get("ADMIN") or name)
+    return name
+
+
+@lru_cache(None)
 def _view_country(admin: str):
     """A country's whole shape in the map view (None: not in the layer)."""
     for p, g in _layer(countries_layer()):

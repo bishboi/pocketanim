@@ -469,7 +469,8 @@ def script_prompt(pages: str, videos: int, seconds: int, notes: str = "", langua
 # A book's pages as one long video (books.py), written in two steps so it really is long: its chapters planned in
 # one call, then each chapter written in its own (all at once), told how long it is and what comes either side.
 VIDEO_MINUTES = float(__import__("os").environ.get("V3_VIDEO_MINUTES", "20"))
-WORDS_A_MINUTE = 140                            # a narrator's pace, the pauses between lines in it
+WORDS_A_MINUTE = 125                            # the narrator's pace with the pauses between lines (a 20-minute
+                                                # script measured 1359 s at 140: about 125 a minute)
 
 OUTLINE = """You are a great teacher planning ONE long animated explainer (a documentary of about MINUTES minutes)
 from pages of a book. Plan its chapters; write only this, nothing else:

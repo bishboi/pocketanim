@@ -281,9 +281,11 @@ class Person(VGroup):
             self.add(rigid(self.tool, "hand_f"))
         self.add(self.hands["f"])
         self.hand = Dot(radius=0.001).set_opacity(0)
+        self.hand_b = Dot(radius=0.001).set_opacity(0)      # the other hand (for a second thing held)
+        self.offhand_m = None
         # Where the figure's own coordinates are now (carried along as it is moved, scaled or turned).
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
-        self.add(self.hand, self._ref)
+        self.add(self.hand, self.hand_b, self._ref)
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
@@ -553,6 +555,7 @@ class Person(VGroup):
             x.points = o + np.outer(body[:, 0], ex) + np.outer(body[:, 1] - 0.5, ey)
         self._pose_face(p, o, ex, ey, face, f, turn)
         self.hand.move_to(W(fh))
+        self.hand_b.move_to(W(bh))
 
 
 class Nation(Person):
@@ -655,8 +658,10 @@ class Nation(Person):
             t = label(str(words), 0.05, "ink").move_to([0.0, -self.D["HIP"] - 0.05, 0])
             self.add(rigid(t, "body"))          # (never turned over: it reads as it faces either way)
         self.hand = Dot(radius=0.001).set_opacity(0)
+        self.hand_b = Dot(radius=0.001).set_opacity(0)
+        self.offhand_m = getattr(self, "offhand_m", None)
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
-        self.add(self.hand, self._ref)
+        self.add(self.hand, self.hand_b, self._ref)
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)
@@ -1144,9 +1149,12 @@ class Peg(Person):
         self.add(self.hands["f"])
         if held is not None:                    # a shield (in the far hand, carried over the body: in front)
             self.add(self.hands["b"], rigid(held, "hand_b"))
+        self.offhand_m = held
         self.hand = Dot(radius=0.001).set_opacity(0)
+        self.hand_b = Dot(radius=0.001).set_opacity(0)
+        self.offhand_m = getattr(self, "offhand_m", None)
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
-        self.add(self.hand, self._ref)
+        self.add(self.hand, self.hand_b, self._ref)
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)

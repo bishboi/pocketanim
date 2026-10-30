@@ -68,8 +68,51 @@ def verb_for(prop_name: str) -> str:
     return USES.get(prop_name, "pickup")
 
 
+SWAP = {"fa1": "ba1", "fa2": "ba2", "ba1": "fa1", "ba2": "fa2"}
+HOLDS = ("pickup", "wear", "holdup", "read", "phone", "eat", "drink", "sweep")
+
+
 class UseActs:
     """The scene's verbs for a person using a thing (render.ScoreScene mixes this in)."""
+
+    # -- which hand -------------------------------------------------------------------------------------------------
+    def _holder_of(self, pm, xm):
+        """The hand that holds this thing now (None: not held)."""
+        return next((r[1] for r in self.follows if r[0] is xm and r[1] in (pm.hand, getattr(pm, "hand_b", None))), None)
+
+    def _grip(self, pm, xm=None):
+        """The hand a thing goes into: the one already holding it; else the right, unless the right is busy (a
+        sword, a staff, a thing already in it), then the left (a shield there is put away while it holds)."""
+        if xm is not None:
+            h = self._holder_of(pm, xm)
+            if h is not None:
+                return h
+        back = getattr(pm, "hand_b", None)
+        if back is None or back is pm.hand:
+            return pm.hand
+        front_busy = getattr(pm, "tool", None) is not None or any(r[1] is pm.hand for r in self.follows)
+        back_busy = any(r[1] is back for r in self.follows)
+        return back if front_busy and not back_busy else pm.hand
+
+    def _use_hand(self, pm, hand):
+        """From now on the arm moves as that hand's; the left hand's shield is stowed while it holds something."""
+        left = hand is getattr(pm, "hand_b", None) and hand is not pm.hand
+        pm._left = left
+        off = getattr(pm, "offhand_m", None)
+        if off is not None and left and not getattr(pm, "_stowed", None):
+            pm._stowed = [(x, x.get_fill_opacity(), x.get_stroke_opacity()) for x in off.family_members_with_points()]
+            for x, _, _ in pm._stowed:
+                x.set_fill(opacity=0, family=False)
+                x.set_stroke(opacity=0, family=False)
+
+    def _free_hand(self, pm, hand):
+        """A hand let go: the left's shield back in it, the arms the right's again."""
+        if hand is getattr(pm, "hand_b", None) and hand is not pm.hand:
+            pm._left = False
+            for x, fo, so in getattr(pm, "_stowed", None) or []:
+                x.set_fill(opacity=fo, family=False)
+                x.set_stroke(opacity=so, family=False)
+            pm._stowed = None
 
     # -- small helpers ----------------------------------------------------------------------------------------------
     @staticmethod
@@ -83,6 +126,9 @@ class UseActs:
 
     @staticmethod
     def _blend(pm, p0, target: dict, k: float):
+        if getattr(pm, "_left", False):         # holding with the other hand: its arm does what the right would;
+            # the right arm, busy with its own (a sword), stays as it is
+            target = {SWAP.get(key, key): v for key, v in target.items() if key not in ("ba1", "ba2")}
         p = dict(pm.pose)
         for key, v in target.items():
             p[key] = p0.get(key, v) + (v - p0.get(key, v)) * k
@@ -188,11 +234,15 @@ class UseActs:
         dur = max(t1 - t0, 0.3)
         st = {}
         f = lambda: pm.facing()  # noqa: E731
+        hp = lambda: st.get("grip", pm.hand)  # noqa: E731  (the hand at work: the right, or the left if it is busy)
         u = pm.unit
         arms = ("fa1", "fa2", "ba1", "ba2")
 
         def start():
             st["p0"] = dict(pm.pose)
+            if xm is not None and v in HOLDS:
+                st["grip"] = self._grip(pm, xm)
+                self._use_hand(pm, st["grip"])
             if xm is not None and v not in ("enter", "exit", "climb", "type", "hammer", "count", "vote", "ring",
                                              "stir", "write", "put", "drop"):
                 self._up(xn, xm)
@@ -203,7 +253,7 @@ class UseActs:
 
         def to_hand(k, lift=0.4):
             """The thing from where it was into the hand, then kept there."""
-            goal = pm.hand.get_center() + UP * xm.height * lift
+            goal = hp().get_center() + UP * xm.height * lift
             self._in_front(xm, pm)
             if k < 1:
                 xm.move_to(self._arc(st["x0"], goal, k, 0.12 * u()))
@@ -235,7 +285,7 @@ class UseActs:
                 if st.get("pop", 1.0) != 1.0:
                     xm.scale(1.0 / st["pop"])
                 pm.carrying = True
-                self._keep(xm, pm.hand)
+                self._keep(xm, hp())
         elif v in ("put", "drop"):
             dest_ent = self.E.get(on) if on else None
 
@@ -243,7 +293,10 @@ class UseActs:
                 st["p0"] = dict(pm.pose)
                 held = xm
                 if held is None:
-                    held = next((r[0] for r in self.follows if r[1] is pm.hand), None)
+                    held = next((r[0] for r in self.follows if r[1] in (pm.hand, getattr(pm, "hand_b", None))), None)
+                if held is not None:
+                    st["grip"] = self._holder_of(pm, held) or pm.hand
+                    self._use_hand(pm, st["grip"])
                 if held is None:
                     raise ValueError(f"{v}: {pn} holds nothing")
                 st["held"] = held
@@ -272,7 +325,7 @@ class UseActs:
                         st["goal"] = np.array([pm.feet()[0] + f() * 0.45 * u(), pm.feet()[1] + held.height / 2, 0])
                 k = self._approach(pm, dest_ent if dest_ent is not None else held, st, a, 0.4 if dest_ent is not None else 0.0)
                 if k <= 0:                      # carried along as it walks
-                    held.move_to(pm.hand.get_center() + UP * held.height * 0.4)
+                    held.move_to(hp().get_center() + UP * held.height * 0.4)
                     st["x0"] = held.get_center().copy()
                     return
                 reach = math.sin(math.pi * k)
@@ -291,13 +344,14 @@ class UseActs:
             def stop():
                 if st.get("sq", 1.0) != 1.0:
                     st["held"].stretch(1.0 / st["sq"], 1, about_point=st["held"].get_bottom())
-                pm.carrying = False
+                self._free_hand(pm, hp())
+                pm.carrying = any(r[1] in (pm.hand, getattr(pm, "hand_b", None)) for r in self.follows)
         elif v == "wear":
             def step(a):
                 top = pm.head.get_top() + UP * xm.height * 0.28
                 if a < 0.45:
                     k = rate_functions.ease_in_out_sine(a / 0.45)
-                    goal = pm.hand.get_center() + UP * xm.height * 0.5
+                    goal = hp().get_center() + UP * xm.height * 0.5
                     xm.move_to(st["x0"] + (goal - st["x0"]) * k)
                     self._blend(pm, st["p0"], {"fa1": 1.2, "fa2": 1.8}, k)
                 else:
@@ -311,16 +365,17 @@ class UseActs:
 
             def stop():
                 self._keep(xm, pm.head)
+                self._free_hand(pm, hp())
         elif v == "holdup":
             def step(a):
                 k = rate_functions.ease_out_back(min(1.0, a / 0.6)) if a < 0.6 else 1.0
                 self._blend(pm, st["p0"], {"fa1": 2.75, "fa2": 2.95, "ba1": 2.6, "ba2": 2.9, "smile": 1.0, "joy": 0.8,
                                            "bob": 0.02 * abs(math.sin(a * dur * 6))}, min(1.0, k))
-                goal = pm.hand.get_center() + UP * xm.height * 0.5
+                goal = hp().get_center() + UP * xm.height * 0.5
                 xm.move_to(st["x0"] + (goal - st["x0"]) * min(1.0, a / 0.5))
 
             def stop():
-                self._keep(xm, pm.hand)
+                self._keep(xm, hp())
         elif v in ("read", "phone", "eat", "drink"):
             def step(a):
                 tt = a * dur
@@ -328,11 +383,11 @@ class UseActs:
                 k = k * k * (3 - 2 * k)
                 out = max(0.0, min(1.0, (a - 0.8) / 0.2))       # the last of it: arms down, face back to itself
                 out = out * out * (3 - 2 * out)
-                held = pm.hand.get_center() + UP * xm.height * 0.4
+                held = hp().get_center() + UP * xm.height * 0.4
                 if v == "read":                 # held before the eyes, the eyes running along its lines
                     tgt = {"fa1": 1.25, "fa2": 2.3, "ba1": 1.15, "ba2": 2.2, "nod": 0.12, "gaze": -0.5,
                            "side": 0.8 * math.sin(tt * 3.2), "smile": 0.2}
-                    goal = pm.hand.get_center() + UP * xm.height * 0.45
+                    goal = hp().get_center() + UP * xm.height * 0.45
                 elif v == "phone":              # at the ear, talking
                     tgt = {"fa1": 0.55, "fa2": 2.75, "mouth": 0.5 + 0.5 * math.sin(tt * 11) * math.sin(tt * 3.7),
                            "side": 0.4}
@@ -342,7 +397,7 @@ class UseActs:
                     tgt = {"fa1": 0.7 + 0.9 * bite, "fa2": 1.5 + 1.3 * bite, "mouth": 0.6 * bite, "joy": 0.5}
                     R = pm.head.width / 2
                     mouth = pm.head.get_center() + RIGHT * f() * R * 0.7 + DOWN * R * 0.35
-                    hand = pm.hand.get_center() + UP * xm.height * 0.3
+                    hand = hp().get_center() + UP * xm.height * 0.3
                     goal = hand + (mouth - hand) * 0.75 * bite
                     n = int(tt * 3.6 / (2 * math.pi) + 0.25)
                     if n > st.get("bites", 0) and a < 0.85:
@@ -355,7 +410,7 @@ class UseActs:
                     tgt = {"fa1": 0.8 + 1.0 * lift, "fa2": 1.6 + 1.2 * lift, "nod": -0.18 * lift, "lids": 0.6 * lift}
                     R = pm.head.width / 2
                     lips = pm.head.get_center() + RIGHT * f() * R * 0.75 + DOWN * R * 0.35
-                    hand = pm.hand.get_center() + UP * xm.height * 0.3
+                    hand = hp().get_center() + UP * xm.height * 0.3
                     goal = hand + (lips - hand) * 0.8 * lift
                     tilt = -f() * 0.9 * lift
                     xm.rotate(tilt - st.get("tilt", 0.0))
@@ -369,9 +424,10 @@ class UseActs:
             def stop():
                 if v == "eat":
                     self._let_go(xm)
+                    self._free_hand(pm, hp())
                 else:
                     pm.carrying = True
-                    self._keep(xm, pm.hand)
+                    self._keep(xm, hp())
         elif v == "sweep":                      # the broom in both hands, swept to and fro along the ground
             def step(a):
                 tt = a * dur
@@ -384,10 +440,10 @@ class UseActs:
                 st["ang"] = ang
                 o, ex, ey = xm._frame() if hasattr(xm, "_frame") else (xm.get_center(), RIGHT, UP)
                 grip = o + 0.7 * ey
-                xm.shift(pm.hand.get_center() - grip)
+                xm.shift(hp().get_center() - grip)
 
             def stop():
-                self._keep(xm, pm.hand)
+                self._keep(xm, hp())
         elif v in ("type", "hammer", "count", "vote", "ring", "stir", "write"):
             def step(a):
                 tt = a * dur
@@ -439,7 +495,7 @@ class UseActs:
                     lift = min(1.0, k / 0.5)
                     pose = {"fa1": base + 0.5 * lift, "fa2": base + 0.6 * lift, "smile": 0.6}
                     if k < 0.55:
-                        slip.move_to(pm.hand.get_center() + UP * slip.height * 0.4)
+                        slip.move_to(hp().get_center() + UP * slip.height * 0.4)
                     else:
                         kk = min(1.0, (k - 0.55) / 0.35)
                         slip.move_to(xm.get_top() + UP * slip.height * (0.5 - 0.9 * kk))
@@ -540,12 +596,17 @@ class UseActs:
         if step is None:
             raise ValueError(f"no way to {v} {xn}")
         # what is not yet in its hands is fetched first: walked to, bent for, picked up (then the action itself)
-        held = any(r[0] is xm and r[1] is pm.hand for r in self.follows) if xm is not None else True
-        if v in ("read", "phone", "eat", "drink", "wear", "holdup", "sweep") and not held:
+        if v in ("read", "phone", "eat", "drink", "wear", "holdup", "sweep") and xm is not None:
             F = 0.4
             act_step, act_start = step, start
 
+            def start():                        # (in hand already, as it starts: no fetching)
+                st["fetch"] = self._holder_of(pm, xm) is None
+                act_start()
+
             def step(a):
+                if not st["fetch"]:
+                    return act_step(a)
                 if a < F:
                     k = self._approach(pm, xm, st, a / F, 0.5)
                     if k <= 0:
@@ -556,7 +617,7 @@ class UseActs:
                         if "g0" not in st:
                             st["g0"] = xm.get_center().copy()
                         kk = rate_functions.ease_in_out_sine(min(1.0, (k - 0.35) / 0.4))
-                        goal = pm.hand.get_center() + UP * xm.height * 0.4
+                        goal = hp().get_center() + UP * xm.height * 0.4
                         self._in_front(xm, pm)
                         xm.move_to(self._arc(st["g0"], goal, kk, 0.12 * u()))
                     return
@@ -568,7 +629,6 @@ class UseActs:
                     st["p0"] = dict(pm.pose)
                     st["x0"] = xm.get_center().copy()
                 act_step((a - F) / (1 - F))
-            start = act_start
         self.tweens.append(Call(t0, t1, start, step, stop or (lambda: None), rate_functions.linear))
 
     def _do(self, act):

@@ -2383,14 +2383,17 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 self._show(tn, tm)
                 self._alpha(tm).set(1.0)
             st["at"] = tm.get_center().copy()
+            st["hand"] = self._grip(m, tm)       # the right hand, or the left if the right is busy (a sword)
+            self._use_hand(m, st["hand"])
+            self._in_front(tm, m)
 
         def step(a):
-            goal = m.hand.get_center() + UP * tm.height * 0.4
+            goal = st["hand"].get_center() + UP * tm.height * 0.4
             p = st["at"] + (goal - st["at"]) * a
             tm.shift(p - tm.get_center())
 
         def stop():
-            self.follows.append([tm, m.hand, m.hand.get_center().copy(), None])
+            self._keep(tm, st["hand"])
         self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.ease_in_out_sine))
 
     def _talk_bubble(self, name, m, words, t0, t1) -> None:

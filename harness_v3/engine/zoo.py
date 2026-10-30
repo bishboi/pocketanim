@@ -715,6 +715,7 @@ class Animal(P.Person):
         self.hand = Dot(radius=0.001).set_opacity(0)
         self._ref = VGroup(*(Dot([x, y, 0], radius=0.001).set_opacity(0) for x, y in ((0, 0.5), (0.1, 0.5), (0, 0.6))))
         self.add(self.neck, self.hand, self._ref)
+        self.hand_b, self.offhand_m = self.hand, None
         self.pose = dict(self.rest)
         self.pose["face"] = -1.0 if mods.get("face") == "left" else 1.0
         self.set_pose(self.pose)

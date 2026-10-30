@@ -533,8 +533,10 @@ class MoreActs:
                 if id(self.E[tn]) not in self.up:
                     self._show(tn, tm)
                     self._alpha(tm).set(1.0)
-                    tm.move_to(am.hand.get_center() + UP * tm.height * 0.4)
+                    tm.move_to(self._grip(am, tm).get_center() + UP * tm.height * 0.4)
                 st["t0"] = tm.get_center().copy()
+                st["hand_a"] = self._holder_of(am, tm) or self._grip(am, tm)     # the hand it goes from
+                self._use_hand(am, st["hand_a"])
                 # whatever was keeping it in A's hands lets go: it is passed on
                 self.follows[:] = [r for r in self.follows if r[0] is not tm]
             if v == "tug":
@@ -562,8 +564,10 @@ class MoreActs:
                                       ("fa1", "fa2", "smile", "joy"), reach))
                 if thing is not None:
                     tn, tm = thing
-                    hand_a = am.hand.get_center() + UP * tm.height * 0.4
-                    goal = (bm.hand.get_center() if b_person else bm.get_top()) + UP * tm.height * 0.4
+                    hand_a = st["hand_a"].get_center() + UP * tm.height * 0.4
+                    if b_person and "hand_b" not in st:
+                        st["hand_b"] = self._grip(bm, tm)
+                    goal = (st["hand_b"].get_center() if b_person else bm.get_top()) + UP * tm.height * 0.4
                     h = max(0.0, min(1.0, (a - 0.45) / 0.35))
                     pos = (hand_a if a < 0.45 else hand_a + (goal - hand_a) * rate_functions.smooth(h)) + UP * 0.3 * math.sin(math.pi * h)
                     tm.move_to(pos)
@@ -584,7 +588,7 @@ class MoreActs:
                 if thing is not None:
                     tn, tm = thing
                     if a < 0.42:
-                        tm.move_to(am.hand.get_center() + UP * tm.height * 0.3)
+                        tm.move_to(st["hand_a"].get_center() + UP * tm.height * 0.3)
                         st["from"] = tm.get_center().copy()
                     else:
                         h = min(1.0, (a - 0.42) / 0.45)
@@ -700,12 +704,16 @@ class MoreActs:
                                                                          "fl2", "bl1", "bl2", "mouth")}})
             if thing is not None and v in ("give", "throw"):
                 tn, tm = thing
-                if b_person:                    # it stays in B's hands
-                    self.follows.append([tm, bm.hand, bm.hand.get_center().copy(), None])
+                if b_person:                    # it stays in B's hands (a free one)
+                    hb = st.get("hand_b") or self._grip(bm, tm)
+                    self._use_hand(bm, hb)
+                    self.follows.append([tm, hb, hb.get_center().copy(), None])
                     bm.carrying = True
                     bm.set_pose({**bm.pose, **{k_: P.carry_pose()[k_] for k_ in ("fa1", "fa2", "ba1", "ba2")}})
-                    tm.move_to(bm.hand.get_center() + UP * tm.height * 0.4)
-                am.carrying = False
+                    tm.move_to(hb.get_center() + UP * tm.height * 0.4)
+                if st.get("hand_a") is not None:
+                    self._free_hand(am, st["hand_a"])
+                am.carrying = any(r[1] in (am.hand, getattr(am, "hand_b", None)) for r in self.follows)
             if v == "throw" and abs(st.get("spin", 0.0)) > 1e-4 and thing is not None:
                 thing[1].rotate(-st["spin"])
         self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.linear))

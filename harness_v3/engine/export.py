@@ -94,11 +94,17 @@ def chunk(data: Path, out: Path, f0: int, f1: int, quality: str) -> None:
         raise RuntimeError("ffmpeg could not encode the player's frames")
 
 
+def meta(data: Path) -> dict:
+    """The video's frames, rate, size and soundtrack: a long video's parts.json, else its timeline.json."""
+    p = data / "parts.json"
+    return json.loads((p if p.exists() else data / "timeline.json").read_text())
+
+
 def stills(data: Path, shots: dict, width: int = 640) -> None:
     """Frames of the player at given seconds, as JPEGs ({seconds: path}): what the critic looks at when there is no
     MP4."""
     from playwright.sync_api import sync_playwright
-    tl = json.loads((data / "timeline.json").read_text())
+    tl = meta(data)
     w, h = width, round(width * tl["size"][1] / tl["size"][0])
     srv, port = serve(data)
     try:
@@ -117,7 +123,7 @@ def stills(data: Path, shots: dict, width: int = 640) -> None:
 
 
 def export(data: Path, out: Path, quality: str = "m", jobs: int | None = None) -> None:
-    tl = json.loads((data / "timeline.json").read_text())
+    tl = meta(data)
     w, h, fps = RES[quality]
     total = int(round(tl["frames"] * fps / tl["fps"]))
     jobs = max(1, min(jobs or max(1, min(8, (os.cpu_count() or 2) // 2)), max(1, total // (fps * 5))))

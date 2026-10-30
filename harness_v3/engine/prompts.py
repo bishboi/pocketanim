@@ -56,7 +56,8 @@ TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (ov
   paper, a fast swing: for a change of chapter) | cam SHOT via dive into M.place (into a pin or a picture, which
   opens on the next shot)
   bring T to SHOT [X,Y] (at the camera's move: T rides along into the next shot and stays; one thread carried on)
-  chapter "TITLE" (on a chapter's first word: the bar along the bottom names it; 3-6 a video)
+  chapter "TITLE" (on a chapter's first word: the bar along the bottom names it; 3-6 a short video, one every few
+  minutes of a long one; when the plan says `chapter: TITLE`, on the shot's first word)
 TARGET: NAME, NAME[2], NAME[0:3], A,B,C, or a named part of a piece (soc.nobles, fl.market).
 RULES
 - Every action is one line that starts with its time, then the verb, then the thing: `w12 in seal pop`,
@@ -262,9 +263,38 @@ narration with every word numbered and timed, and what the shot before left up. 
 lines: its `shot` line, its `ent` lines, then its actions in time order."""
 
 
-def storyboard_prompt(words: list[dict]) -> tuple[str, str]:
+def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[str] | None = None,
+                      before: str = "") -> tuple[str, str]:
+    """The storyboard call: the whole narration, or (a long video) one part of it, told where it stands, what came
+    just before, and the cast already made for the whole video."""
     said = " ".join(f"w{w['i']}:{w['w']}" for w in words)
-    return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
+    if not part:
+        return STORYBOARD, f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
+    user = (f"This is PART {part['k'] + 1} of {part['n']} of a long video (about {part['minutes']:.0f} minutes in all; "
+            f"this part about {part['seconds'] / 60:.1f} minutes). Storyboard only this part's words, w{words[0]['i']} "
+            f"to w{words[-1]['i']}, every one of them.\n"
+            + (f"JUST BEFORE THIS PART, THE VOICE SAID: \"{before}\"\n" if before else "")
+            + ("THE CAST (made once for the whole video: use these characters by name in the plans; write no cast "
+               "lines):\n" + "\n".join(cast) + "\n" if cast else "")
+            + "When this part opens a new chapter of the story, its first shot's plan says `chapter: TITLE`.\n"
+            + f"NARRATION: {said}\n\nWrite this part's shots, one line each.")
+    return STORYBOARD, user
+
+
+CAST = """You plan the recurring characters of a long animated explainer. Read the whole narration and list each
+character who comes back again and again (a person, a country acting as a character, an object that comes alive), so
+it looks the same every time. One line each, nothing else:
+cast NAME person [wear habit|gown|coat|suit|armor|tunic|robe|dress|uniform|lab|apron|toga|shirt] [hat H] [hair H]
+     [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark] [tool T] [old|kid] [mood FACE]
+cast NAME nation COUNTRY [color C] [mood FACE] [named]
+cast NAME pic "WHAT, a cut-out object" alive [mood FACE]
+NAME is one short lowercase word (gutenberg, monk, prussia, coin). At most 8 characters; none at all is fine
+(answer `none`)."""
+
+
+def cast_prompt(words: list[dict]) -> tuple[str, str]:
+    said = " ".join(w["w"] for w in words)
+    return CAST, f"NARRATION: {said}\n\nWrite the cast lines."
 
 
 CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic)\b.*?)[`\s]*$", re.I)
@@ -382,9 +412,24 @@ HOW A GREAT TEACHER TELLS IT:
   as imagined ("imagine...")."""
 
 
+LONG = """
+A LONG VIDEO (this one runs MINUTES minutes): tell it as a documentary in CHAPTERS, not as one long lesson.
+- Open with a hook in the first 20 seconds: a scene, a puzzle or a surprising number, and the big question.
+- 5-10 chapters of 2-4 minutes, each with its own small question, built on the one before. Start each chapter with
+  a line that names where we are going ("Now, the money."), so the viewer always knows.
+- A few recurring characters (people, a country, an object) carry the story from chapter to chapter: name them the
+  same way every time.
+- Every 3-4 minutes, one sentence that sums up what we have so far, then a turn ("But that raised a new problem.").
+- Vary the pace: a stretch of story, then a number made tangible, then a comparison, then story again. Never more
+  than four sentences in a row of abstract explanation.
+- End on the answer to the opening question and one line that looks forward."""
+
+
 def script_prompt(pages: str, videos: int, seconds: int, notes: str = "") -> tuple[str, str]:
     words = f"{int(seconds * 2.2)}-{int(seconds * 2.7)}"
     system = SCRIPT.replace("SECONDS", str(seconds)).replace("WORDS", words)
+    if seconds >= 300:                          # minutes, not seconds: a long video has chapters (runs.py parts)
+        system += LONG.replace("MINUTES", f"{seconds / 60:.0f}")
     user = (f"Write {videos} video{'s' if videos != 1 else ''} at most (fewer when the pages hold less).\n"
             + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
             + f"\nTHE PAGES:\n{pages}")

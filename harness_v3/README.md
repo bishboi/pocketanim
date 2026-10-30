@@ -40,6 +40,7 @@ w58-w62     morph fields works stagger .14
 | `engine/layout.py` | The layout check (the `layout` step, after the pictures): the score's things built with their real sizes, and what covers what without meaning to (a thing set wholly on a much bigger one, or on a card, box or map, is meant: letters in their tray, a coin in a hand, tools on a map; nothing over words is; a cut-out is measured by what shows of it), runs off its screen or a map, or is empty said by shot, with every thing's size. Shots with problems go back to the score's model once (`V3_LAYOUT_FIX`), then are checked again; a score given by hand is only checked. |
 | Words with the voice | `phrase "KEY WORDS"` with `wA-wB in P speak`: each word comes on as it is said. A `num` brought `in` as the voice says it counts up to itself over the word (unless the score counts it; years and small numbers stay). `captions on` (or `V3_CAPTIONS=1`): the narration along the bottom, a few words at a time, the one being said lit. |
 | Carried over | `bring T to SHOT [X,Y]` at a camera move: T rides on the screen into the next shot and stays there. `cam SHOT via dive into MAP.place`: into a pin or a picture until it fills the screen, opening on the next shot. `chapter "TITLE"` lines put a chapter bar along the bottom (the video's progress, a tick at each chapter, the chapter's name); `progress on|off`. |
+| `engine/parts.py` | Long videos in parts: the cut at pauses (`parts_of`), each part's own score, words and voice slice (`split`, `write`), its place in the whole for the chapter bar (`env`), and `player/parts.json` (`manifest`). |
 | `engine/timeline.py` | The video as a timeline a player draws (no MP4): the renderer's own scene played without drawing, each drawn piece recorded (its shape once, then its transform, colours and width; a picture by its corners), keys only where something changes (`player/timeline.json`). |
 | `engine/player.html` | The player: draws a timeline at any time t in a canvas, in step with the voice (the Player tab; `/play/<run>`). |
 | `engine/export.py` | An MP4 made from the player in headless Chromium (chunks at once, the voice laid under), and a frame-by-frame comparison with the render's MP4: mean PSNR, the share of frames that differ, the moments that differ most side by side (the Compare tab). |
@@ -54,6 +55,61 @@ w58-w62     morph fields works stagger .14
 ./setup.sh
 ../.venv3/bin/python engine/pipeline.py demo/japan.txt out/japan --score demo/japan.score --quality h
 ```
+
+## Long videos (up to 20 minutes and more)
+
+A narration of any length is made the same way: **New run** with the whole narration (one sentence a line), or from
+a book with **Seconds each** set up to 1200. Nothing else changes for you; under the hood a long video is made in
+**parts** (`engine/parts.py`):
+
+- **Voice, once.** The whole narration is spoken and timed in one take (one voice for all of it). It is then cut
+  into parts of about `V3_PART_SECONDS` (150 s) at the pauses between sentences, on frame boundaries
+  (`runs/<id>/parts.json`). A narration under about 4 minutes is one part and is made exactly as before.
+- **Cast, once.** One call reads the whole narration and writes the recurring characters as `cast` lines, so a
+  person, a country or a thing come alive looks the same in minute 2 and minute 19.
+- **Storyboard, a call a part, all at once.** Each part's call sees only its words (numbered as in the whole), the
+  last words before it, and the cast. A part that opens a new topic starts with `chapter: TITLE`, so the chapter
+  bar along the bottom names 5-10 chapters over the whole video.
+- **Score**: a call a shot, as always (`V3_SCORE_JOBS` at once; a 20-minute video is about 150-200 shots).
+- **Layout, timeline and render, a part at a time, `V3_PART_JOBS` (3) at once.** Each part gets its own score
+  (`parts/pK/video.score`: the head of the score, its shots, and the `ent` lines of anything it uses from an
+  earlier part), its words timed from its own start, and its slice of the voice. Its timeline goes to
+  `player/pK/`; `player/parts.json` lists the parts in order. The chapter bar runs over the whole video, and only
+  the last part holds the closing seconds.
+- **One soundtrack.** The voice, the small sounds and the music are mixed once for the whole video and played
+  under all the parts, so no seam can be heard.
+- **Player and export.** The player loads a part as playback reaches it (the next one ahead of time) and seeks
+  across the whole video. **Export MP4 from the player** draws all of it. The Manim render (optional, slow)
+  renders each part, joins them and lays the soundtrack under them.
+
+**Writing a 20-minute narration.** About 2,700-3,200 words, one sentence a line, told as a documentary in
+chapters. From a book: set **Videos** to 1 and **Seconds each** to 1200; the script call is then told to write
+chapters, recurring characters and recaps. By hand:
+
+- Open with a hook in the first 20 seconds: a scene, a puzzle or a surprising number, and the big question.
+- 5-10 chapters of 2-4 minutes, each starting with a line that names where we are going ("Now, the money.").
+- A few recurring characters, always named the same way: the cast call turns them into the same drawing every time.
+- Every 3-4 minutes, one sentence summing up, then a turn ("But that raised a new problem.").
+- Vary the pace: story, then a number made tangible, then a comparison. Never more than four abstract sentences in a row.
+- End on the answer to the opening question.
+
+**What it takes**, roughly, for 20 minutes:
+- Calls: about 200 (cast, about 8 storyboard parts, about 180 shots, plus layout fixes); the score model is most
+  of the cost.
+- Pictures: about 100-200.
+- Baking: about 1-1.5 hours with 3 parts at once (more cores: raise `V3_PART_JOBS`).
+- Timelines: about 15-40 MB a part.
+
+Settings:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `V3_PART_SECONDS` | 150 | Part length; shorter parts bake faster and load sooner. |
+| `V3_PART_JOBS` | 3 | Parts laid out or baked at once; each takes a core and 1-2 GB. |
+| `V3_SCORE_JOBS` | 6 | Model calls at once. |
+| `V3_LAYOUT_SHOTS` | 40 | The most shots sent back for layout fixes per round; raise it for long videos. |
+
+A score given by hand that is long is cut into parts in the same way.
 
 ## The app
 

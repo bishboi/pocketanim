@@ -438,7 +438,7 @@ function renderBook() {
         <div class="form" style="margin-top:6px">
           <div><label>Model</label><input id="s-model" list="models" value="${esc(config.script_model || config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Videos (at most)</label><input id="s-videos" type="number" min="1" max="12" value="3"></div>
-          <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="120" value="40"></div>
+          <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="1500" value="40" title="up to 1200 (20 minutes): a long video is made in parts"></div>
           <div></div>
           <div class="full"><label>Notes for the writer (optional)</label><input id="s-notes" placeholder="for class 8; start from the monsoon; skip the dates"></div>
         </div>

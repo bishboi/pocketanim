@@ -12,6 +12,10 @@ words.json, storyboard.json, video.score, video.mp4, and the critic's frames. Th
     render      the score played on one clock (render.py)
     critic      frames judged by a vision model (optional)
 
+A long narration (more than about 4 minutes) is made in parts (parts.py): one voice, one cast call, a storyboard
+call a part, then its layout, timeline and render a part at a time (V3_PART_JOBS at once), joined by the player
+(player/parts.json) and by the MP4.
+
 Each call is recorded: its step, label, model, prompt (system and user), answer, tokens, cost (OpenRouter's own
 figure for it, in US dollars), and how long it took. A step can be run again from where it is: a run picks up from
 that step (the steps after it are run again too).
@@ -41,6 +45,7 @@ RUNS = ROOT / "runs"
 sys.path.insert(0, str(HERE))
 
 import assets  # noqa: E402
+import parts as PT  # noqa: E402
 import prompts  # noqa: E402
 import score as S  # noqa: E402
 
@@ -76,7 +81,7 @@ _busy: set[str] = set()
 # How many runs make their video at once (the rest wait, "queued"): voice and render are heavy.
 _slots = threading.Semaphore(int(os.environ.get("V3_PARALLEL", "1")))
 _stop: set[str] = set()                      # runs asked to stop (they stop at the next check)
-_procs: dict[str, subprocess.Popen] = {}     # a run's voice or render, killed when it is stopped
+_procs: dict[str, set] = {}     # a run's voice, renders or bakes (a long video's parts at once), killed when stopped
 
 
 class Stopped(Exception):
@@ -94,7 +99,7 @@ def _proc(rid: str, cmd: list[str], env: dict | None = None, on_line=None) -> su
     # Its own process group: a stop kills it and what it started (a render's chunks).
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
                          bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", **(env or {})})
-    _procs[rid] = p
+    _procs.setdefault(rid, set()).add(p)
     out: list[str] = []
     err: list[str] = []
 
@@ -122,7 +127,7 @@ def _proc(rid: str, cmd: list[str], env: dict | None = None, on_line=None) -> su
         for t in readers:
             t.join(timeout=5)
     finally:
-        _procs.pop(rid, None)
+        _procs.get(rid, set()).discard(p)
     _check(rid)                                  # killed by stop() itself
     return subprocess.CompletedProcess(cmd, p.returncode, "".join(out), "".join(err))
 
@@ -296,6 +301,23 @@ def _voice(run: dict) -> None:
     words = json.loads((d / "words.json").read_text())
     run["words"] = {"seconds": words["seconds"], "count": len(words["words"])}
     run["steps"]["voice"]["notes"] = [f"{len(words['lines'])} lines, {len(words['words'])} words, {words['seconds']:.1f} s"]
+    ps = _parts(run, fresh=True)
+    if len(ps) > 1:
+        run["steps"]["voice"]["notes"].append(
+            f"a long video: {len(ps)} parts of about {words['seconds'] / len(ps) / 60:.1f} min, each laid out and "
+            "baked by itself (at once), then joined")
+
+
+def _parts(run: dict, fresh: bool = False) -> list[dict]:
+    """The run's parts (parts.py): one for a short video; a long one cut at pauses into parts of V3_PART_SECONDS."""
+    d = run_dir(run["id"])
+    p = d / "parts.json"
+    if p.exists() and not fresh:
+        return json.loads(p.read_text())
+    words = json.loads((d / "words.json").read_text())
+    ps = PT.parts_of(words)
+    p.write_text(json.dumps(ps, indent=1))
+    return ps
 
 
 def _words(run: dict) -> list[dict]:
@@ -308,6 +330,8 @@ def _storyboard(run: dict) -> None:
         run["steps"]["storyboard"]["notes"] = ["a score was given by hand: no storyboard"]
         return
     words = _words(run)
+    if len(_parts(run)) > 1:
+        return _storyboard_long(run)
     # A storyboard that was answered but could not be read before (and so never kept) is read again: no new call.
     last = next((c for c in reversed(run["calls"]) if c["step"] == "storyboard" and c.get("output")), None)
     if last and not (d / "storyboard.json").exists() and prompts.parse_storyboard(last["output"], len(words)):
@@ -326,6 +350,54 @@ def _storyboard(run: dict) -> None:
         run["steps"]["storyboard"]["notes"] = run["steps"]["storyboard"].get("notes", []) + [
             f"cast: {', '.join(c.split()[1] for c in cast)}"]
     run["steps"]["storyboard"]["notes"] = run["steps"]["storyboard"].get("notes", []) + [f"{len(shots)} shots"]
+
+
+def _storyboard_long(run: dict) -> None:
+    """A long video's storyboard: its cast once (one call over the whole narration), then each part's shots (one
+    call a part, all at once), told what came just before and who the cast are; the shots joined in order, each
+    name kept unique."""
+    d = run_dir(run["id"])
+    words = _words(run)
+    ps = _parts(run)
+    system, user = prompts.cast_prompt(words)
+    text = chat(run, "storyboard", "Cast (the whole video)", system, user, max_tokens=900)
+    cast = prompts.parse_cast(text)
+    (d / "cast.score").write_text("\n".join(cast) + ("\n" if cast else ""))
+    minutes = float(words[-1]["end"]) / 60
+
+    def one(p):
+        mine = [w for w in words if p["a"] <= w["i"] <= p["b"]]
+        before = " ".join(w["w"] for w in words[max(0, p["a"] - 40):p["a"]])
+        info = {"k": p["k"], "n": len(ps), "minutes": minutes, "seconds": p["t1"] - p["t0"]}
+        system, user = prompts.storyboard_prompt(mine, info, cast, before)
+        out = chat(run, "storyboard", f"Storyboard: part {p['k'] + 1} of {len(ps)}", system, user,
+                   max_tokens=400 + int(14 * (p["t1"] - p["t0"])))
+        shots = prompts.parse_storyboard(out, len(words))
+        if not shots:
+            raise RuntimeError(f"part {p['k'] + 1}'s storyboard had no shot lines: {out[:300]}")
+        return shots
+    jobs = max(1, int(os.environ.get("V3_SCORE_JOBS", "6")))
+    with ThreadPoolExecutor(max_workers=min(jobs, len(ps))) as pool:
+        made = list(pool.map(one, ps))
+    shots, names = [], set()
+    for p, part_shots in zip(ps, made):
+        # each part's shots inside its own words, covering them all, in order
+        part_shots = [x for x in part_shots if x["b"] >= p["a"] and x["a"] <= p["b"]]
+        for x in part_shots:
+            x["a"], x["b"] = max(x["a"], p["a"]), min(x["b"], p["b"])
+        part_shots.sort(key=lambda x: x["a"])
+        if part_shots:
+            part_shots[0]["a"] = p["a"]
+            part_shots[-1]["b"] = p["b"]
+        for x in part_shots:
+            while x["name"] in names:
+                x["name"] = f"{x['name']}_{p['k'] + 1}"
+            names.add(x["name"])
+            x["part"] = p["k"]
+            shots.append(x)
+    (d / "storyboard.json").write_text(json.dumps(shots, indent=1))
+    run["steps"]["storyboard"]["notes"] = [f"{len(shots)} shots in {len(ps)} parts"] + (
+        [f"cast: {', '.join(c.split()[1] for c in cast)}"] if cast else [])
 
 
 def _cast(run: dict) -> list[str]:
@@ -585,6 +657,8 @@ def _find_parts(run: dict, text: str, image_model: str) -> list[str]:
 def _render(run: dict) -> None:
     d = run_dir(run["id"])
     started = time.time()
+    if len(_parts(run)) > 1:
+        return _render_long(run, started)
     p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(d / "video.score"), str(d), str(d / "video.mp4"),
                           "--quality", run["settings"]["quality"]],
               # the pictures are found by the image model they were made with
@@ -604,10 +678,56 @@ def _tail(p: subprocess.CompletedProcess) -> str:
     return "\n".join(lines)[-1500:]
 
 
-def _check_layout(run: dict) -> dict:
-    """layout.py on the run's score: the problems by shot, with every thing's real size."""
+PART_JOBS = max(1, int(os.environ.get("V3_PART_JOBS", "3")))   # a long video's parts baked at once
+
+
+def _part_dirs(run: dict) -> list[Path]:
+    """A long video's parts written out from its score as it is now (parts/pK: score, words, voice)."""
     d = run_dir(run["id"])
-    p = _proc(run["id"], [sys.executable, str(HERE / "layout.py"), str(d / "video.score"), str(d)])
+    return PT.write(d, (d / "video.score").read_text(), json.loads((d / "words.json").read_text()), _parts(run))
+
+
+def _part_env(run: dict) -> list[dict]:
+    d = run_dir(run["id"])
+    ps = _parts(run)
+    words = json.loads((d / "words.json").read_text())
+    chaps = PT.chapters((d / "video.score").read_text(), words["words"], float(words["seconds"]))
+    return [PT.env(p, ps, float(words["seconds"]), chaps) for p in ps]
+
+
+def _check_layout(run: dict) -> dict:
+    """layout.py on the run's score: the problems by shot, with every thing's real size (a long video's parts
+    each checked by itself, at once, and their reports joined)."""
+    d = run_dir(run["id"])
+    if len(_parts(run)) > 1:
+        dirs = _part_dirs(run)
+
+        def one(pd: Path) -> dict:
+            text = (pd / "video.score").read_text()
+            lines = text.splitlines()
+            carried = {name for name, (a, b) in _shot_blocks(text).items()
+                       if any("carried over" in ln for ln in lines[a:b] if ln.lstrip().startswith("#"))}
+            rep_ = _check_layout_at(run, pd / "video.score", pd)
+            rep_["problems"] = {k: v for k, v in rep_["problems"].items() if k not in carried}
+            rep_["sizes"] = {k: v for k, v in rep_["sizes"].items() if k not in carried}
+            return rep_
+        with ThreadPoolExecutor(max_workers=min(PART_JOBS, len(dirs))) as pool:
+            reps = list(pool.map(one, dirs))
+        out = {"count": 0, "problems": {}, "sizes": {}, "notes": []}
+        for r in reps:
+            for k, v in r["problems"].items():
+                have = out["problems"].setdefault(k, [])
+                have += [x for x in v if x not in have]
+            for k, v in r["sizes"].items():
+                out["sizes"].setdefault(k, v)
+            out["notes"] += r.get("notes", [])
+        out["count"] = sum(len(v) for v in out["problems"].values())
+        return out
+    return _check_layout_at(run, d / "video.score", d)
+
+
+def _check_layout_at(run: dict, score: Path, d: Path) -> dict:
+    p = _proc(run["id"], [sys.executable, str(HERE / "layout.py"), str(score), str(d)])
     if p.returncode != 0:
         raise RuntimeError(_tail(p))
     line = next((l for l in p.stdout.splitlines() if l.startswith("layout: ")), None)
@@ -712,9 +832,94 @@ def _layout(run: dict) -> None:
     run["steps"]["layout"]["notes"] = notes
 
 
+def _render_long(run: dict, started: float) -> None:
+    """A long video's MP4: each part rendered by itself (each in its own chunks at once), the parts joined, and the
+    whole video's one soundtrack laid under them."""
+    d = run_dir(run["id"])
+    dirs, envs = _part_dirs(run), _part_env(run)
+    notes = []
+    for k, (pd, env) in enumerate(zip(dirs, envs)):
+        run["steps"]["render"]["log"] = [f"part {k + 1} of {len(dirs)}"]
+        p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(pd / "video.score"), str(pd),
+                              str(pd / "video.mp4"), "--quality", run["settings"]["quality"]],
+                  env={**env, "V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL},
+                  on_line=follow(run, run["steps"]["render"]))
+        if p.returncode != 0:
+            raise RuntimeError(f"part {k + 1}: " + _tail(p))
+        notes += [f"part {k + 1}: {l}" for l in p.stderr.splitlines() if l.startswith("score line")]
+    audio = _whole_soundtrack(run, d / "soundtrack.wav")
+    lst = d / "parts" / "join.txt"
+    lst.write_text("".join(f"file '{pd / 'video.mp4'}'\n" for pd in dirs))
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst)]
+    cmd += (["-i", str(audio), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest"]
+            if audio else ["-c", "copy"])
+    subprocess.run(cmd + [str(d / "video.mp4")], check=True)
+    run["steps"]["render"]["notes"] = notes[:40] or [f"{len(dirs)} parts rendered and joined in "
+                                                     f"{time.time() - started:.0f} s"]
+    run["video"] = f"video.mp4?v={int(time.time())}"
+
+
+def _whole_soundtrack(run: dict, out: Path) -> Path | None:
+    """The whole video's soundtrack (the voice, its small sounds, the music under it all): one, so nothing starts
+    again at a part's seam."""
+    d = run_dir(run["id"])
+    try:
+        import sound
+        words = json.loads((d / "words.json").read_text())
+        sc = S.parse((d / "video.score").read_text(), words["words"], float(words["seconds"]))
+        sound.mix(sc, d / "voice.wav", out)
+        return out
+    except Exception as e:  # noqa: BLE001 -- the voice alone
+        print(f"soundtrack not made ({e}): the voice alone", flush=True)
+        return d / "voice.wav" if (d / "voice.wav").exists() else None
+
+
+def _timeline_long(run: dict) -> None:
+    """A long video's timeline: each part baked by itself (V3_PART_JOBS at once) into player/pK/, and
+    player/parts.json saying how they follow each other over the one soundtrack."""
+    import shutil
+    d = run_dir(run["id"])
+    player = d / "player"
+    player.mkdir(exist_ok=True)
+    (player / "timeline.json").unlink(missing_ok=True)      # (a short video's, from before: the player reads parts)
+    dirs, envs = _part_dirs(run), _part_env(run)
+    box = run["steps"]["timeline"]
+    done = {}
+
+    def one(k: int) -> dict:
+        pd, env = dirs[k], envs[k]
+        out = player / f"p{k}"
+        p = _proc(run["id"], [sys.executable, str(HERE / "timeline.py"), str(pd / "video.score"), str(pd), str(out),
+                              "--quality", run["settings"]["quality"]],
+                  env={**env, "V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
+        if p.returncode != 0:
+            raise RuntimeError(f"part {k + 1}: " + _tail(p))
+        for f in ("voice.wav", "soundtrack.wav"):       # the whole video's soundtrack plays under all the parts
+            (out / f).unlink(missing_ok=True)
+        info = next((json.loads(l[9:]) for l in p.stdout.splitlines() if l.startswith("timeline:")), {})
+        with _mut:
+            done[k] = info
+            box["progress"] = {"done": len(done), "total": len(dirs), "what": "parts baked", "eta": None}
+        save(run)
+        return info
+    with ThreadPoolExecutor(max_workers=min(PART_JOBS, len(dirs))) as pool:
+        infos = list(pool.map(one, range(len(dirs))))
+    for old in player.glob("p*"):                           # parts of an earlier cut that are no more
+        if old.is_dir() and old.name[1:].isdigit() and int(old.name[1:]) >= len(dirs):
+            shutil.rmtree(old, ignore_errors=True)
+    audio = _whole_soundtrack(run, player / "soundtrack.wav")
+    PT.manifest(player, _parts(run), audio.name if audio and audio.parent == player else None)
+    mb = sum(i.get("bytes", 0) for i in infos) / 1e6
+    box["notes"] = [f"{len(dirs)} parts, {sum(i.get('leaves', 0) for i in infos)} pieces, "
+                    f"{sum(i.get('pictures', 0) for i in infos)} picture(s), {mb:.1f} MB (played by the Player tab)"]
+
+
 def _timeline(run: dict) -> None:
     """The video as a timeline for the player (player/timeline.json, its pictures, the voice)."""
     d = run_dir(run["id"])
+    if len(_parts(run)) > 1:
+        return _timeline_long(run)
+    (d / "player" / "parts.json").unlink(missing_ok=True)   # (a long video's, from before)
     p = _proc(run["id"], [sys.executable, str(HERE / "timeline.py"), str(d / "video.score"), str(d), str(d / "player"),
                           "--quality", run["settings"]["quality"]],
               env={"V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL},
@@ -732,7 +937,7 @@ def export(rid: str) -> None:
     if rid in _busy:
         raise RuntimeError("this run is busy: wait for it")
     d = run_dir(rid)
-    if not (d / "player" / "timeline.json").exists():
+    if not ((d / "player" / "timeline.json").exists() or (d / "player" / "parts.json").exists()):
         raise RuntimeError("no timeline yet: run the timeline step first")
     _busy.add(rid)
 
@@ -873,9 +1078,9 @@ def stop(rid: str) -> bool:
     if rid not in _busy:
         return False
     _stop.add(rid)
-    p = _procs.get(rid)
-    if p and p.poll() is None:
-        _kill(p)
+    for p in list(_procs.get(rid, ())):
+        if p.poll() is None:
+            _kill(p)
     return True
 
 

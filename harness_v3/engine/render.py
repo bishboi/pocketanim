@@ -88,7 +88,10 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
                 "bow", "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look",
                 "faint", "hug")
-TAIL = 3.2              # seconds held after the last word
+TAIL = float(os.environ.get("V3_TAIL", "3.2"))      # seconds held after the last word (a long video's parts
+                                                    # but the last: none, parts.py)
+# A part of a long video (parts.py): where it stands in the whole, so the chapter bar runs over all of it.
+PART = json.loads(os.environ["V3_PART"]) if os.environ.get("V3_PART") else None
 
 
 # ---------------------------------------------------------------- helpers ----------------------------------------------
@@ -2372,14 +2375,17 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         """The chapter bar along the bottom: how far the video has gone, a tick at each chapter, the chapter's name."""
         sc = self.SCORE
         chapters = [(a.t0, a.target) for a in sc.acts if a.verb == "chapter"]
+        off, total = 0.0, sc.end + TAIL
+        if PART:                                # a part of a long video: the whole video's bar, at its place in it
+            off, total = float(PART["offset"]), float(PART["total"])
+            chapters = [(float(t) - off, c) for t, c in PART["chapters"]]
         on = sc.progress if sc.progress is not None else bool(chapters)
         if not on:
             return
-        total = sc.end + TAIL
         x0, x1, y = -0.44 * S.SCREEN_W, 0.44 * S.SCREEN_W, -0.465 * S.SCREEN_H
         track = Line([x0, y, 0], [x1, y, 0], stroke_color=look.col("soft"), stroke_width=3, stroke_opacity=0.45)
-        ticks = VGroup(*(Dot([x0 + (x1 - x0) * t / total, y, 0], radius=0.045, color=look.col("soft"))
-                         for t, _ in chapters if t > 0.5))
+        ticks = VGroup(*(Dot([x0 + (x1 - x0) * (t + off) / total, y, 0], radius=0.045, color=look.col("soft"))
+                         for t, _ in chapters if t + off > 0.5))
         fill = Line([x0, y, 0], [x0 + 0.01, y, 0], stroke_color=look.col("coral"), stroke_width=5).set_z_index(HUD_Z + 1)
         names = [look.label(str(c), 0.13, "ink").move_to([x0, y + 0.22, 0], aligned_edge=LEFT) for _, c in chapters]
         bar = VGroup(track, ticks).set_z_index(HUD_Z)
@@ -2394,7 +2400,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         st = {"k": -1}
 
         def place(k, c):
-            t = self.clock
+            t = self.clock + off
             fill.put_start_and_end_on(np.array([c[0] + x0 * k, c[1] + y * k, 0]),
                                       np.array([c[0] + (x0 + max(0.01, (x1 - x0) * min(1.0, t / total))) * k, c[1] + y * k, 0]))
             fill.set_stroke(width=5 * k)

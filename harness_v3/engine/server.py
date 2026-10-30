@@ -125,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"), "pictures": pictures,
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
                             "score": read("video.score"), "video": (d / "video.mp4").exists(),
-                            "player": (d / "player" / "timeline.json").exists(), "player_mp4": (d / "player.mp4").exists()})
+                            "player": (d / "player" / "timeline.json").exists() or (d / "player" / "parts.json").exists(), "player_mp4": (d / "player.mp4").exists()})
             elif m := re.fullmatch(r"/play/([\w-]+)", path):
                 body = (HERE / "player.html").read_bytes()
                 self.send_response(200)
@@ -133,7 +133,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elif m := re.fullmatch(r"/files/([\w-]+)/player/((?:timeline\.json|voice\.wav|soundtrack\.wav|img-[0-9a-f]+\.png))", path):
+            elif m := re.fullmatch(r"/files/([\w-]+)/player/((?:p\d+/)?(?:timeline\.json|parts\.json|voice\.wav|"
+                                   r"soundtrack\.wav|img-[0-9a-f]+\.png))", path):
                 self._file(runs.run_dir(m.group(1)) / "player" / m.group(2))
             elif m := re.fullmatch(r"/files/([\w-]+)/([\w.\-]+)", path):
                 name = m.group(2)

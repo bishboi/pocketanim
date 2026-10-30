@@ -37,22 +37,52 @@ const SRC = (qs.get("src") || (runId ? `/files/${runId}/player/` : "")).replace(
 const EXPORT = qs.get("export") === "1";
 if (EXPORT) document.body.classList.add("export");
 const cv = document.getElementById("cv"), ctx = cv.getContext("2d"), au = document.getElementById("au");
-let T = null, leaves = [], images = {}, playing = false, seeking = false;
+// A long video (parts.json, runs.py) is its parts' timelines one after another, each loaded as the playing comes
+// near it (the next fetched ahead, at most a few kept), over one soundtrack; a short one is its one timeline.json.
+let M = null, T = null, leaves = [], images = {}, playing = false, seeking = false;
+const loaded = {}, loading = {};
+
+async function loadPart(k) {
+  const base = SRC + M.parts[k].dir;
+  const r = await fetch(base + "timeline.json");
+  if (!r.ok) throw new Error("no timeline (" + r.status + ")");
+  const t = await r.json();
+  const ls = t.leaves.slice().sort((a, b) => a.z - b.z || a.r - b.r), ims = {};
+  await Promise.all([...new Set(ls.filter((l) => l.k === "i").map((l) => l.img))].map((name) => new Promise((ok) => {
+    const im = new Image(); im.onload = () => { ims[name] = im; ok(); }; im.onerror = () => ok(); im.src = base + name;
+  })));
+  loaded[k] = { T: t, leaves: ls, images: ims };
+  for (const j of Object.keys(loaded)) if (Math.abs(j - k) > 1 && Object.keys(loaded).length > 3) delete loaded[j];
+  return loaded[k];
+}
+function ensure(k) {
+  if (k < 0 || k >= M.parts.length) return Promise.resolve(null);
+  if (loaded[k]) return Promise.resolve(loaded[k]);
+  if (!loading[k]) loading[k] = loadPart(k).finally(() => { delete loading[k]; if (!playing) draw(lastFr); });
+  return loading[k];
+}
+function partAt(fr) { let k = 0; for (let i = 0; i < M.parts.length; i++) if (M.parts[i].f0 <= fr) k = i; return k; }
 
 window.__ready = (async () => {
-  const r = await fetch(SRC + "timeline.json");
-  if (!r.ok) throw new Error("no timeline (" + r.status + ")");
-  T = await r.json();
-  const w = +(qs.get("w") || T.size[0]), h = +(qs.get("h") || T.size[1]);
+  let r = await fetch(SRC + "parts.json");
+  if (r.ok) M = await r.json();
+  else {
+    r = await fetch(SRC + "timeline.json");
+    if (!r.ok) throw new Error("no timeline (" + r.status + ")");
+    const t = await r.json();
+    M = { fps: t.fps, frames: t.frames, size: t.size, bg: t.bg, audio: t.audio, parts: [{ dir: "", f0: 0, frames: t.frames }] };
+    loaded[0] = { T: t, leaves: t.leaves.slice().sort((a, b) => a.z - b.z || a.r - b.r), images: {} };
+    await Promise.all([...new Set(loaded[0].leaves.filter((l) => l.k === "i").map((l) => l.img))].map((name) => new Promise((ok) => {
+      const im = new Image(); im.onload = () => { loaded[0].images[name] = im; ok(); }; im.onerror = () => ok(); im.src = SRC + name;
+    })));
+  }
+  const w = +(qs.get("w") || M.size[0]), h = +(qs.get("h") || M.size[1]);
   cv.width = w; cv.height = h;
-  leaves = T.leaves.slice().sort((a, b) => a.z - b.z || a.r - b.r);
-  await Promise.all([...new Set(leaves.filter((l) => l.k === "i").map((l) => l.img))].map((name) => new Promise((ok) => {
-    const im = new Image(); im.onload = () => { images[name] = im; ok(); }; im.onerror = () => ok(); im.src = SRC + name;
-  })));
-  if (!EXPORT && T.audio) {
+  await ensure(0);
+  if (!EXPORT && M.audio) {
     // the soundtrack (voice, small sounds, music); the voice alone if it cannot be had
     au.onerror = () => { if (!/voice\.wav$/.test(au.src)) { au.onerror = null; au.src = SRC + "voice.wav"; } };
-    au.src = SRC + T.audio;
+    au.src = SRC + M.audio;
   }
   document.getElementById("msg").style.display = "none";
   draw(0);
@@ -115,8 +145,23 @@ function boiled(l, s, M, fr) {
 }
 
 // ---- a frame -----------------------------------------------------------------------------------------------------
-function draw(fr) {
-  if (!T) return;
+let lastFr = 0;
+function draw(gfr) {                    // a frame of the whole video: its part's, at the part's own frame
+  if (!M) return;
+  gfr = Math.max(0, Math.min(M.frames - 1, gfr));
+  lastFr = gfr;
+  const k = partAt(gfr), p = M.parts[k];
+  if (k + 1 < M.parts.length && gfr > p.f0 + p.frames * 0.5) ensure(k + 1);      // the next one fetched ahead
+  const got = loaded[k];
+  if (got) { T = got.T; leaves = got.leaves; images = got.images; drawPart(gfr - p.f0); }
+  else ensure(k);                        // (the last frame drawn stays until it comes)
+  if (!EXPORT) {
+    const sec = gfr / M.fps, tot = M.frames / M.fps, mm = (x) => Math.floor(x / 60) + ":" + String(Math.floor(x % 60)).padStart(2, "0");
+    document.getElementById("time").textContent = mm(sec) + " / " + mm(tot);
+    if (!seeking) document.getElementById("seek").value = Math.round(1000 * gfr / M.frames);
+  }
+}
+function drawPart(fr) {
   fr = Math.max(0, Math.min(T.frames - 1, fr));
   const f = Math.floor(fr), W = cv.width, H = cv.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -151,11 +196,6 @@ function draw(fr) {
     if (sw > 0 && sa > 0.001) { ctx.lineWidth = sw * 0.01; ctx.strokeStyle = rgba(sr, sg, sb, sa); ctx.stroke(p); }
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (!EXPORT) {
-    const sec = fr / T.fps, tot = T.frames / T.fps, mm = (x) => Math.floor(x / 60) + ":" + String(Math.floor(x % 60)).padStart(2, "0");
-    document.getElementById("time").textContent = mm(sec) + " / " + mm(tot);
-    if (!seeking) document.getElementById("seek").value = Math.round(1000 * fr / T.frames);
-  }
 }
 
 // ---- playing -----------------------------------------------------------------------------------------------------
@@ -164,12 +204,12 @@ function now() { return au.src && !au.paused ? au.currentTime : from0 + (perform
 function loop() {
   if (!playing) return;
   const t = now();
-  if (t * T.fps >= T.frames - 1) { pause(); draw(T.frames - 1); return; }
-  draw(t * T.fps);
+  if (t * M.fps >= M.frames - 1) { pause(); draw(M.frames - 1); return; }
+  draw(t * M.fps);
   requestAnimationFrame(loop);
 }
 function play() {
-  if (!T) return;
+  if (!M) return;
   playing = true; document.getElementById("play").textContent = "❚❚";
   from0 = au.currentTime || 0; clock0 = performance.now();
   if (au.src) au.play().catch(() => {});
@@ -178,14 +218,14 @@ function play() {
 function pause() { playing = false; au.pause(); document.getElementById("play").textContent = "▶"; }
 document.getElementById("play").onclick = () => (playing ? pause() : play());
 const seek = document.getElementById("seek");
-seek.oninput = () => { seeking = true; const t = (+seek.value / 1000) * T.frames / T.fps; au.currentTime = t; from0 = t; clock0 = performance.now(); draw(t * T.fps); };
+seek.oninput = () => { seeking = true; const t = (+seek.value / 1000) * M.frames / M.fps; au.currentTime = t; from0 = t; clock0 = performance.now(); draw(t * M.fps); };
 seek.onchange = () => { seeking = false; };
 document.addEventListener("keydown", (e) => { if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); } });
 
 // ---- for export.py -----------------------------------------------------------------------------------------------
-window.drawFrame = (f) => { draw(f); return true; };
+window.drawFrame = async (f) => { await ensure(partAt(Math.max(0, Math.min(M.frames - 1, f)))); draw(f); return true; };
 window.grab = (q) => cv.toDataURL("image/jpeg", q || 0.92);
-window.info = () => ({ frames: T.frames, fps: T.fps, size: [cv.width, cv.height] });
+window.info = () => ({ frames: M.frames, fps: M.fps, size: [cv.width, cv.height] });
 </script>
 </body>
 </html>

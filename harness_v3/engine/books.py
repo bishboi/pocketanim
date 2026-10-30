@@ -228,7 +228,7 @@ def _script(bid: str, sid: str) -> None:
     try:
         system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"], st["notes"])
         rec = {"settings": {"model": st["model"]}, "calls": calls}
-        text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user, max_tokens=4000,
+        text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user, max_tokens=min(32000, max(4000, int(st["videos"] * st["seconds"] * 4.2) + 600)),
                          saver=lambda _: _keep(bid, sc, calls))
         videos = prompts.parse_script(text)
         if not videos:

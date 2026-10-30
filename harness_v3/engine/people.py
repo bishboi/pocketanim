@@ -809,12 +809,20 @@ def _round(m, r) -> None:
         pass
 
 
+def _lighter(hex_colour: str, k: float) -> str:
+    """A colour mixed toward white (a near arm lifted off the body behind it)."""
+    h = hex_colour.lstrip("#")
+    if len(h) != 6:
+        return hex_colour
+    return "#%02X%02X%02X" % tuple(int(int(h[i:i + 2], 16) + (255 - int(h[i:i + 2], 16)) * k) for i in (0, 2, 4))
+
+
 def _shade(hex_colour: str, k: float) -> str:
     h = hex_colour.lstrip("#")
     if len(h) != 6:
         return hex_colour
     r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return "#%02X%02X%02X" % (int(r * k), int(g * k), int(b * k))
+    return "#%02X%02X%02X" % tuple(min(255, int(v * k)) for v in (r, g, b))
 
 
 # ---------------------------------------------------------------- hair, face, beard ----------------------------------
@@ -1070,7 +1078,7 @@ class Peg(Person):
         self.rigid = []
         decor = mods.get("decor") or {}
         self.rest = dict(REST)
-        self.rest.update(fa1=0.18, fa2=0.1, ba1=-0.15, ba2=-0.08)
+        self.rest.update(fa1=0.32, fa2=0.22, ba1=-0.15, ba2=-0.08)    # the right arm a little out from the body
         self.rest.update(MOODS.get(str(mods.get("mood") or "happy").lower(), MOODS["happy"]))
         self.alpha_now = 1.0
         self.body_w = self.W
@@ -1097,11 +1105,13 @@ class Peg(Person):
         aw = 2.8 * k
         sleeve = skin if spec["arms"] == "skin" else (spec["arms"] or cloth)
         # sleeves: the cloth's colour over an ink line (an outlined arm), the far one a shade darker
-        self.arms = {n: (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=aw * 2.3),
-                         Line([0, 0, 0], [0, -0.1, 0], stroke_color=sleeve if n[0] == "f" else _shade(sleeve, 0.88),
-                              stroke_width=aw * 1.35)) for n in ("ba", "bf", "fa", "ff")}
-        self.hands = {n: rigid(Circle(radius=0.021, fill_color=skin if n == "f" else _shade(skin, 0.92), fill_opacity=1,
-                                      stroke_color=ink, stroke_width=ow * 0.8), "hand_" + n) for n in ("b", "f")}
+        # (the near, right arm thicker and lighter, so it reads over the body; the far one darker, thinner)
+        self.arms = {n: (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=aw * (3.0 if n[0] == "f" else 2.3)),
+                         Line([0, 0, 0], [0, -0.1, 0], stroke_color=_lighter(sleeve, 0.2) if n[0] == "f" else _shade(sleeve, 0.88),
+                              stroke_width=aw * (1.9 if n[0] == "f" else 1.35))) for n in ("ba", "bf", "fa", "ff")}
+        self.hands = {n: rigid(Circle(radius=0.029 if n == "f" else 0.022, fill_color=skin if n == "f" else _shade(skin, 0.92), fill_opacity=1,
+                                      stroke_color=ink, stroke_width=ow * (1.0 if n == "f" else 0.8)), "hand_" + n)
+                      for n in ("b", "f")}
         # shoes peeping from under the body (they hop with it)
         self.shoes = {n: rigid(Ellipse(width=0.1, height=0.045, fill_color=SHOE if n == "f" else _shade(SHOE, 1.25),
                                        fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.6)

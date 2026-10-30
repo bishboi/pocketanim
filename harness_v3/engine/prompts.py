@@ -209,8 +209,9 @@ KIT_WORDS = {
 }
 
 
-def kit_for(plan: str) -> list[str]:
-    """The kit cards a shot's plan asks for: its `kit:` list, and any piece its words name."""
+def kit_for(plan: str, cast: list[str] | None = None) -> list[str]:
+    """The kit cards a shot's plan asks for: its `kit:` list, any piece its words name, and the people card when
+    it names one of the cast (a character is put with `ent NAME at X,Y`: its verbs are on that card)."""
     m = re.search(r"kit\s*:\s*([^|]*)", plan, re.I)
     named = {w.strip().lower() for w in re.split(r"[,;/ ]+", m.group(1))} if m else set()
     alias = {"flow": "diagram", "pyramid": "diagram", "cycle": "diagram", "tree": "diagram", "venn": "diagram",
@@ -227,6 +228,10 @@ def kit_for(plan: str) -> list[str]:
              "isotype": "chart", "alive": "people", "react": "people", "person": "people", "walk": "people", "nation": "people", "country": "people",
              "figure": "people"}
     named = {alias.get(w, w) for w in named}
+    for c in cast or []:
+        name = c.split()[1] if len(c.split()) > 1 else ""
+        if name and re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", plan, re.I):
+            named.add("people")
     return [k for k in KIT if k in named or re.search(KIT_WORDS[k], plan, re.I)]
 
 
@@ -378,7 +383,7 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
                if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
             + "Write the shot's lines.")
-    kit = kit_for(plan)
+    kit = kit_for(plan, cast)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     return with_language(SCORE + "\n\n" + GRAMMAR + cards, language), user
 
@@ -398,7 +403,7 @@ on a card) are not reported and stay as they are: move only what the problems na
 def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict],
                   cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
-    kit = kit_for(shot_text)
+    kit = kit_for(shot_text, cast)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     user = ("PROBLEMS:\n" + "\n".join(f"- {p}" for p in problems)
             + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)

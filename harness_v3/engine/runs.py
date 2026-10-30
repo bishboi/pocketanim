@@ -50,7 +50,9 @@ import parts as PT  # noqa: E402
 import prompts  # noqa: E402
 import score as S  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "director", "assets", "layout", "timeline", "render", "critic"]
+STEPS = ["voice", "storyboard", "score", "assets", "layout", "timeline", "render", "critic"]
+# (the director's pass, _director, is no longer a step: it rewrote every shot; the score step checks and fixes its
+# own shots instead)
 # The MP4 (Manim) is slow and the Player needs none: it is made only when a run asks for it (`mp4`, V3_RENDER_MP4),
 # or when its render step is run by hand.
 RENDER_MP4 = os.environ.get("V3_RENDER_MP4", "0").strip().lower() in ("1", "true", "yes", "on")
@@ -436,7 +438,7 @@ def _score_shot(run: dict, shots: list[dict], k: int, words: list[dict], before:
     s = shots[k]
     at = ((k % 3) * SHOT_STEP, -(k // 3) * 11.0)
     mine = [w for w in words if s["a"] <= w["i"] <= s["b"]]
-    system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run), _lang(run))
+    system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run), _lang(run), before)
     text = chat(run, "score", f"Score: shot {k + 1} ({s['name']})", system, user)
     text = re.sub(r"^```\w*|```$", "", text.strip(), flags=re.M).strip()
     if not re.search(r"^\s*shot\s", text, re.M):
@@ -466,6 +468,7 @@ def _score(run: dict, only: int | None = None) -> None:
         made = {k: pool.submit(_score_shot, run, shots, k, words, shots[k - 1]["plan"] if k else "") for k in todo}
         for k, f in made.items():
             parts[k] = f.result()
+    fixed = _check_shots(run, shots, parts, words, todo)
     (d / "shots.json").write_text(json.dumps(parts, indent=1))
     look = run["settings"].get("look") or "editorial"
     cast = "\n".join(_cast(run))
@@ -474,7 +477,106 @@ def _score(run: dict, only: int | None = None) -> None:
     if chaps:                                   # the narration's own chapters (`# Title` lines), not the model's
         body = re.sub(r"(?m)^\S+\s+chapter\s.*\n?", "", body)
     (d / "video.score").write_text(f"look {look}\n" + (cast + "\n" if cast else "") + chaps + "\n" + body + "\n")
-    run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"]
+    run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"] + fixed
+
+
+def _shot_problems(parts: list, k: int, words: list[dict], cast: set[str]) -> list[str]:
+    """What is wrong with shot k as written, that its writer can fix: a line the engine cannot read, a thing used
+    that no shot so far makes, no camera move on its first word, a stretch of more than 3.5 s with nothing
+    happening, too many things, long words on the screen."""
+    block = parts[k] or ""
+    out = []
+    made = set(cast)
+    for p in parts[:k + 1]:
+        made |= set(re.findall(r"(?m)^\s*ent\s+([\w\-]+)", p or ""))
+    acts = []
+    for ln in block.splitlines():
+        t = ln.split("#")[0].split()
+        if len(t) < 2 or not re.match(r"^[wt]\d", t[0]):
+            continue
+        if t[1] not in S.KNOWN_VERBS:
+            out.append(f"`{' '.join(t)[:60]}`: there is no verb `{t[1]}`")
+            continue
+        m = re.match(r"^w(\d+)", t[0])
+        when = float(words[min(int(m.group(1)), len(words) - 1)]["start"]) if m else (
+            float(re.match(r"^t(\d*\.?\d+)", t[0]).group(1)) if re.match(r"^t(\d*\.?\d+)", t[0]) else None)
+        acts.append((when, t[1], t[2] if len(t) > 2 else ""))
+        if t[1] not in ("cam", "chapter") and len(t) > 2:
+            for name in t[2].split(","):
+                base = re.sub(r"\[.*$", "", name).split(".", 1)[0]
+                if base and base not in made:
+                    out.append(f"`{' '.join(t)[:60]}`: nothing named `{base}` is made (give it an `ent` line in this "
+                               "shot, or use the name the shot before gives it)")
+    if not acts:
+        return ["no actions at all"]
+    acts.sort(key=lambda a: a[0] if a[0] is not None else 0)
+    if acts[0][1] != "cam":
+        out.append("its first action is not the camera: start with `wA cam SHOT` on its first word")
+    span = [w for w in words if w["i"] in {int(x) for x in re.findall(r"\bw(\d+)", block)}]
+    times = [a[0] for a in acts if a[0] is not None]
+    if span and times:
+        edge = sorted(set(times + [float(span[-1]["end"])]))
+        for x, y in zip(edge, edge[1:]):
+            if y - x > 3.5:
+                near = [w for w in words if x < float(w["start"]) < y]
+                if near:
+                    out.append(f"nothing happens for {y - x:.1f} s (from w{near[0]['i']} to w{near[-1]['i']}): land an "
+                               "action on a word in between (a move, a mark, a count, the camera)")
+    ents = re.findall(r"(?m)^\s*ent\s+([\w\-]+)\s+(\w+)\s*(\"[^\"]*\")?", block)
+    if len(ents) > 9:
+        out.append(f"{len(ents)} things in one shot: keep it to about six to eight, and take out what the story has left")
+    for name, kind, words_ in ents:
+        if kind in ("text", "tag", "label", "title", "card") and words_ and len(words_.strip('"').split()) > 5:
+            out.append(f"`{name}` writes {len(words_.strip(chr(34)).split())} words on the screen: 1-4")
+    return out
+
+
+def _check_shots(run: dict, shots: list, parts: list, words: list[dict], todo: list[int]) -> list[str]:
+    """Each shot just written checked (_shot_problems) with the whole score in view; one with problems written again,
+    once, told exactly what is wrong and shown the shot before as it was written (all at once). The new one is kept
+    only when it has fewer problems."""
+    if os.environ.get("V3_SCORE_CHECK", "1").strip() == "0":
+        return []
+    cast = {c.split()[1] for c in _cast(run) if len(c.split()) > 1}
+    bad = {k: _shot_problems(parts, k, words, cast) for k in todo if parts[k]}
+    bad = {k: v for k, v in bad.items() if v}
+    if not bad:
+        return ["every shot checked: nothing to fix"]
+
+    def fix(k: int):
+        s = shots[k]
+        at = ((k % 3) * SHOT_STEP, -(k // 3) * 11.0)
+        mine = [w for w in words if s["a"] <= w["i"] <= s["b"]]
+        before = shots[k - 1]["plan"] if k else ""
+        system, user = prompts.score_prompt(s["plan"], mine, at, before, _cast(run), _lang(run), before)
+        user += ("\n\nTHE SHOT BEFORE, AS WRITTEN (what it makes is up as this shot starts, unless it takes it out):\n"
+                 + (parts[k - 1] or "(none)" if k else "(this is the first shot)")
+                 + f"\n\nYOUR SHOT AS WRITTEN:\n{parts[k]}\n\nITS PROBLEMS:\n" + "\n".join(f"- {p}" for p in bad[k])
+                 + "\n\nWrite the shot's lines again with these fixed; keep everything else as it is.")
+        try:
+            out = chat(run, "score", f"Score fix: shot {k + 1} ({s['name']})", system, user)
+        except Exception:  # noqa: BLE001 -- kept as it was
+            return k, None
+        out = re.sub(r"^```\w*|```$", "", out.strip(), flags=re.M).strip()
+        if not re.search(r"^\s*shot\s", out, re.M):
+            return k, None
+        head = "\n".join(ln for ln in (parts[k] or "").splitlines() if ln.startswith("# ----"))
+        return k, (head + "\n" + out).strip()
+    jobs = max(1, int(os.environ.get("V3_SCORE_JOBS", "6")))
+    with ThreadPoolExecutor(max_workers=min(jobs, len(bad))) as pool:
+        tried = list(pool.map(fix, sorted(bad)))
+    kept = 0
+    for k, new in tried:
+        if not new:
+            continue
+        trial = list(parts)
+        trial[k] = new
+        if len(_shot_problems(trial, k, words, cast)) < len(bad[k]):
+            parts[k] = new
+            kept += 1
+    left = sum(len(_shot_problems(parts, k, words, cast)) for k in bad)
+    return [f"{len(bad)} shot(s) had problems ({sum(len(v) for v in bad.values())}); {kept} rewritten, "
+            f"{left} problem(s) left for the layout check"] + [f"shot {k + 1}: {v[0]}" for k, v in list(bad.items())[:8]]
 
 
 def _director(run: dict) -> None:

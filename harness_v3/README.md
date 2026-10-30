@@ -156,15 +156,19 @@ guesses. At each chapter a card slides in ("CHAPTER 2", its title on the accent)
 it. The run writes `chapters.txt`, YouTube's chapter list (`0:00 Title`, each at least 10 s), shown under the Player
 ready to paste.
 
-**The director's pass** (a step after the score). The shots were written one at a time; about six at a time, they
-are now read together and rewritten:
-- **continuity:** a thing already made is used by its name, and a thread is carried on, not re-made;
-- **a clean stage:** what the story has left goes out first;
-- **pacing:** something moves on every phrase;
-- **variety:** no three look-alike shots in a row.
+**The score checks itself.** Each shot is told the names of the things in its plan and in the plan of the shot
+before (`ships`, `map_japan`), so a thing shown again keeps one name and is carried on rather than made twice. Once
+every shot is written, each one is checked with the whole score in view:
+- a line the engine cannot read;
+- a thing used that no shot so far makes;
+- no camera move on its first word;
+- more than 3.5 s with nothing happening;
+- more than nine things;
+- long words on the screen.
 
-A rewritten shot is kept only if it reads at least as cleanly as before; the score as it was is kept beside it
-(`video.before-director.score`).
+A shot with problems is written again, once (all of them at once). It is told exactly what is wrong and shown the
+shot before as it was written, and the new version is kept only when it has fewer problems (`V3_SCORE_CHECK=0`: no
+check). The earlier director's pass, which rewrote every shot, is no longer a step.
 
 **One house style.** A reference drawing per look and kind (cut-outs, prints) is made once and kept. It is given with
 every picture asked for (OpenRouter's `input_references`), so every picture of every video looks drawn by one hand.

@@ -402,11 +402,43 @@ def _cast_card(cast: list[str] | None) -> str:
             "`mood FACE` on that line changes its face):\n" + "\n".join(cast) + "\n")
 
 
+NAME_STOP = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "its", "his", "her", "their", "some",
+             "one", "two", "three", "few", "many", "small", "big", "large", "old", "new", "little"}
+
+
+def thing_names(plan: str) -> list[tuple[str, str]]:
+    """The things a shot's plan lists (`things: sea, ships, map of Japan`), each with the name it goes by in the
+    score (`ships`, `map_japan`): the same thing in two shots has the same name, so a thread carries on."""
+    m = re.search(r"things\s*:\s*([^|]*)", plan, re.I)
+    if not m:
+        return []
+    out, seen = [], set()
+    for t in re.split(r",|;|\band\b", m.group(1)):
+        t = t.strip(" .")
+        ws = [w for w in re.findall(r"[a-z0-9]+", t.lower()) if w not in NAME_STOP]
+        if not ws:
+            continue
+        name = "_".join(ws[:2])[:18].strip("_")
+        if name[0].isdigit():
+            name = "n" + name
+        if name not in seen:
+            seen.add(name)
+            out.append((t, name))
+    return out
+
+
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "",
-                 cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
+                 cast: list[str] | None = None, language: str | None = None, before_plan: str = "") -> tuple[str, str]:
     said_ = said(words, timed=True)
-    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said_}\n" + _cast_card(cast)
-            + (f"THE SHOT BEFORE (for continuity; it is written at the same time, so make every thing you use): {before}\n"
+    mine, theirs = thing_names(plan), thing_names(before_plan)
+    names = ("NAMES (each thing keeps one name all video, shared with the shots either side): "
+             + "; ".join(f"`{n}` = {t}" for t, n in mine) + "\n") if mine else ""
+    if theirs:
+        names += ("THE SHOT BEFORE makes: " + ", ".join(f"`{n}`" for _, n in theirs) + " (one of these this shot shows "
+                  "again is the same thing: use its name and no new `ent` line, and move or change it instead of "
+                  "making a copy; a thing this shot needs that the shot before may not make gets its own `ent` line)\n")
+    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said_}\n" + names + _cast_card(cast)
+            + (f"THE SHOT BEFORE: {before}\n"
                if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
             + "Write the shot's lines.")

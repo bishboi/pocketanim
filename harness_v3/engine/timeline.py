@@ -253,13 +253,15 @@ class Recorder:
         for m in extract_mobject_family_members(scene.mobjects, use_z_index=True, only_those_with_points=True):
             if not ((isinstance(m, VMobject) and len(m.points)) or isinstance(m, ImageMobject)):
                 continue
-            if isinstance(m, VMobject) and _unseen(m):
-                continue                        # draws nothing (a hidden reference dot, a part not yet come on)
             leaf = self.leaves.get(id(m))
             if leaf is None or leaf.m is not m:
+                # ranked in the drawing order as it first stands in the scene, seen or not yet: a card's face
+                # still faded out keeps its place under the picture on it (and its shadow under the face)
                 leaf = Leaf(len(self.order), m, len(self.order))
                 self.leaves[id(m)] = leaf
                 self.order.append(leaf)
+            if isinstance(m, VMobject) and _unseen(m):
+                continue                        # draws nothing (a hidden reference dot, a part not yet come on)
             if not leaf.on or leaf.on[-1][1] != f:
                 leaf.on.append([f, f + 1])
             else:
@@ -327,7 +329,7 @@ def bake(score_text: str, voice_dir: Path, out_dir: Path, quality: str = "m") ->
     print(f"writing timeline.json: {len(rec.order)} pieces, {len(rec.pictures)} picture(s)", flush=True)
     data = {"version": 1, "fps": fps, "frames": total, "size": [w, h], "frame_width": S.SCREEN_W,
             "bg": look.L["bg"], "audio": audio, "camera": rec.camera_keys(),
-            "leaves": [leaf.out() for leaf in rec.order], "notes": sc.notes}
+            "leaves": [leaf.out() for leaf in rec.order if leaf.shapes], "notes": sc.notes}
     if feel.texture_on(sc):                     # outlines tremble as drawn (player.html: boil)
         data["boil"] = {"hz": feel.BOIL_HZ, "shift": feel.BOIL_SHIFT, "turn": feel.BOIL_TURN}
     text = json.dumps(data, separators=(",", ":")).replace("NaN", "0")    # (never NaN in the JSON: a player cannot read it)

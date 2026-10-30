@@ -722,7 +722,7 @@ def card(title: str, mods: dict, k: float = 1.0):
         f.move_to([face.get_center()[0], top - 0.12 * h - f.height / 2, 0])
         parts.append(f)
     elif mods.get("img"):
-        f = picture("pic", str(mods["img"]), w * 0.8, {})
+        f = picture("pic", str(mods["img"]), w * 0.8, {"w": w * 0.8, "h": h * 0.5})   # clear of the title under it
         f.move_to([face.get_center()[0], top - 0.08 * h - f.height / 2, 0])
         parts.append(f)
     if title:

@@ -91,16 +91,25 @@ From the command line: `python engine/pipeline.py narration.txt out/x --voice ge
 
 Pictures are looked for in a library before any is made (`engine/library.py`, `harness_v3/library/`):
 
-- **What is in it:** your own illustrations, Pixabay's illustrations and vector art (with `PIXABAY_API_KEY`: free
-  to use with no credit needed, under its licence; never its photos), and every picture the image model makes. A
-  thing made once is reused by every later video that needs it.
+- **What is in it:** your own illustrations, illustrations found outside, and every picture the image model makes.
+  A thing made once is reused by every later video that needs it.
+- **Outside sources** (`V3_LIBRARY_SOURCES`, in order):
+  - `commons` (the default): Wikimedia Commons' drawings, engravings, prints and paintings. No key and no quota:
+    asked politely, one search at a time. A search that finds too little is asked again with fewer, more telling
+    words.
+  - `openverse`: Openverse's open illustrations (Rawpixel, museums, Flickr). No key; one search a second, more
+    with a registered app (`OPENVERSE_CLIENT_ID`/`SECRET`).
+  - `pixabay`: Pixabay's illustrations and vector art (`PIXABAY_API_KEY`).
+  - Every search is kept on disk, so the same words never ask twice.
+  - Only public domain and CC0 by default, so the video needs no credit; `V3_LIBRARY_FREE_ONLY=0` allows CC BY,
+    credited under the picture.
 - **Your own:** drop PNG, JPG or WebP files in `library/inbox/`, each named for what it shows
   (`an-indian-farmer-ploughing-with-two-oxen.png`; `photo-...` or `scene-...` for a scene). They are taken in at the
   next run, or with `python engine/library.py import`.
 - **Seeding:** `python engine/library.py seed` takes in every picture made before, from the asset cache.
 - **Searching:** `python engine/library.py search WORDS` shows what the library has for those words.
 - **How one is chosen:** for each picture a score asks for, the closest candidates by their words (from the library
-  and from Pixabay) are shown to the vision model. It picks the one that truly shows the thing, as an illustration of
+  and from the outside sources) are shown to the vision model. It picks the one that truly shows the thing, as an illustration of
   the right time and place (never an icon, logo, diagram or photograph), or none, and only then is it made. A chosen
   illustration on a plain ground is cut out like the rest; one with a scene behind it is framed as a print.
 - **Turning it off:** `V3_LIBRARY=0`.

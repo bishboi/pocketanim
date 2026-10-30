@@ -740,7 +740,7 @@ def _from_library(run: dict, items: list) -> tuple[list, list[str]]:
         if kind not in ("pic", "photo"):
             return None
         words = assets.archive_query(prompt) if assets.is_archive(prompt) else prompt
-        cands = library.search(words, kind, 4) + library.pixabay(words, kind, 4)
+        cands = library.search(words, kind, 4) + library.outside(words, kind, 4)
         if not cands:
             return None
         try:
@@ -761,8 +761,14 @@ def _from_library(run: dict, items: list) -> tuple[list, list[str]]:
                 img = Image.open(library.path(row))
             else:                               # from Pixabay: kept in the library too
                 img = assets._open(assets._get(pick["large"]))
-                row = library.add(img, pick["title"] or words, kind, pick["tags"], "pixabay", "Pixabay Content License",
-                                  pick.get("user", ""), pick.get("page", ""))
+                row = library.add(img, f"{words} | {pick['title']}", kind, pick["tags"], pick.get("source", "outside"),
+                                  pick.get("license", ""), pick.get("user", ""), pick.get("page", ""))
+                if not pick.get("free", True):          # (a licence that asks for its author: said under it)
+                    out_ = assets.path_for(kind, prompt, lk)
+                    out_.parent.mkdir(parents=True, exist_ok=True)
+                    out_.with_suffix(".credit.json").write_text(json.dumps(
+                        {"artist": pick.get("user", ""), "license": pick.get("license", ""), "page": pick.get("page", ""),
+                         "needs_credit": True}))
             out = assets.path_for(kind, prompt, lk)
             out.parent.mkdir(parents=True, exist_ok=True)
             if row.get("finished"):

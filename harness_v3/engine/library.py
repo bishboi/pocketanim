@@ -7,8 +7,9 @@
                                        is: "a-farmer-ploughing-with-two-oxen.png"); they are taken in at the next run,
                                        or by `python engine/library.py import`
 
-Where the pictures come from: your own (the inbox); Pixabay's illustrations and vector art (PIXABAY_API_KEY; free to
-use, no credit needed: its licence); and every picture the image model makes, kept here so the next video that needs
+Where the pictures come from: your own (the inbox); illustrations found outside (Wikimedia Commons by default; Openverse
+and Pixabay too: V3_LIBRARY_SOURCES), public domain or CC0 so the video needs no credit; and every picture the image
+model makes, kept here so the next video that needs
 the same thing uses it. A picture a score asks for is looked for here first (assets step, runs.py): the closest by
 their words, and a vision model chooses the one that truly shows it (an illustration, never an icon), or none.
 
@@ -140,36 +141,176 @@ def take_inbox() -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- Pixabay --------------------------------------------
+# ---------------------------------------------------------------- outside sources -----------------------------------
+# Where illustrations are searched for beyond the library (V3_LIBRARY_SOURCES, in order; each search kept on disk, so
+# the same words never ask twice, and asked one at a time, politely):
+#   commons     Wikimedia Commons (the default): drawings, engravings, paintings, illustrations; no key, no quota
+#   openverse   Openverse (WordPress's search of open images: Rawpixel, museums, Flickr...): no key, 1 a second
+#               (OPENVERSE_CLIENT_ID and OPENVERSE_CLIENT_SECRET for a registered app's higher rate)
+#   pixabay     Pixabay's illustrations and vector art (PIXABAY_API_KEY)
+# Only what needs no credit in the video (public domain, CC0; Pixabay's licence) unless V3_LIBRARY_FREE_ONLY=0.
+SOURCES = [x.strip() for x in os.environ.get("V3_LIBRARY_SOURCES", "commons").split(",") if x.strip()]
+FREE_ONLY = os.environ.get("V3_LIBRARY_FREE_ONLY", "1").strip() != "0"
+SEEN = HERE.parent / ".cache" / "library-search"
+_ask = threading.Lock()
+_last = {"t": 0.0}
+
+
+def _cached(name: str, query: str, fetch) -> list[dict]:
+    """A source's answer for the words, from disk when asked before; asked one at a time, a second apart."""
+    SEEN.mkdir(parents=True, exist_ok=True)
+    f = SEEN / f"{name}-{hashlib.sha1(query.encode()).hexdigest()[:16]}.json"
+    if f.exists():
+        try:
+            return json.loads(f.read_text())
+        except ValueError:
+            pass
+    with _ask:
+        wait = 1.05 - (time.time() - _last["t"])
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            out = fetch()
+        except Exception as e:  # noqa: BLE001 -- the source is down or refused: nothing from it this time
+            print(f"library: {name} search failed: {str(e)[:120]}", file=sys.stderr)
+            out = None
+        _last["t"] = time.time()
+    if out is not None:
+        f.write_text(json.dumps(out))
+    return out or []
+
+
+def _terms(query: str) -> list[str]:
+    """The words a search is made of: what the thing is, in order (15th kept; small words left out)."""
+    return [w for w in re.findall(r"[A-Za-z0-9]+", str(query).lower()) if w not in STOP and len(w) > 2]
+
+
+def commons(query: str, kind: str = "pic", n: int = 6) -> list[dict]:
+    """Wikimedia Commons' illustrations for the words: drawings, engravings, paintings. Every word must match
+    there, so too few found is asked again with fewer: the longest (most telling) words."""
+    terms = _terms(query)
+    tries = [terms[:6], sorted(terms, key=len, reverse=True)[:3], sorted(terms, key=len, reverse=True)[:2]]
+    out, seen = [], set()
+    for t in tries:
+        if not t:
+            continue
+        for c in _commons(" ".join(t), kind, n):
+            if c["url"] not in seen:
+                seen.add(c["url"])
+                out.append(c)
+        if len(out) >= max(2, n // 2):
+            break
+    return out[:n]
+
+
+def _commons(q: str, kind: str, n: int) -> list[dict]:
+    import assets
+
+    def fetch():
+        # drawings first (SVG illustrations, clean to cut out), then pictures (engravings, prints, paintings): the
+        # vision model leaves out what is a photograph, an icon or a diagram
+        pages = []
+        for kind_ in (("drawing", "bitmap") if kind == "pic" else ("bitmap", "drawing")):
+            d = json.loads(assets._get(assets.COMMONS, {
+                "action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
+                "gsrsearch": f"{q} filetype:{kind_}", "gsrlimit": n * 3, "prop": "imageinfo",
+                "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 640}))
+            pages += sorted((d.get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 0))
+        out, seen = [], set()
+        for p in pages:
+            if p.get("title") in seen:
+                continue
+            seen.add(p.get("title"))
+            ii = (p.get("imageinfo") or [{}])[0]
+            meta = ii.get("extmetadata") or {}
+            lic = assets._plain((meta.get("LicenseShortName") or {}).get("value", ""))
+            free = bool(re.search(r"public domain|^pd|cc0|cc-zero", lic, re.I))
+            if ii.get("mime") not in ("image/jpeg", "image/png", "image/svg+xml", "image/webp") or "fair" in lic.lower():
+                continue
+            if (FREE_ONLY and not free) or min(ii.get("width", 0), ii.get("height", 0)) < 300:
+                continue
+            big = ii.get("thumburl", "").replace("/640px-", "/1280px-") if ii.get("width", 0) >= 1280 else ii.get("thumburl")
+            out.append({"url": ii.get("thumburl") or ii.get("url"), "large": big or ii.get("url"),
+                        "title": re.sub(r"^File:|\.\w+$", "", p.get("title", "")).replace("_", " "),
+                        "tags": [], "page": ii.get("descriptionurl", ""), "license": lic,
+                        "user": assets._plain((meta.get("Artist") or {}).get("value", ""))[:120], "source": "commons",
+                        "free": free})
+            if len(out) >= n:
+                break
+        return out
+    return _cached("commons2", f"{kind}|{q}|{FREE_ONLY}", fetch)
+
+
+def _openverse_token() -> str | None:
+    cid, sec = os.environ.get("OPENVERSE_CLIENT_ID", ""), os.environ.get("OPENVERSE_CLIENT_SECRET", "")
+    if not (cid and sec):
+        return None
+    import urllib.request
+    req = urllib.request.Request("https://api.openverse.org/v1/auth_tokens/token/", method="POST",
+                                 data=urllib.parse.urlencode({"client_id": cid, "client_secret": sec,
+                                                              "grant_type": "client_credentials"}).encode(),
+                                 headers={"User-Agent": "pocketanim-harness/3.0"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read()).get("access_token")
+
+
+def openverse(query: str, kind: str = "pic", n: int = 6) -> list[dict]:
+    """Openverse's illustrations for the words (public domain and CC0 unless V3_LIBRARY_FREE_ONLY=0)."""
+    import urllib.request
+    q = " ".join(_words(query)[:6]) or query
+
+    def fetch():
+        params = {"q": q, "category": "illustration,digitized_artwork", "page_size": min(20, n * 2)}
+        params["license"] = "cc0,pdm" if FREE_ONLY else "cc0,pdm,by,by-sa"
+        headers = {"User-Agent": "pocketanim-harness/3.0 (https://github.com/bishboi/pocketanim)"}
+        tok = _openverse_token()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+        req = urllib.request.Request("https://api.openverse.org/v1/images/?" + urllib.parse.urlencode(params),
+                                     headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            d = json.loads(r.read())
+        return [{"url": x.get("thumbnail") or x.get("url"), "large": x.get("url"), "title": x.get("title") or q,
+                 "tags": [t.get("name", "") for t in x.get("tags") or []][:12], "page": x.get("foreign_landing_url", ""),
+                 "license": f"{x.get('license', '')} {x.get('license_version', '')}".strip(),
+                 "user": x.get("creator") or "", "source": "openverse",
+                 "free": x.get("license") in ("cc0", "pdm")} for x in d.get("results") or []][:n]
+    return _cached("openverse", f"{kind}|{q}|{FREE_ONLY}", fetch)
+
 
 def pixabay(query: str, kind: str = "pic", n: int = 6) -> list[dict]:
-    """Pixabay's illustrations and vector art for the words (PIXABAY_API_KEY; none without it): [{url (a small copy to
-    choose from), large (to keep), title, tags, page, user}]."""
+    """Pixabay's illustrations and vector art for the words (PIXABAY_API_KEY; none without it)."""
     key = os.environ.get("PIXABAY_API_KEY", "").strip()
     if not key:
         return []
     import assets
     q = " ".join(_words(query)[:6]) or query
+
+    def fetch():
+        out = []
+        for image_type in (("vector", "illustration") if kind == "pic" else ("illustration",)):
+            url = "https://pixabay.com/api/?" + urllib.parse.urlencode(
+                {"key": key, "q": q[:95], "image_type": image_type, "safesearch": "true", "per_page": max(3, n),
+                 "order": "popular"})
+            for h in json.loads(assets._get(url)).get("hits") or []:
+                out.append({"url": h.get("webformatURL") or h.get("previewURL"),
+                            "large": h.get("largeImageURL") or h.get("webformatURL"), "title": h.get("tags", ""),
+                            "tags": [t.strip() for t in str(h.get("tags", "")).split(",")],
+                            "page": h.get("pageURL", ""), "user": h.get("user", ""), "source": "pixabay",
+                            "license": "Pixabay Content License", "free": True})
+        return out
+    return _cached("pixabay", f"{kind}|{q}", fetch)[:n]
+
+
+def outside(query: str, kind: str = "pic", n: int = 4) -> list[dict]:
+    """The outside sources' candidates for the words, in V3_LIBRARY_SOURCES' order (and Pixabay when its key is set)."""
+    found = {"commons": commons, "openverse": openverse, "pixabay": pixabay}
+    names = SOURCES + (["pixabay"] if os.environ.get("PIXABAY_API_KEY") and "pixabay" not in SOURCES else [])
     out = []
-    for image_type in (("vector", "illustration") if kind == "pic" else ("illustration",)):
-        url = "https://pixabay.com/api/?" + urllib.parse.urlencode(
-            {"key": key, "q": q[:95], "image_type": image_type, "safesearch": "true", "per_page": max(3, n),
-             "order": "popular"})
-        try:
-            hits = json.loads(assets._get(url)).get("hits") or []
-        except Exception:  # noqa: BLE001 -- the search failed: the library and the image model are left
-            hits = []
-        for h in hits:
-            out.append({"url": h.get("webformatURL") or h.get("previewURL"), "large": h.get("largeImageURL")
-                        or h.get("webformatURL"), "title": h.get("tags", ""), "tags": [t.strip() for t in
-                                                                                 str(h.get("tags", "")).split(",")],
-                        "page": h.get("pageURL", ""), "user": h.get("user", ""), "source": "pixabay"})
-    seen, uniq = set(), []
-    for c in out:
-        if c["url"] and c["url"] not in seen:
-            seen.add(c["url"])
-            uniq.append(c)
-    return uniq[:n]
+    for name in names:
+        if name in found and len(out) < n:
+            out += found[name](query, kind, n - len(out))
+    return out[:n]
 
 
 CHOOSE = """You choose pictures for an animated explainer video drawn as illustrations (hand-drawn or flat

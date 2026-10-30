@@ -378,7 +378,7 @@ def prompt_for(kind: str, prompt: str, look: str) -> str:
 
 # The optional settings each image model refused, learned from its answers ({model: {setting}}): sent no more to it.
 # Some models take only the prompt and the shape (FLUX: "does not support: output_format, quality, background").
-OPTIONAL = ("output_format", "quality", "background", "aspect_ratio", "n")
+OPTIONAL = ("output_format", "quality", "background", "aspect_ratio", "n", "input_references")
 _refused: dict[str, set] = {}
 
 
@@ -391,7 +391,42 @@ def _refusal(said: str) -> set:
     return {n for n in names if n in OPTIONAL}
 
 
-def _image(model: str, prompt: str, aspect: str, transparent: bool = False):
+# One house style: a reference drawing per look and kind (cut-outs, prints), made once and kept, given with every
+# picture asked for (OpenRouter's `input_references`) so 150 pictures of a video, and every video, look drawn by one
+# hand (V3_STYLE_REF=0: none; a model that takes no references is asked without, and not sent one again).
+STYLE_REF = os.environ.get("V3_STYLE_REF", "1").strip() != "0"
+STYLE_SUBJECT = {
+    "pic": "a small study sheet of four separate everyday things drawn in the house style: a clay water pot, a "
+           "leafy tree, a standing village woman in a sari, a wooden cart wheel; each alone on the plain ground",
+    "photo": "a busy small-town market street at morning: stalls of vegetables, a few people walking, a bicycle, old "
+             "houses behind, soft light",
+}
+_ref_lock = __import__("threading").Lock()
+
+
+def style_ref(kind: str, look: str, model: str) -> str | None:
+    """The house style's reference picture for a kind of picture (a data URL), made the first time it is wanted."""
+    if not STYLE_REF:
+        return None
+    group = "pic" if kind == "pic" else "photo"
+    p = CACHE / f"style-{group}-{look}-{hashlib.sha1(model.encode()).hexdigest()[:8]}.png"
+    with _ref_lock:
+        if not p.exists():
+            try:
+                img, _ = _image(model, prompt_for(group, STYLE_SUBJECT[group], look), "1:1" if group == "pic" else "4:3",
+                                refs=None)
+                CACHE.mkdir(parents=True, exist_ok=True)
+                img.convert("RGB").resize((512, int(512 * img.size[1] / img.size[0]))).save(p)
+            except Exception:  # noqa: BLE001 -- no reference: the pictures are made without one
+                return None
+    return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+
+
+SAME_HAND = ("Draw it in exactly the drawing style of the reference image (its line, colours, shading and paper), "
+             "as if by the same artist; take nothing else from it (none of its objects, people or layout). ")
+
+
+def _image(model: str, prompt: str, aspect: str, transparent: bool = False, refs: list[str] | None = None):
     """One Image API call: the picture (PIL, RGBA) and the call's usage (cost, tokens). A setting the model says it does
     not support is left out and the call made again (and not sent to that model again)."""
     key_ = os.environ.get("OPENROUTER_API_KEY")
@@ -400,9 +435,11 @@ def _image(model: str, prompt: str, aspect: str, transparent: bool = False):
     want = {"n": 1, "output_format": "png", "aspect_ratio": aspect, "quality": os.environ.get("V3_IMAGE_QUALITY", "medium")}
     if transparent:
         want["background"] = "transparent"     # where the model can; else we cut it out ourselves
-    for _ in range(3):
-        body = {"model": model, "prompt": prompt,
-                **{k: v for k, v in want.items() if k not in _refused.get(model, set())}}
+    if refs:
+        want["input_references"] = [{"type": "image_url", "image_url": {"url": r}} for r in refs]
+    for _ in range(4):
+        sent = {k: v for k, v in want.items() if k not in _refused.get(model, set())}
+        body = {"model": model, "prompt": (SAME_HAND + prompt) if "input_references" in sent else prompt, **sent}
         req = urllib.request.Request("https://openrouter.ai/api/v1/images", data=json.dumps(body).encode(),
                                      headers={"Authorization": f"Bearer {key_}", "Content-Type": "application/json",
                                               "User-Agent": "harness-v3/1.0",
@@ -418,7 +455,10 @@ def _image(model: str, prompt: str, aspect: str, transparent: bool = False):
             except Exception:  # noqa: BLE001
                 pass
             drop = _refusal(said) - _refused.get(model, set())
-            if e.code == 400 and drop & set(body):
+            if e.code in (400, 422) and "input_references" in body and "input_references" not in drop and \
+                    re.search(r"reference|image input|input image|modalit", said, re.I):
+                drop.add("input_references")    # a model that takes no reference picture
+            if e.code in (400, 422) and drop & set(body):
                 _refused.setdefault(model, set()).update(drop)     # asked again without them
                 continue
             raise RuntimeError(f"the image model refused ({e.code}): {said}") from e
@@ -445,7 +485,9 @@ def generate(kind: str, prompt: str, look: str, model: str | None = None, said: 
     image model is given (a better prompt written for it); the picture is kept under the score's own words. Returns
     its path and the call's usage (cost, tokens)."""
     model = model or DEFAULT_MODEL
-    img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", kind == "pic")
+    ref = style_ref(kind, look, model)
+    img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", kind == "pic",
+                        refs=[ref] if ref else None)
     done = cutout(img) if kind == "pic" else framed(img)
     p = path_for(kind, prompt, look)
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -526,7 +568,8 @@ def generate_sheet(items: list[tuple[str, str]], look: str, model: str | None = 
     image model). Returns ({score words: path}, [score words not cut cleanly], usage)."""
     model = model or DEFAULT_MODEL
     prompt, cols, rows, aspect = sheet_prompt([said for _, said in items], look)
-    img, usage = _image(model, prompt, aspect, transparent=False)
+    ref = style_ref("pic", look, model)
+    img, usage = _image(model, prompt, aspect, transparent=False, refs=[ref] if ref else None)
     made, missed = {}, []
     CACHE.mkdir(parents=True, exist_ok=True)
     for (words, said), cut in zip(items, split_sheet(img, cols, rows, len(items))):

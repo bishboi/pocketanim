@@ -36,7 +36,27 @@ STYLES = {
     "hinglish": "a friendly Indian explainer speaking natural Hinglish: Hindi words said as Hindi, English words in "
                 "an Indian English accent, warm and conversational, unhurried",
     "hi": "a warm, clear Hindi documentary narrator, unhurried",
+    "character": "in character, as a person in the story speaking their own line, vivid and natural",
 }
+
+
+def voices_for(who: list[str], narrator: str, given: dict) -> dict:
+    """A voice for each character: the one the narration names (`@monk = Charon`), else one picked from its name,
+    never the narrator's, and no two alike while there are voices to spare."""
+    out, taken = {}, {narrator}
+    for w in who:
+        v = given.get(w)
+        if v and v.split(":")[-1] in VOICES:
+            out[w] = v.split(":")[-1]
+            taken.add(out[w])
+    import zlib
+    for w in who:
+        if w in out:
+            continue
+        free = [v for v in VOICES if v not in taken] or [v for v in VOICES if v != narrator]
+        out[w] = free[zlib.crc32(w.encode()) % len(free)]
+        taken.add(out[w])
+    return out
 
 
 def key() -> str:
@@ -109,12 +129,18 @@ def say(text: str, voice: str, style: str, model: str | None = None, tries: int 
 
 
 def speak(lines: list[str], voice: str, style: str, pause: float, on_line=None) -> tuple[np.ndarray, list]:
-    """Every line spoken (V3_TTS_JOBS at once) and joined with a pause between: (samples, [(start, end)])."""
+    """Every line in one voice and style (speak_lines)."""
+    return speak_lines([(ln, voice, style) for ln in lines], pause, on_line)
+
+
+def speak_lines(lines: list[tuple[str, str, str]], pause: float, on_line=None) -> tuple[np.ndarray, list]:
+    """Every line spoken, each (text, voice, style), V3_TTS_JOBS at once, joined with a pause between:
+    (samples, [(start, end)])."""
     jobs = max(1, int(os.environ.get("V3_TTS_JOBS", "4")))
     done = [0]
 
-    def one(line):
-        a = say(line, voice, style)
+    def one(job):
+        a = say(*job)
         done[0] += 1
         if on_line:
             on_line(done[0])

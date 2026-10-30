@@ -49,7 +49,7 @@ import parts as PT  # noqa: E402
 import prompts  # noqa: E402
 import score as S  # noqa: E402
 
-STEPS = ["voice", "storyboard", "score", "assets", "layout", "timeline", "render", "critic"]
+STEPS = ["voice", "storyboard", "score", "director", "assets", "layout", "timeline", "render", "critic"]
 # The MP4 (Manim) is slow and the Player needs none: it is made only when a run asks for it (`mp4`, V3_RENDER_MP4),
 # or when its render step is run by hand.
 RENDER_MP4 = os.environ.get("V3_RENDER_MP4", "0").strip().lower() in ("1", "true", "yes", "on")
@@ -417,6 +417,15 @@ def _lang(run: dict) -> str:
     return run["settings"].get("language") or "en"
 
 
+def _chapter_lines(words: list[dict]) -> str:
+    """`wN chapter "TITLE"` for each chapter the narration marks (`# Title`), on its first word."""
+    out = []
+    for w in words:
+        if w.get("chapter"):
+            out.append(f'w{w["i"]} chapter "{str(w["chapter"]).replace(chr(34), chr(39))}"')
+    return "\n".join(out) + ("\n" if out else "")
+
+
 def _cast(run: dict) -> list[str]:
     p = run_dir(run["id"]) / "cast.score"
     return [ln for ln in p.read_text().splitlines() if ln.strip()] if p.exists() else []
@@ -459,9 +468,83 @@ def _score(run: dict, only: int | None = None) -> None:
     (d / "shots.json").write_text(json.dumps(parts, indent=1))
     look = run["settings"].get("look") or "editorial"
     cast = "\n".join(_cast(run))
-    (d / "video.score").write_text(f"look {look}\n" + (cast + "\n" if cast else "") + "\n"
-                                   + "\n\n".join(p for p in parts if p) + "\n")
+    body = "\n\n".join(p for p in parts if p)
+    chaps = _chapter_lines(words)
+    if chaps:                                   # the narration's own chapters (`# Title` lines), not the model's
+        body = re.sub(r"(?m)^\S+\s+chapter\s.*\n?", "", body)
+    (d / "video.score").write_text(f"look {look}\n" + (cast + "\n" if cast else "") + chaps + "\n" + body + "\n")
     run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"]
+
+
+def _director(run: dict) -> None:
+    """The director's pass (V3_DIRECTOR=0: none): the shots read together, about V3_DIRECTOR_SHOTS (6) at a time
+    (all the windows at once), and rewritten for continuity, a clean stage, pacing and variety. A shot comes back
+    only if it reads at least as well as it was (no line more left out); else it stays as it was."""
+    d = run_dir(run["id"])
+    box = run["steps"]["director"]
+    if os.environ.get("V3_DIRECTOR", "1").strip() == "0":
+        box["notes"] = ["off (V3_DIRECTOR=0)"]
+        return
+    if run["settings"].get("given_score"):
+        box["notes"] = ["a score was given by hand: left as it is"]
+        return
+    text = (d / "video.score").read_text()
+    (d / "video.before-director.score").write_text(text)
+    words_all = json.loads((d / "words.json").read_text())
+    words, secs = words_all["words"], float(words_all["seconds"])
+    lines = text.splitlines()
+    blocks = _shot_blocks(text)
+    order = sorted(blocks, key=lambda n: blocks[n][0])
+    size = max(2, int(os.environ.get("V3_DIRECTOR_SHOTS", "6")))
+    windows = [order[i:i + size] for i in range(0, len(order), size)]
+
+
+    def one(w: list[str]) -> dict[str, str]:
+        a, b = blocks[w[0]][0], blocks[w[-1]][1]
+        body = "\n".join(lines[a:b])
+        prev = order.index(w[0]) - 1
+        before = "\n".join(lines[blocks[order[prev]][0]:blocks[order[prev]][1]]) if prev >= 0 else ""
+        used = [int(x) for x in re.findall(r"\bw(\d+)", body)]
+        mine = [x for x in words if used and min(used) <= x["i"] <= max(used)]
+        system, user = prompts.director_prompt(body, before, mine, _cast(run), _lang(run))
+        try:
+            out = chat(run, "director", f"Director: {w[0]} .. {w[-1]}", system, user,
+                       max_tokens=900 * len(w) + 600, model=(run["settings"].get("models") or {}).get("score") or None)
+        except Exception:  # noqa: BLE001 -- the shots stay as they were
+            return {}
+        out = re.sub(r"^```\w*|```$", "", out.strip(), flags=re.M).strip()
+        got = _shot_blocks(out)
+        olines = out.splitlines()
+        return {n: "\n".join(olines[got[n][0]:got[n][1]]) for n in w if n in got}
+    jobs = max(1, int(os.environ.get("V3_SCORE_JOBS", "6")))
+    with ThreadPoolExecutor(max_workers=min(jobs, max(1, len(windows)))) as pool:
+        made = {}
+        for r in pool.map(one, windows):
+            made.update(r)
+    kept, taken = 0, []
+    for shot in sorted(made, key=lambda n: -blocks[n][0]):      # from the last, so the line numbers hold
+        a, b = blocks[shot]
+        head = []                                   # the comment lines over the shot kept
+        for ln in lines[a:b]:
+            if not ln.lstrip().startswith("#"):
+                break
+            head.append(ln)
+        new = lines[:a] + head + [ln for ln in made[shot].splitlines() if not ln.lstrip().startswith("# ----")] + [""] + lines[b:]
+        trial = "\n".join(new)
+        try:
+            ok = re.search(rf"^\s*shot\s+{re.escape(shot)}\b", made[shot], re.M) and \
+                S.parse(trial, words, secs).notes.__len__() <= S.parse("\n".join(lines), words, secs).notes.__len__()
+        except Exception:  # noqa: BLE001
+            ok = False
+        if ok:
+            lines = new
+            taken.append(shot)
+        else:
+            kept += 1
+    (d / "video.score").write_text("\n".join(lines) + "\n")
+    box["notes"] = [f"{len(taken)} of {len(order)} shot(s) rewritten in {len(windows)} pass(es); "
+                    f"{len(order) - len(taken)} kept as they were ({kept} because the rewrite read worse, "
+                    f"{len(order) - len(taken) - kept} not given back)"]
 
 
 def _assets(run: dict) -> None:
@@ -562,8 +645,55 @@ def _assets(run: dict) -> None:
             notes.append(f"{sum(n for n, _ in sheets)} small object(s) asked for on {len(sheets)} sheet(s); "
                          f"{sum(k for _, k in sheets)} cut cleanly, the rest made one by one")
         notes += [f"not made (a placeholder is drawn): {f}" for f in failed]
+        made_now = [w for w in todo if w[0] == "pic" and assets.path_for(w[0], w[1], w[2]).exists()]
+        notes += _check_pictures(run, made_now, said, model_for)
     notes += _find_parts(run, text, model)
     run["steps"]["assets"]["notes"] = notes
+
+
+CHECK = """You check the pictures of an educational video before it is made. You see one picture, a cut-out drawing,
+and the words it was made from. Answer `yes` if it shows that thing plainly as ONE whole object or person, cleanly cut
+out, with no words, letters or numbers in it; else `no: WHAT IS WRONG` in a few words (the wrong thing, several things,
+cut off, text in it, a panel or background behind it, unreadable)."""
+
+
+def _check_pictures(run: dict, items: list, said: dict, model_for) -> list[str]:
+    """Each cut-out made now looked at by a vision model (V3_IMAGE_CHECK=0: not): one that is wrong is made again,
+    once, told what was wrong."""
+    if not items or os.environ.get("V3_IMAGE_CHECK", "1").strip() == "0":
+        return []
+    vision = (run["settings"].get("models") or {}).get("critic") or run["settings"]["model"]
+
+    def one(item):
+        kind, prompt, lk = item
+        p = assets.path_for(kind, prompt, lk)
+        try:
+            from PIL import Image
+            import io as _io
+            im = Image.open(p).convert("RGBA")
+            im.thumbnail((384, 384))
+            bg = Image.new("RGBA", im.size, (240, 236, 226, 255))
+            bg.alpha_composite(im)
+            buf = _io.BytesIO()
+            bg.convert("RGB").save(buf, "JPEG", quality=85)
+            url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+            verdict = chat(run, "assets", f"check: {prompt[:50]}", CHECK, f"THE WORDS: {said.get((kind, prompt)) or prompt}",
+                           images=[url], max_tokens=60, model=vision).strip()
+        except Exception:  # noqa: BLE001 -- not checked: kept as it is
+            return None
+        if not verdict.lower().startswith("no"):
+            return None
+        wrong = verdict.split(":", 1)[1].strip() if ":" in verdict else verdict[2:].strip()
+        words = (said.get((kind, prompt)) or prompt) + f" (the last try was wrong: {wrong[:120]}; draw it right)"
+        try:
+            assets.generate(kind, prompt, lk, model_for(kind, prompt), words)
+            return f"remade {kind} \"{prompt[:40]}\": {wrong[:80]}"
+        except Exception as e:  # noqa: BLE001
+            return f"kept {kind} \"{prompt[:40]}\" though it looked wrong ({wrong[:60]}): remaking failed: {str(e)[:80]}"
+    jobs = max(1, int(os.environ.get("V3_IMAGE_JOBS", "4")))
+    with ThreadPoolExecutor(max_workers=min(jobs, len(items))) as pool:
+        out = [r for r in pool.map(one, items) if r]
+    return [f"{len(items)} cut-out(s) checked by eye; {len(out)} remade"] + out[:12]
 
 
 def image_models(run: dict) -> dict:
@@ -931,9 +1061,38 @@ def _timeline_long(run: dict) -> None:
                     f"{sum(i.get('pictures', 0) for i in infos)} picture(s), {mb:.1f} MB (played by the Player tab)"]
 
 
+def youtube_chapters(run: dict) -> str:
+    """The video's chapters as YouTube reads them from a description (`0:00 Title`, the first at 0:00), from the
+    score's `chapter` lines; written to chapters.txt. Empty with fewer than two."""
+    d = run_dir(run["id"])
+    try:
+        words = json.loads((d / "words.json").read_text())
+        sc = S.parse((d / "video.score").read_text(), words["words"], float(words["seconds"]))
+    except Exception:  # noqa: BLE001
+        return ""
+    chaps = sorted({round(a.t0): a.target for a in sc.acts if a.verb == "chapter"}.items())
+    if len(chaps) < 2:
+        return ""
+
+    def mmss(t):
+        t = max(0, int(t))
+        return f"{t // 3600}:{t // 60 % 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
+    rows, last = [], -99
+    for k, (t, title) in enumerate(chaps):
+        t = 0 if k == 0 else t
+        if t - last < 10:                       # (YouTube wants each at least 10 s)
+            continue
+        rows.append(f"{mmss(t)} {title}")
+        last = t
+    text = "\n".join(rows) + "\n" if len(rows) >= 2 else ""
+    (d / "chapters.txt").write_text(text)
+    return text
+
+
 def _timeline(run: dict) -> None:
     """The video as a timeline for the player (player/timeline.json, its pictures, the voice)."""
     d = run_dir(run["id"])
+    youtube_chapters(run)
     if len(_parts(run)) > 1:
         return _timeline_long(run)
     (d / "player" / "parts.json").unlink(missing_ok=True)   # (a long video's, from before)
@@ -1020,7 +1179,8 @@ def _critic(run: dict) -> None:
     run["steps"]["critic"]["notes"] = [l for l in verdict.splitlines() if l.strip()][:20]
 
 
-RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "assets": _assets, "layout": _layout,
+RUNNERS = {"voice": _voice, "storyboard": _storyboard, "score": _score, "director": _director, "assets": _assets,
+           "layout": _layout,
            "render": _render,
            "timeline": _timeline, "critic": _critic}
 

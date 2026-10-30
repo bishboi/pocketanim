@@ -215,6 +215,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         self._numbers_said()
         self._captions()
         self._progress()
+        self._chapter_cards()
         self._overlay()
         self.tweens.sort(key=lambda t: t.t0)
         first = next((a for a in sc.acts if a.verb == "cam"), None)
@@ -2287,6 +2288,51 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                 self.offset[n] = off
 
     # ------------------------------------------------------------ on the screen ----------------------------------------
+    def _chapter_cards(self) -> None:
+        """At each chapter, a card slides in from the left on the screen (CHAPTER 2, its title on the accent), holds
+        a moment and slides away: the viewer always knows where the story has got to (V3_CHAPTER_CARDS=0: none)."""
+        if os.environ.get("V3_CHAPTER_CARDS", "1").strip() == "0":
+            return
+        chapters = sorted((a.t0, a.target) for a in self.SCORE.acts if a.verb == "chapter")
+        first = int(PART["chapters_before"]) if PART and "chapters_before" in PART else 0
+        for k, (t, title) in enumerate(chapters):
+            if t < -0.5:                        # (a part's head: chapters before it began)
+                continue
+            n = first + k + 1 if not PART else 1 + sum(1 for c in PART["chapters"] if float(c[0]) - float(PART["offset"]) < t - 0.01)
+            head = look.label(f"CHAPTER {n}", 0.16, "soft")
+            name = look.text(str(title), 0.42, bold=True, color="ink", width=6.0)
+            rule = Rectangle(width=max(name.width, head.width) * 0.5, height=0.07, fill_color=look.col("accent"),
+                             fill_opacity=1, stroke_width=0)
+            words = VGroup(head, name, rule).arrange(DOWN, buff=0.16, aligned_edge=LEFT)
+            card = RoundedRectangle(width=words.width + 0.9, height=words.height + 0.6, corner_radius=0.08,
+                                    fill_color=look.col("card"), fill_opacity=0.97, stroke_color=look.col("soft"),
+                                    stroke_width=1.2)
+            g = VGroup(card, words.move_to(card)).set_z_index(HUD_Z + 2)
+            home = -S.SCREEN_W / 2 + g.width / 2 + 0.45
+            away = -S.SCREEN_W / 2 - g.width / 2 - 0.2
+            st = {}
+
+            def start(g=g, st=st, away=away):
+                g.move_to([away, 0.3 * S.SCREEN_H, 0])
+                st["rec"] = [g, 1.0, np.zeros(3)]
+                self.hud.append(st["rec"])
+                st["x"] = away
+                self.add(g)
+                self._place_hud()
+
+            def step(a, g=g, st=st, home=home, away=away):
+                tt = a * 2.6
+                k = rate_functions.ease_out_cubic(min(1.0, tt / 0.4)) - rate_functions.ease_in_cubic(max(0.0, (tt - 2.2) / 0.4))
+                x = away + (home - away) * k
+                g.shift(RIGHT * (x - st["x"]) * st["rec"][1])
+                st["x"] = x
+
+            def stop(g=g, st=st):
+                self.remove(g)
+                if st.get("rec") in self.hud:
+                    self.hud.remove(st["rec"])
+            self.tweens.append(Call(max(0.0, t - 0.1), max(0.0, t - 0.1) + 2.6, start, step, stop, rate_functions.linear))
+
     def _hud_add(self, m, x: float, y: float) -> None:
         """A thing kept on the screen (x, y in screen widths and heights from its centre), whatever the camera does."""
         m.move_to([x * S.SCREEN_W, y * S.SCREEN_H, 0])

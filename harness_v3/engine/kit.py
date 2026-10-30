@@ -87,7 +87,8 @@ def even(words: str, size: float, bold: bool = False, color="ink"):
     """Words whose capitals are `size` tall whatever letters they hold (rows of a table, a list, a comparison read as
     one size; `text` fits each one's own height)."""
     from manim import BOLD, NORMAL, Text
-    kw = dict(font=L["font"], weight=BOLD if bold else NORMAL, font_size=48)
+    from look import for_script
+    kw = dict(font=for_script(words, L["font"]), weight=BOLD if bold else NORMAL, font_size=48)
     ref = Text("H", **kw)
     t = Text(str(words), color=col(color), **kw)
     return t.scale(size / max(ref.height, 0.01))
@@ -260,7 +261,8 @@ def _data(args) -> list[tuple[str, float]]:
 
 
 def _fmt(v: float, mods: dict) -> str:
-    s = f"{v:,.0f}" if float(v).is_integer() else f"{v:,.1f}"
+    from look import grouped
+    s = grouped(v, 0 if float(v).is_integer() else 1)
     return f"{mods.get('prefix', '')}{s}{mods.get('suffix', '')}"
 
 

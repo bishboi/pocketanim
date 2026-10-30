@@ -102,9 +102,21 @@ def shadow(mob, k: float = 1.0):
     return s
 
 
+DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+
+
+def for_script(words: str, font: str, headline: bool = True) -> str:
+    """The face words are set in: Hindi (Devanagari letters) in Teko for headlines, Hind for the rest (setup.sh
+    fetches them; the kit's own faces have no Devanagari)."""
+    if DEVANAGARI.search(str(words)):
+        return "Teko" if headline else "Hind"
+    return font
+
+
 def text(words: str, size: float = 0.6, bold: bool = False, serif: bool = False, color=None, width: float | None = None,
          italic: bool = False, font: str | None = None):
     font = font or ("DejaVu Serif" if serif else L["font"])
+    font = for_script(words, font, headline=font == L["font"])
     t = Text(str(words), font=font, weight=BOLD if bold else NORMAL, slant=ITALIC if italic else NORMAL,
              color=col(color), font_size=48)
     # `size`: a capital's height in screen units (Text's height includes descenders: about 1.35 of a capital).
@@ -284,7 +296,7 @@ def phrase(words: str, size: float, width: float, c=None, bold: bool = False, se
     (`in P speak` over the words that say it)."""
     from manim import Text
     ws = [w for w in str(words).split() if w]
-    font = "DejaVu Serif" if serif else L["font"]
+    font = for_script(words, "DejaVu Serif" if serif else L["font"])
     ref = Text("H", font=font, weight=BOLD if bold else NORMAL, font_size=48)
     k = size / max(ref.height, 0.01)
     parts = [Text(w, font=font, weight=BOLD if bold else NORMAL, color=col(c), font_size=48).scale(k) for w in ws]
@@ -317,6 +329,26 @@ class Valued:
     """A piece with a value that `count` and `grow` change (`set_value`): a calendar filling, a meter rising."""
 
 
+# Numbers grouped as India writes them (12,34,56,789: lakh and crore) unless V3_NUMBERS=western (123,456,789).
+INDIAN = os.environ.get("V3_NUMBERS", "indian").strip().lower() != "western"
+
+
+def grouped(v: float, decimals: int = 0) -> str:
+    """A number with its digits grouped (Indian: 1,00,000 is a lakh, 1,00,00,000 a crore)."""
+    s = f"{abs(v):,.{decimals}f}"
+    if INDIAN:
+        whole, _, frac = f"{abs(v):.{decimals}f}".partition(".")
+        if len(whole) > 3:
+            head, tail = whole[:-3], whole[-3:]
+            pairs = []
+            while len(head) > 2:
+                pairs.insert(0, head[-2:])
+                head = head[:-2]
+            whole = ",".join([head] + pairs + [tail]) if head else ",".join(pairs + [tail])
+        s = whole + ("." + frac if frac else "")
+    return ("-" if v < 0 else "") + s
+
+
 class Num(VGroup):
     """A number that can count: its words rebuilt as its value changes, in place."""
 
@@ -327,7 +359,7 @@ class Num(VGroup):
         self.add(self._make(value))
 
     def _make(self, v: float):
-        s = f"{v:,.{self.decimals}f}" if abs(v) >= 10000 else f"{v:.{self.decimals}f}"
+        s = grouped(v, self.decimals) if abs(v) >= 10000 else f"{v:.{self.decimals}f}"
         return text(f"{self.prefix}{s}{self.suffix}", self.size_, bold=self.bold, color=self.color_)
 
     def set_value(self, v: float) -> None:
@@ -764,7 +796,7 @@ def tag(words: str, size: float = 0.55, fill="accent", color=None):
 
 def label(words: str, size: float = 0.2, color="soft"):
     """Small spaced capitals in the mono face (DEBT · % OF THE ECONOMY): a heading over a chart, a caption."""
-    font = L.get("mono") or L["body"]
+    font = for_script(words, L.get("mono") or L["body"], headline=False)
     t = MarkupText(f'<span letter_spacing="{int(size * 9000)}">{_esc(words.upper())}</span>', font=font,
                    color=col(color), font_size=48)
     t.scale(size * 1.35 / max(t.height, 0.01))
@@ -1029,7 +1061,7 @@ class GeoMap(VGroup):
                      .move_to(o + RIGHT * length / 4),
                      Rectangle(width=length / 2, height=0.08, fill_color=col("card"), fill_opacity=1,
                                stroke_color=col("ink"), stroke_width=1).move_to(o + RIGHT * length * 3 / 4))
-        return VGroup(bar, label(f"{nice:,} km", 0.09, "ink").next_to(bar, UP, buff=0.08).align_to(bar, LEFT))
+        return VGroup(bar, label(f"{grouped(nice)} km", 0.09, "ink").next_to(bar, UP, buff=0.08).align_to(bar, LEFT))
 
     # ---- coordinates
     def local(self, lon: float, lat: float) -> np.ndarray:

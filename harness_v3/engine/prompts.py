@@ -76,7 +76,9 @@ RULES
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences; a `phrase` spoken word by word is the exception
-  (one a shot at most, the key line). A `num` put `in` on the word that says it counts up as it is said."""
+  (one a shot at most, the key line). A `num` put `in` on the word that says it counts up as it is said.
+- Numbers are written the Indian way (1,25,000; 2,50,00,000): for money `prefix "₹"`, and `suffix " lakh"` or
+  `suffix " crore"` when the narration says lakh or crore (num 25 suffix " crore")."""
 
 # The bigger pieces, each told to a shot's call only when its plan asks for it (the storyboard names them), so the
 # card a small model reads stays short. Each is one `ent` placed freely; its parts come on by the actions.
@@ -276,7 +278,8 @@ THE NARRATION IS IN HINGLISH: everyday Hindi in Roman letters, with English word
 ("Socho, 1440 mein ek kitaab banane mein mahine lagte the."). Plans, and the words a picture is made from (pic,
 photo, backdrop, img), stay in English: the image model reads English. Words ON THE SCREEN (tag, label, card, title,
 note, bubble, callout, stamp) are short and read as an Indian viewer reads them: the narration's own Hinglish words or
-plain English terms, in Roman letters (never Devanagari). A `phrase` uses the narration's exact words.""",
+plain English terms, in Roman letters; a `title` or a key `tag` may be in Hindi (Devanagari: "भारत", "छापाखाना") where
+that is how it is written (a name, a heading). A `phrase` uses the narration's exact words.""",
 }
 SCRIPT_LANG = {
     "hinglish": """
@@ -292,13 +295,27 @@ def with_language(system: str, language: str | None) -> str:
     return system + LANG.get(language or "en", "")
 
 
+def said(words: list[dict], timed: bool = False) -> str:
+    """The words numbered (and timed) as a call reads them, with where a chapter starts and who says a line when
+    a character does: `[CHAPTER: The machine] w40:Then ...`, `(monk says:) w52:This ...`."""
+    out, who = [], None
+    for w in words:
+        if w.get("chapter"):
+            out.append(f"[CHAPTER: {w['chapter']}]")
+        if w.get("who") != who:
+            who = w.get("who")
+            out.append(f"({who} says:)" if who else "(narrator:)")
+        out.append(f"w{w['i']}:{w['w']}" + (f"@{w['start']:.1f}" if timed else ""))
+    return " ".join(out)
+
+
 def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[str] | None = None,
                       before: str = "", language: str | None = None) -> tuple[str, str]:
     """The storyboard call: the whole narration, or (a long video) one part of it, told where it stands, what came
     just before, and the cast already made for the whole video."""
-    said = " ".join(f"w{w['i']}:{w['w']}" for w in words)
+    said_ = said(words)
     if not part:
-        return with_language(STORYBOARD, language), f"NARRATION: {said}\n\nWrite the shots, one line each, then the cast lines (if any)."
+        return with_language(STORYBOARD, language), f"NARRATION: {said_}\n\nWrite the shots, one line each, then the cast lines (if any)."
     user = (f"This is PART {part['k'] + 1} of {part['n']} of a long video (about {part['minutes']:.0f} minutes in all; "
             f"this part about {part['seconds'] / 60:.1f} minutes). Storyboard only this part's words, w{words[0]['i']} "
             f"to w{words[-1]['i']}, every one of them.\n"
@@ -306,7 +323,7 @@ def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[st
             + ("THE CAST (made once for the whole video: use these characters by name in the plans; write no cast "
                "lines):\n" + "\n".join(cast) + "\n" if cast else "")
             + "When this part opens a new chapter of the story, its first shot's plan says `chapter: TITLE`.\n"
-            + f"NARRATION: {said}\n\nWrite this part's shots, one line each.")
+            + f"NARRATION: {said_}\n\nWrite this part's shots, one line each.")
     return with_language(STORYBOARD, language), user
 
 
@@ -322,8 +339,9 @@ NAME is one short lowercase word (gutenberg, monk, prussia, coin). At most 8 cha
 
 
 def cast_prompt(words: list[dict], language: str | None = None) -> tuple[str, str]:
-    said = " ".join(w["w"] for w in words)
-    return with_language(CAST, language), f"NARRATION: {said}\n\nWrite the cast lines."
+    said_ = " ".join(("@" + w["who"] + ": " if w.get("who") and (i == 0 or words[i - 1].get("who") != w["who"]) else "")
+                     + w["w"] for i, w in enumerate(words))
+    return with_language(CAST, language), f"NARRATION: {said_}\n\nWrite the cast lines (a character the narration voices as @NAME keeps that name)."
 
 
 CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic)\b.*?)[`\s]*$", re.I)
@@ -378,8 +396,8 @@ def _cast_card(cast: list[str] | None) -> str:
 
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "",
                  cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
-    said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
-    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n" + _cast_card(cast)
+    said_ = said(words, timed=True)
+    user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said_}\n" + _cast_card(cast)
             + (f"THE SHOT BEFORE (for continuity; it is written at the same time, so make every thing you use): {before}\n"
                if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
@@ -388,6 +406,22 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     return with_language(SCORE + "\n\n" + GRAMMAR + cards, language), user
 
+
+DIRECTOR = """You are the director of an animated explainer. Its shots were written one at a time, each without
+seeing the others. Read these consecutive SHOTS together, with the narration they play over, and rewrite them so they
+play as one film:
+- CONTINUITY: a thing or character already made in an earlier shot (here or in THE SHOT BEFORE) is used by its name,
+  never made again under a new name; a thread the story carries (a coin, a ship, a person) stays and moves on (`move`,
+  `bring T to SHOT` at the camera move) instead of being replaced by a copy.
+- A CLEAN STAGE: what the story has left goes `out` before the new things crowd in; never more than about six things
+  up at once; nothing piled on another.
+- PACING: something moves on every phrase; no stretch of 3 seconds with nothing happening; each action on the word
+  that names it; a reveal waits for its word.
+- VARIETY: not three shots in a row that look alike (all cards, all words): change the kind of picture, the camera
+  (a push in, a move to a place on the map), the scale.
+- Keep every shot's `shot` line (its name and place) and its words; keep pictures' words unless one is plainly
+  wrong; use only the grammar below. Change only what makes the film better.
+Answer with only these shots' lines, in order, each shot starting with its `shot` line."""
 
 REPAIR = """You fix one SHOT of an animated explainer's score. The engine built it with the real sizes of everything
 (the pictures as they were made) and found the PROBLEMS below. Rewrite the shot's lines so that:
@@ -401,14 +435,24 @@ Things set wholly on a bigger thing on purpose (pins and pictures on a map, lett
 on a card) are not reported and stay as they are: move only what the problems name."""
 
 
+def director_prompt(shots_text: str, before: str, words: list[dict], cast: list[str] | None = None,
+                    language: str | None = None) -> tuple[str, str]:
+    kit = kit_for(shots_text, cast)
+    cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
+    user = ((f"THE SHOT BEFORE (as it is; do not write it):\n{before}\n\n" if before else "")
+            + (_cast_card(cast) + "\n" if cast else "")
+            + f"WORDS: {said(words, timed=True)}\n\nSHOTS:\n{shots_text}\n\nWrite these shots' lines.")
+    return with_language(DIRECTOR + "\n\n" + GRAMMAR + cards, language), user
+
+
 def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict],
                   cast: list[str] | None = None, language: str | None = None) -> tuple[str, str]:
-    said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
+    said_ = said(words, timed=True)
     kit = kit_for(shot_text, cast)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
     user = ("PROBLEMS:\n" + "\n".join(f"- {p}" for p in problems)
             + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)
-            + (f"\n\nWORDS: {said}" if said else "") + ("\n\n" + _cast_card(cast) if cast else "")
+            + (f"\n\nWORDS: {said_}" if said_ else "") + ("\n\n" + _cast_card(cast) if cast else "")
             + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
     return with_language(REPAIR + "\n\n" + GRAMMAR + cards, language), user
 
@@ -491,7 +535,12 @@ no headings, no notes.
 - Start with a line that names where we are going in this chapter ("Now, the money."), unless it is the first:
   the first opens with the hook. End on something open that the next chapter answers (the last: on the answer,
   and one line that looks forward).
-- Never repeat what another chapter tells (their plans are below); a one-line reminder of the last chapter is enough."""
+- Never repeat what another chapter tells (their plans are below); a one-line reminder of the last chapter is enough.
+- The voice can act, so mark it where it helps (sparingly: a cue every five lines or so, never on every line):
+  `{curious}` or `{serious, slower}` at a line's start where the tone turns; `<short pause>` before a reveal;
+  `<laugh>`, `<sigh>` or `<gasp>` where a person would. A person's own quoted words go on their own line as
+  `@name: words` (name: one lowercase word, the same all through the video: @gutenberg, @monk), spoken in their
+  voice; only words the pages have them say, or clearly imagined ones ("imagine him saying...")."""
 
 
 def outline_prompt(pages: str, notes: str = "", language: str | None = None,

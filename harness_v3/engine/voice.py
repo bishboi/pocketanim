@@ -28,6 +28,45 @@ VOICES = HERE.parent / ".cache" / "voices"
 RATE = 22050
 
 
+# What a narration line may carry besides its words (the words are what the score counts: w12 is the 12th spoken):
+#   # Chapter title          a chapter starts here (not spoken; the score gets a `chapter` line on its first word)
+#   @monk = Charon           the voice a character speaks in (Gemini voices; else one picked for it)
+#   @monk: "Ye meri hai!"    a line a character says, in its own voice
+#   {curious, leaning in}    at a line's start: how it is said (Gemini TTS's style)
+#   <short pause> <laugh> <sigh> <gasp> <breath> <cough>   in a line: a moment of the voice (Gemini TTS)
+TAG = re.compile(r"<\s*(short pause|long pause|pause|laugh|laughs|sigh|gasp|breath|cough|chuckle|whisper)\s*>", re.I)
+
+
+def read_narration(raw: str) -> dict:
+    """The narration's lines as spoken: [{text (for the voice), plain (its words), who, style}], its chapters
+    [{title, line}] and the characters' voices {who: voice}."""
+    lines, chapters, voices = [], [], {}
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        m = re.match(r"^#+\s*(.+)$", s)
+        if m:
+            chapters.append({"title": m.group(1).strip(), "line": len(lines)})
+            continue
+        m = re.match(r"^@([\w\- ]{1,30}?)\s*=\s*(\S+)\s*$", s)
+        if m:
+            voices[m.group(1).strip().lower()] = m.group(2)
+            continue
+        who = None
+        m = re.match(r"^@([\w\- ]{1,30}?)\s*:\s*(.+)$", s)
+        if m:
+            who, s = m.group(1).strip().lower(), m.group(2).strip()
+        style = None
+        m = re.match(r"^\{([^}]{1,120})\}\s*(.+)$", s)
+        if m:
+            style, s = m.group(1).strip(), m.group(2).strip()
+        plain = re.sub(r"\s+", " ", TAG.sub(" ", s)).strip()
+        if plain:
+            lines.append({"text": s, "plain": plain, "who": who, "style": style})
+    return {"lines": lines, "chapters": chapters, "voices": voices}
+
+
 def words_of(text: str) -> list[str]:
     """A line's words as a score counts them: split at spaces."""
     return [w for w in text.split() if w.strip()]
@@ -37,11 +76,18 @@ def _plain(w: str) -> str:
     return re.sub(r"[^\w]", "", w.lower())
 
 
-def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -> list[tuple[float, float]]:
-    """Every line spoken and joined, a pause between them; each line's (start, end) in the take."""
+def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float,
+          who: list | None = None) -> list[tuple[float, float]]:
+    """Every line spoken and joined, a pause between them; each line's (start, end) in the take. A character's line
+    (`who`) in another voice of the same language when there is one."""
     from piper import PiperVoice, SynthesisConfig
 
     model = PiperVoice.load(str(VOICES / f"{voice}.onnx"))
+    lang = voice.split("-")[0]
+    other = next((p.stem for p in sorted(VOICES.glob(f"{lang}-*.onnx")) if p.stem != voice), None)
+    second = PiperVoice.load(str(VOICES / f"{other}.onnx")) if other and who and any(who) else None
+    if second is not None and second.config.sample_rate != model.config.sample_rate:
+        second = None                           # (one take, one rate)
     config = SynthesisConfig(length_scale=speed)
     frames, spans, at = bytearray(), [], 0.0
     width = 2
@@ -53,7 +99,8 @@ def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -
         print(f"progress: {k}/{len(lines)} lines spoken", flush=True)
         chunk = bytearray()
         rate = model.config.sample_rate
-        for audio in model.synthesize(line, syn_config=config):
+        m_ = second if (second is not None and who and who[k]) else model
+        for audio in m_.synthesize(line, syn_config=config):
             chunk += audio.audio_int16_bytes
         seconds = len(chunk) / width / rate
         spans.append((at, at + seconds))
@@ -69,15 +116,22 @@ def speak(lines: list[str], out: Path, voice: str, pause: float, speed: float) -
     return spans
 
 
-def speak_gemini(lines: list[str], out: Path, voice: str, pause: float, language: str) -> list[tuple[float, float]]:
+def speak_gemini(lines: list[dict], out: Path, voice: str, pause: float, language: str,
+                 voices: dict | None = None) -> list[tuple[float, float]]:
+    """Every line by Gemini TTS: the narrator's voice and the language's style, a line's own style (`{...}`) added
+    to it, and a character's line (`@who:`) in that character's voice."""
     import numpy as np
 
     import tts_gemini as G
     name = voice.split(":", 1)[1] if ":" in voice else "Kore"
-    style = os.environ.get("V3_TTS_STYLE") or G.STYLES.get(language, G.STYLES["en"])
-    print(f"speaking {len(lines)} lines (Gemini TTS {G.MODEL}, voice {name}, {language})", flush=True)
-    a, spans = G.speak(lines, name, style, pause, on_line=lambda k: print(f"progress: {k}/{len(lines)} lines spoken",
-                                                                         flush=True))
+    base = os.environ.get("V3_TTS_STYLE") or G.STYLES.get(language, G.STYLES["en"])
+    cast = G.voices_for(sorted({ln["who"] for ln in lines if ln.get("who")}), name, voices or {})
+    jobs = [(ln["text"], cast.get(ln.get("who"), name),
+             (f"{base}; this line: {ln['style']}" if ln.get("style") else base) if not ln.get("who")
+             else f"{G.STYLES['character']}{'; ' + ln['style'] if ln.get('style') else ''}") for ln in lines]
+    print(f"speaking {len(lines)} lines (Gemini TTS {G.MODEL}, voice {name}, {language}"
+          + (f"; characters: {', '.join(f'{k} {v}' for k, v in cast.items())}" if cast else "") + ")", flush=True)
+    a, spans = G.speak_lines(jobs, pause, on_line=lambda k: print(f"progress: {k}/{len(lines)} lines spoken", flush=True))
     with wave.open(str(out), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
@@ -216,12 +270,14 @@ def main() -> None:
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    lines = [l.strip() for l in Path(a.narration).read_text().splitlines() if l.strip()]
+    nar = read_narration(Path(a.narration).read_text())
+    rows = nar["lines"]
+    lines = [r["plain"] for r in rows]          # the words as the score counts them (no cues, no tags)
     wav = out / "voice.wav"
     if a.voice.startswith("gemini"):
-        spans = speak_gemini(lines, wav, a.voice, a.pause, a.language)
+        spans = speak_gemini(rows, wav, a.voice, a.pause, a.language, nar["voices"])
     else:
-        spans = speak(lines, wav, a.voice, a.pause, a.speed)
+        spans = speak(lines, wav, a.voice, a.pause, a.speed, [r["who"] for r in rows])
     print(f"progress: {len(lines)}/{len(lines)} lines spoken", flush=True)
     if a.language == "en":
         print("hearing every word's time (Whisper; its model is fetched the first time)", flush=True)
@@ -230,9 +286,21 @@ def main() -> None:
         print(f"timing every word by its syllables and the pauses ({a.language})", flush=True)
         words = paced_words(wav, lines, spans)
     seconds = spans[-1][1] + 0.6
+    for w in words:                             # who says a word, when a character does
+        if rows[w["line"]]["who"]:
+            w["who"] = rows[w["line"]]["who"]
+    for c in nar["chapters"]:                   # the word a chapter starts on
+        first = next((w for w in words if w["line"] >= c["line"]), None)
+        if first is not None:
+            first["chapter"] = c["title"]
     (out / "words.json").write_text(json.dumps({
         "seconds": round(seconds, 3),
-        "lines": [{"text": l, "start": round(s, 3), "end": round(e, 3)} for l, (s, e) in zip(lines, spans)],
+        "lines": [{"text": l, "start": round(s, 3), "end": round(e, 3), **({"who": r["who"]} if r["who"] else {}),
+                   **({"style": r["style"]} if r["style"] else {})}
+                  for l, (s, e), r in zip(lines, spans, rows)],
+        "chapters": [{"title": c["title"], "line": c["line"],
+                      "start": round(spans[c["line"]][0], 3) if c["line"] < len(spans) else round(seconds, 3)}
+                     for c in nar["chapters"]],
         "words": words}, indent=1))
     print(f"{len(lines)} lines, {len(words)} words, {seconds:.1f} s")
 

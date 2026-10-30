@@ -248,12 +248,15 @@ def _script(bid: str, sid: str) -> None:
             words = int(chapters[k]["minutes"] * prompts.WORDS_A_MINUTE)
             out = runs.chat(rec, "script", f"chapter {k + 1}: {chapters[k]['title']}", system, user,
                             max_tokens=int(words * 2.6) + 400, saver=keep)
-            lines = [re.sub(r"^[\s*\-•>#\d.)]*", "", ln).strip() for ln in out.splitlines()]
+            # (list marks a model adds taken off; a character's `@name:` and a `{cue}` kept)
+            lines = [ln.strip() if ln.lstrip().startswith(("@", "{")) else re.sub(r"^[\s*\-•>#\d.)]*", "", ln).strip()
+                     for ln in out.splitlines()]
             return [ln for ln in lines if ln and not ln.lower().startswith(("chapter", "title:", "```"))]
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(8, len(chapters))) as pool:
             parts = list(pool.map(write, range(len(chapters))))
-        narration = "\n".join(ln for part in parts for ln in part)
+        # each chapter marked (`# Title`: not spoken; the score's chapter bar and cards, the video's chapter list)
+        narration = "\n".join(f"# {c['title']}\n" + "\n".join(part) for c, part in zip(chapters, parts))
         sc["chapters"] = [{**c, "words": len(" ".join(p).split())} for c, p in zip(chapters, parts)]
         sc["videos"] = [{"title": title or sc["title"], "narration": narration, "run": None}]
         sc["status"] = "done"

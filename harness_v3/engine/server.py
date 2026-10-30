@@ -128,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "model": assets.made_with(p) if p.exists() else None})
                 self._json({"run": run, "busy": rid in runs._busy, "narration": read("narration.txt"), "pictures": pictures,
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
-                            "score": read("video.score"), "video": (d / "video.mp4").exists(),
+                            "score": read("video.score"), "video": (d / "video.mp4").exists(), "chapters": read("chapters.txt"),
                             "player": (d / "player" / "timeline.json").exists() or (d / "player" / "parts.json").exists(), "player_mp4": (d / "player.mp4").exists()})
             elif m := re.fullmatch(r"/play/([\w-]+)", path):
                 body = (HERE / "player.html").read_bytes()

@@ -228,7 +228,9 @@ function pane() {
   } else if (tab === "player") {
     p.innerHTML = data.player
       ? `<iframe class="player" src="/play/${sel}?v=${data.run.steps.timeline?.ended || 0}"></iframe>
-         <p class="soft">The video played from its timeline (no MP4): drawn live in the browser, in step with the voice. Space plays and pauses.</p>`
+         <p class="soft">The video played from its timeline (no MP4): drawn live in the browser, in step with the voice. Space plays and pauses.</p>
+         ${data.chapters ? `<div class="card"><b>Chapters for YouTube</b> <span class="soft">(paste into the video's description)</span>
+           <textarea class="mono" rows="${Math.min(14, data.chapters.split("\n").length + 1)}" readonly onclick="this.select()">${esc(data.chapters)}</textarea></div>` : ""}`
       : `<p class="soft">No timeline yet: it is made by the timeline step, after the render.</p>`;
   } else if (tab === "compare") {
     const ex = data.run.export || {}, rep = ex.report;

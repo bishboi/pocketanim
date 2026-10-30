@@ -85,6 +85,46 @@ language. Then:
 
 From the command line: `python engine/pipeline.py narration.txt out/x --voice gemini:Kore --language hinglish`.
 
+## Voice acting, chapters and the house style
+
+**The narration can act.** Lines may carry cues:
+- `{curious}` or `{serious, slower}` at a line's start: how it is said, added to the voice's style.
+- `<short pause>`, `<laugh>`, `<sigh>`, `<gasp>` inside a line: a moment of the voice.
+- `@monk: Ye page ek hafte mein bana!`: a character's own line, spoken in its own voice.
+- `@monk = Charon`: which voice a character speaks in. Otherwise each character gets a distinct Gemini voice of its
+  own, never the narrator's.
+- `# The machine`: a chapter starts here; the line is not spoken.
+
+The cues are taken out before words are timed, so `w123` still counts spoken words only. With Piper (offline) the
+cues are left out, and a character speaks in a second voice of the same language when one is installed. The book's
+chapter writer is told to use cues sparingly, and the storyboard and score calls see where chapters start and who
+says which line.
+
+**Chapters.** Each `# Title` becomes a `chapter` line in the score, on its first word, in place of the model's own
+guesses. At each chapter a card slides in ("CHAPTER 2", its title on the accent) and the bar along the bottom names
+it. The run writes `chapters.txt`, YouTube's chapter list (`0:00 Title`, each at least 10 s), shown under the Player
+ready to paste.
+
+**The director's pass** (a step after the score). The shots were written one at a time; about six at a time, they
+are now read together and rewritten:
+- **continuity:** a thing already made is used by its name, and a thread is carried on, not re-made;
+- **a clean stage:** what the story has left goes out first;
+- **pacing:** something moves on every phrase;
+- **variety:** no three look-alike shots in a row.
+
+A rewritten shot is kept only if it reads at least as cleanly as before; the score as it was is kept beside it
+(`video.before-director.score`).
+
+**One house style.** A reference drawing per look and kind (cut-outs, prints) is made once and kept. It is given with
+every picture asked for (OpenRouter's `input_references`), so every picture of every video looks drawn by one hand.
+A model that takes no reference is asked without one. After they are made, each cut-out is looked at by the vision
+model; a wrong one (the wrong thing, several things, words in it, a panel behind it) is made again, once, told what
+was wrong.
+
+**For India.** Numbers are grouped as India writes them (₹1,25,000, 2,50,00,000). Words in Devanagari are set in
+Teko (headlines, with Oswald's build) or Hind (the rest), which setup.sh fetches, so a Hindi title card reads
+properly.
+
 ## Long videos (up to 20 minutes and more)
 
 A narration of any length is made the same way: **New run** with the whole narration (one sentence a line), or from

@@ -179,7 +179,7 @@ properly.
 ## Long videos (up to 20 minutes and more)
 
 A narration of any length is made the same way: **New run** with the whole narration (one sentence a line), or from
-a book (every script is one video of about 20 minutes). Nothing else changes for you; under the hood a long video is made in
+a book with `V3_LONG_VIDEOS=1` (each script one video of about 20 minutes). Nothing else changes for you; under the hood a long video is made in
 **parts** (`engine/parts.py`):
 
 - **Voice, once.** The whole narration is spoken and timed in one take (one voice for all of it). It is then cut
@@ -203,7 +203,7 @@ a book (every script is one video of about 20 minutes). Nothing else changes for
   renders each part, joins them and lays the soundtrack under them.
 
 **Writing a 20-minute narration.** About 2,700-3,200 words, one sentence a line, told as a documentary in
-chapters. From a book this is how every script is written (`V3_VIDEO_MINUTES`, 20): one call plans 6-10 chapters
+chapters. From a book, with `V3_LONG_VIDEOS=1`, this is how every script is written (`V3_VIDEO_MINUTES`, 20): one call plans 6-10 chapters
 from the pages (a hook, one big question, each chapter's minutes), then each chapter is written by its own call, all
 at once, told its length in words and what the chapters either side tell. By hand:
 
@@ -244,9 +244,10 @@ cp .env.example .env.local    # once: fill in OPENROUTER_API_KEY (script, storyb
 
 From a book: **Upload PDF**, Datalab reads it (in the background: a minute or a few; a PDF read before comes from the cache, at no cost),
 then pick a section (from its headings) or a page range, and **Write the script**:
-those pages become one video of about 20 minutes (`V3_VIDEO_MINUTES`): its chapters planned in one call, then each
-chapter written by its own call, all at once (notes for the writer and the language are yours to set; if the pages
-hold less, the video is shorter rather than padded). Each video's title and narration can be edited; **Build this video** (or **Build all not built**) makes each
+one call writes those pages as a few short videos (how many and how long, notes for the writer and the language
+are yours to set): the quick way to try things. With `V3_LONG_VIDEOS=1` those pages become one video of about 20
+minutes (`V3_VIDEO_MINUTES`) instead: its chapters planned in one call, then each chapter written by its own call, all
+at once (if the pages hold less, the video is shorter rather than padded). Each video's title and narration can be edited; **Build this video** (or **Build all not built**) makes each
 one a run, one at a time (`V3_PARALLEL=2` for more). The book shows read, script and videos with their time and
 cost (Datalab's own cost for the read, when its result gives one), the script calls with their prompts, tokens and cost, and each video's run status, cost and player. The book's
 figures are not used yet (its blocks are kept in `books/<id>/datalab.json`; the full result, pictures included, in `.cache/datalab/`).

@@ -29,6 +29,8 @@ import prompts
 import runs
 
 BOOKS = runs.ROOT / "books"
+# Short videos by default, to try things quickly; V3_LONG_VIDEOS=1: each script one long video of V3_VIDEO_MINUTES.
+LONG = os.environ.get("V3_LONG_VIDEOS", "0").strip().lower() in ("1", "true", "yes", "on")
 MAX_CHARS = 100000  # the pages a script call reads (about 25k tokens: enough for a 20-minute video)
 _busy: set[str] = set()
 _lock = threading.Lock()
@@ -201,8 +203,12 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
         sec = next((s["title"] for s in book["sections"] if s["from"] == a and s["to"] == b), "")
         book["scripts"].append({"id": sid, "from": a, "to": b, "title": sec or f"Pages {a}-{b}",
                                 "settings": {"model": settings.get("model") or os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL,
-                                             "videos": 1,       # one long video (prompts.VIDEO_MINUTES)
-                                             "seconds": int(prompts.VIDEO_MINUTES * 60),
+                                             # short videos to try things quickly (videos x seconds, from the
+                                             # page); V3_LONG_VIDEOS=1: one long video (prompts.VIDEO_MINUTES)
+                                             "videos": 1 if LONG else max(1, min(12, int(settings.get("videos") or 3))),
+                                             "seconds": int(prompts.VIDEO_MINUTES * 60) if LONG
+                                             else max(15, min(300, int(settings.get("seconds") or 40))),
+                                             "long": LONG,
                                              "notes": str(settings.get("notes") or ""),
                                              "language": settings.get("language") if settings.get("language") in runs.LANGUAGES else "en"},
                                 "status": "running", "started": time.time(), "videos": []})
@@ -227,6 +233,19 @@ def _script(bid: str, sid: str) -> None:
     st = sc["settings"]
     calls: list[dict] = []
     try:
+        if not st.get("long"):                  # a few short videos, one call (the quick way to try things)
+            system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"],
+                                                 st["notes"], st.get("language"))
+            rec = {"settings": {"model": st["model"]}, "calls": calls}
+            text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user,
+                             max_tokens=min(32000, max(4000, int(st["videos"] * st["seconds"] * 4.2) + 600)),
+                             saver=lambda _: _keep(bid, sc, calls))
+            videos = prompts.parse_script(text)
+            if not videos:
+                raise RuntimeError("the answer had no `VIDEO:` parts: " + text[:300])
+            sc["videos"] = [v | {"run": None} for v in videos]
+            sc["status"] = "done"
+            return
         # One long video, in two steps (a single call writes far less than it is asked for): its chapters planned,
         # then each chapter written by itself, all at once, each told its length and what comes either side.
         pages_ = pages_text(bid, sc["from"], sc["to"])

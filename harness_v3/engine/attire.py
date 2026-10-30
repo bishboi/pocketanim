@@ -10,7 +10,6 @@ shield or a book in the other hand; glasses or an eye patch on the face. Anythin
 
 from __future__ import annotations
 
-import math
 
 import numpy as np
 from manim import Circle, Dot, Ellipse, Line, VGroup

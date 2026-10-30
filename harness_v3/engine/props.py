@@ -1246,6 +1246,11 @@ def _bicycle(m, w):
                                              ((-0.2, 0.14), (-0.08, 0.3)), ((0.0, 0.14), (-0.08, 0.3)), ((0.12, 0.32), (0.22, 0.14)))),
           line((-0.1, 0.34), (-0.04, 0.34), "#3A3631", w * 2.6), line((0.12, 0.32), (0.11, 0.38), c, w * 1.6),
           line((0.07, 0.38), (0.15, 0.38), "#3A3631", w * 2))
+    crank = VGroup(circ(0.0, 0.14, 0.03, "#9AA3A9", w * 0.6),       # the chainring and pedals (they turn as it goes)
+                   line((-0.055, 0.14), (0.055, 0.14), "#3A3631", w * 1.4),
+                   rect(-0.075, 0.13, -0.045, 0.15, "#3A3631", w * 0.5), rect(0.045, 0.13, 0.075, 0.15, "#3A3631", w * 0.5))
+    crank.crank = True
+    g.add(crank)
     return g, None
 
 
@@ -1783,6 +1788,8 @@ class Prop(VGroup):
                         else ((allp[:, 0].min() + allp[:, 0].max()) / 2, (allp[:, 1].min() + allp[:, 1].max()) / 2)
                 self.lives.append((kind, np.array(anchor, dtype=float), parts))
         self.wheels = [x for x in g.get_family() if getattr(x, "wheel", False)]
+        self.cranks = [x for x in g.get_family() if getattr(x, "crank", False)]
+        self.rolled = 0.0
         self.f = 1.0
         if lid is not None:
             self.lid, hinge, self.how, self.reach = lid
@@ -1840,9 +1847,13 @@ class Prop(VGroup):
 
     def roll(self, d: float) -> None:
         """Its wheels turned by a distance travelled."""
+        self.rolled += d
+        r0 = max(self.wheels[0].width / 2, 1e-3) if self.wheels else 1.0
         for wh in self.wheels:
             r = max(wh.width / 2, 1e-3)
             wh.rotate(-self.f * d / r, about_point=wh.get_center())
+        for cr in self.cranks:                  # pedals: slower than the wheels (geared)
+            cr.rotate(-self.f * d / r0 * 0.55, about_point=cr.submobjects[0].get_center())
 
     def saddle(self) -> np.ndarray:
         """Where a rider sits (a vehicle's seat; inside one that has no open seat)."""

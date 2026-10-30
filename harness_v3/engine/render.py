@@ -2021,9 +2021,14 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             q.update({k: v for k, v in zoo.rider_pose(rider).items() if k in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2",
                                                                              "bl1", "bl2", "drop", "lean")})
             q["face"] = beast.facing()
+            pedal = 0.0
+            if getattr(beast, "cranks", None):  # pedalling: a bob and a lean with each stroke
+                ph = beast.rolled / max(beast.wheels[0].width / 2, 1e-3) * 0.55 if beast.wheels else 0.0
+                pedal = abs(math.sin(ph)) * 0.025 * rider.unit()
+                q["lean"] = 0.12 + 0.03 * math.sin(2 * ph)
             if q != rider.pose:
                 rider.set_pose(q)
-            rider.shift(beast.saddle() - zoo.rider_seat(rider))
+            rider.shift(beast.saddle() + UP * pedal - zoo.rider_seat(rider))
 
     def _open(self, act: S.Act, t0, t1) -> None:
         """`open X` / `shut X`: a thing with a lid (a chest, a box, a letter, a gate) opened or shut as it plays."""
@@ -2092,7 +2097,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 st["f0"] = m.feet().copy()
                 st["f1"] = self._dest(name, m, act)
                 st["at"] = st["f0"].copy()
-                m.pose["face"] = 1.0 if st["f1"][0] >= st["f0"][0] else -1.0
+                st["face0"] = m.pose["face"]
+                st["face1"] = 1.0 if st["f1"][0] >= st["f0"][0] else -1.0
 
             def step(a):
                 tt = a * dur
@@ -2108,6 +2114,7 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 for key in keys:
                     p[key] = target[key]
                 p["drop"] = 0.0
+                p["face"] = st["face0"] + (st["face1"] - st["face0"]) * rate_functions.ease_in_out_sine(min(1.0, tt / 0.18))
                 m.set_pose(p)
             self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
             return
@@ -2151,17 +2158,27 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 self._talk_bubble(name, m, words, t0, t1)
         elif v in ("sit", "stand"):
             def step(a):
-                if v == "stand" and getattr(m, "abed", None) is not None:  # up from a bed: turned upright, onto the floor
-                    if "c0" not in st:
-                        st["c0"], st["ang0"] = m.get_center().copy(), m.fallen
-                    k = rate_functions.ease_in_out_sine(min(1.0, a * 1.4))
-                    ang = st["ang0"] * (1 - k)
-                    m.rotate(ang - m.fallen, about_point=m.get_center())
-                    m.fallen = ang
-                    m.move_to(st["c0"] + (m.abed - st["c0"]) * k)
-                    if k >= 1.0:
-                        m.shift(m.abed_feet - m.feet())
-                        m.abed = None
+                if v == "stand" and getattr(m, "abed", None) is not None:  # up from a bed: sat up, then off it
+                    import zoo
+                    pivot, lift, spot = m.abed
+                    if "ang0" not in st:
+                        st["ang0"] = m.fallen
+                    if a < 0.5:
+                        k = rate_functions.ease_in_out_sine(a / 0.5)
+                        ang = st["ang0"] * (1 - k)
+                        m.rotate(ang - m.fallen, about_point=zoo.rider_seat(m))
+                        m.fallen = ang
+                        m.shift(pivot + UP * lift * (1 - k) - zoo.rider_seat(m))
+                        st["s0"] = m.feet().copy()
+                    else:
+                        if m.fallen:
+                            m.rotate(-m.fallen, about_point=zoo.rider_seat(m))
+                            m.fallen = 0.0
+                        k = (a - 0.5) / 0.5
+                        e = rate_functions.ease_in_out_sine(k)
+                        m.shift(st["s0"] + (spot - st["s0"]) * e + UP * 0.15 * m.unit() * math.sin(math.pi * k) - m.feet())
+                        if k >= 1.0:
+                            m.abed = None
                 elif v == "stand" and getattr(m, "fallen", 0.0):        # up again from a faint
                     ang = m.fallen * (1 - min(1.0, a * 1.5))
                     m.rotate(ang - m.fallen, about_point=m.feet())

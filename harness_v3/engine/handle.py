@@ -110,7 +110,12 @@ class UseActs:
             goal = np.array([c[0] - side * reach, st["f0"][1], 0.0])
             st["f1"] = st["f0"] if abs(c[0] - st["f0"][0]) <= reach * 1.1 else goal
             st["side"] = side
-            pm.pose["face"] = side
+            st["face0"] = pm.pose["face"]
+        turn = min(1.0, a / max(0.12, walk * 0.3)) if walk > 0 else min(1.0, a / 0.12)
+        if pm.pose["face"] != st["side"]:       # turned toward it over a moment, not flipped
+            p = dict(pm.pose)
+            p["face"] = st["face0"] + (st["side"] - st["face0"]) * rate_functions.ease_in_out_sine(turn)
+            pm.set_pose(p)
         k = rate_functions.ease_in_out_sine(min(1.0, a / walk)) if walk > 0 else 1.0
         pm.shift(st["f0"] + (st["f1"] - st["f0"]) * k - pm.feet())
         gone = float(np.linalg.norm(pm.feet() - st["f0"]))
@@ -127,6 +132,18 @@ class UseActs:
                 p[key] = pm.rest[key]
             pm.set_pose(p)
         return max(0.0, min(1.0, (a - walk) / max(1e-6, 1 - walk)))
+
+    def _in_front(self, xm, pm):
+        """What is held is drawn over its holder."""
+        z = max((x.z_index for x in pm.get_family()), default=0)
+        if max((x.z_index for x in xm.get_family()), default=0) <= z:
+            xm.set_z_index(z + 1)
+
+    @staticmethod
+    def _arc(p0, p1, k, height):
+        """A point on a lifted path from p0 to p1 (things are carried, not slid)."""
+        e = rate_functions.ease_in_out_sine(k)
+        return p0 + (p1 - p0) * e + UP * height * math.sin(math.pi * k)
 
     def _sparks(self, at, size):
         """A burst of little strokes at a point (a strike), gone in a moment."""
@@ -179,13 +196,22 @@ class UseActs:
             if xm is not None and v not in ("enter", "exit", "climb", "type", "hammer", "count", "vote", "ring",
                                              "stir", "write", "put", "drop"):
                 self._up(xn, xm)
+                if v in ("read", "phone", "eat", "drink", "wear", "holdup", "sweep", "pickup"):
+                    self._in_front(xm, pm)
             if xm is not None:
                 st["x0"] = xm.get_center().copy()
 
         def to_hand(k, lift=0.4):
             """The thing from where it was into the hand, then kept there."""
             goal = pm.hand.get_center() + UP * xm.height * lift
-            xm.shift(st["x0"] + (goal - st["x0"]) * k - xm.get_center()) if k < 1 else xm.shift(goal - xm.get_center())
+            self._in_front(xm, pm)
+            if k < 1:
+                xm.move_to(self._arc(st["x0"], goal, k, 0.12 * u()))
+            else:
+                xm.move_to(goal)
+            pop = 1 + 0.12 * math.sin(math.pi * min(1.0, k * 1.2))     # a little pop as it is grabbed
+            xm.scale(pop / st.get("pop", 1.0))
+            st["pop"] = pop
 
         step = stop = None
         if v == "pickup":
@@ -206,6 +232,8 @@ class UseActs:
                     to_hand(min(1.0, (k - 0.35) / 0.3))
 
             def stop():
+                if st.get("pop", 1.0) != 1.0:
+                    xm.scale(1.0 / st["pop"])
                 pm.carrying = True
                 self._keep(xm, pm.hand)
         elif v in ("put", "drop"):
@@ -252,9 +280,17 @@ class UseActs:
                 base = st["p0"] if k < 0.5 else {**st["p0"], **{key: pm.rest[key] for key in arms}, "lean": 0.0}
                 self._blend(pm, base, {"fa1": ang, "fa2": ang, "ba1": ang * 0.9, "ba2": ang, "lean": 0.15}, reach)
                 kk = min(1.0, k / 0.55)
-                held.move_to(st["x0"] + (st["goal"] - st["x0"]) * rate_functions.ease_in_out_sine(kk))
+                held.move_to(self._arc(st["x0"], st["goal"], kk, 0.1 * u()))
+                if kk >= 1.0:                   # set down: a small squash and settle
+                    t = min(1.0, (k - 0.55) / 0.3)
+                    sq = 1 - 0.12 * math.sin(math.pi * t) * (1 - t)
+                    bot = held.get_bottom()
+                    held.stretch(sq / st.get("sq", 1.0), 1, about_point=bot)
+                    st["sq"] = sq
 
             def stop():
+                if st.get("sq", 1.0) != 1.0:
+                    st["held"].stretch(1.0 / st["sq"], 1, about_point=st["held"].get_bottom())
                 pm.carrying = False
         elif v == "wear":
             def step(a):
@@ -521,7 +557,8 @@ class UseActs:
                             st["g0"] = xm.get_center().copy()
                         kk = rate_functions.ease_in_out_sine(min(1.0, (k - 0.35) / 0.4))
                         goal = pm.hand.get_center() + UP * xm.height * 0.4
-                        xm.move_to(st["g0"] + (goal - st["g0"]) * kk)
+                        self._in_front(xm, pm)
+                        xm.move_to(self._arc(st["g0"], goal, kk, 0.12 * u()))
                     return
                 if not st.get("fetched"):
                     st["fetched"] = True
@@ -588,39 +625,69 @@ class UseActs:
             st["f1"] = np.array([xm.get_center()[0] - side * (xm.width / 2 + 0.15 * pm.unit()), st["f0"][1], 0.0])
             if abs(xm.get_center()[0] - st["f0"][0]) < xm.width / 2 + 0.2 * pm.unit():
                 st["f1"] = st["f0"].copy()
-            pm.pose["face"] = side
+            st["side"], st["face0"] = side, pm.pose["face"]
+            # sat on: facing the way the chair does (its back behind); lain on: the head toward where it came from
+            st["sitface"] = xm.facing() if (v == "sit" and isinstance(xm, props.Prop) and name in ("chair",)) else side
+            z = max((x.z_index for x in xm.get_family()), default=0)
+            pm.set_z_index(max(z + 1, max(x.z_index for x in pm.get_family())))
+            st["H"] = pm.height
+
+        def turn_to(face, k):
+            p = dict(pm.pose)
+            p["face"] = st["fa"] + (face - st["fa"]) * rate_functions.ease_in_out_sine(min(1.0, k))
+            pm.set_pose(p)
 
         def step(a):
-            if a < 0.5:                         # to it
-                k = rate_functions.ease_in_out_sine(a / 0.5)
+            if a < 0.45:                        # to it, turning toward it as it goes
+                k = rate_functions.ease_in_out_sine(a / 0.45)
                 pos = st["f0"] + (st["f1"] - st["f0"]) * k
                 pm.shift(pos - pm.feet())
+                p = dict(pm.pose)
+                p["face"] = st["face0"] + (st["side"] - st["face0"]) * min(1.0, a / 0.12)
                 if np.linalg.norm(st["f1"] - st["f0"]) > 0.05:
                     wp = P.walk_pose(np.linalg.norm(pos - st["f0"]) / max(0.3 * pm.unit(), 1e-3) * math.pi / 2)
-                    p = dict(pm.pose)
-                    p.update({key: wp[key] for key in ("fl1", "fl2", "bl1", "bl2", "bob")})
-                    pm.set_pose(p)
+                    p.update({key: wp[key] * (1 - k ** 8) + pm.rest[key] * k ** 8 for key in ("fl1", "fl2", "bl1", "bl2", "bob")})
+                pm.set_pose(p)
                 st["s0"] = zoo.rider_seat(pm).copy()
+                st["fa"] = pm.pose["face"]
                 return
-            k = rate_functions.ease_in_out_sine((a - 0.5) / 0.5)
-            if v == "sit":
+            k = (a - 0.45) / 0.55
+            u = pm.unit()
+            seat = seat_pt()
+            if v == "sit":                      # a little hop up and back into the seat, sinking into it
+                turn_to(st["sitface"], k / 0.4)
+                kk = min(1.0, k / 0.7)
                 tgt = pm.sit_target()
-                tgt["face"] = pm.facing()
+                self._blend(pm, st["p0"], {**{key: tgt[key] for key in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2",
+                                                                       "bl1", "bl2", "drop")},
+                                           "lean": -0.06 * math.sin(math.pi * kk), "smile": 0.5}, rate_functions.ease_in_out_sine(kk))
+                goal = seat + DOWN * 0.04 * u
+                settle = 0.03 * u * math.sin(math.pi * min(1.0, max(0.0, (k - 0.7) / 0.3)))   # a bounce on landing
+                pm.shift(self._arc(st["s0"], goal, kk, 0.18 * u) + DOWN * settle - zoo.rider_seat(pm))
+                return
+            # lying down: first sat on its edge, then lain back along it, eyes closing
+            L = st["H"]
+            f = st["side"]
+            bx = max(xm.get_left()[0] + L * 0.05, min(xm.get_right()[0] - L * 0.05, xm.get_center()[0] + f * L * 0.45))
+            pivot = np.array([bx, seat[1], 0.0])
+            if k < 0.4:
+                kk = k / 0.4
+                turn_to(f, kk / 0.5)
+                tgt = pm.sit_target()
                 self._blend(pm, st["p0"], {key: tgt[key] for key in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2", "bl1",
-                                                                     "bl2", "drop", "lean")}, k)
-                hop = UP * 0.25 * pm.unit() * math.sin(math.pi * k)
-                pm.shift(st["s0"] + (seat_pt() - st["s0"]) * k + hop - zoo.rider_seat(pm))
-            else:                               # lying down along it, eyes shut
-                self._blend(pm, st["p0"], {"lids": 1.0, "smile": 0.3, "fa1": 0.3, "fa2": 0.4, "drop": 0.0}, k)
-                if "c0" not in st:
-                    st["c0"] = pm.get_center().copy()
-                    pm.abed, pm.abed_feet = st["c0"].copy(), pm.feet().copy()     # where `stand` puts it back
-                ang = -pm.facing() * (math.pi / 2) * k
-                pm.rotate(ang - getattr(pm, "fallen", 0.0), about_point=pm.get_center())
-                pm.fallen = ang
-                bed = seat_pt()
-                lying = np.array([bed[0], bed[1] + pm.height / 2, 0.0])
-                pm.move_to(st["c0"] + (lying - st["c0"]) * k)
+                                                                      "bl2", "drop")}, rate_functions.ease_in_out_sine(kk))
+                pm.shift(self._arc(st["s0"], pivot, kk, 0.18 * u) - zoo.rider_seat(pm))
+                st["s1"] = zoo.rider_seat(pm).copy()
+                return
+            kk = rate_functions.ease_in_out_sine((k - 0.4) / 0.6)
+            self._blend(pm, st["p0"], {"lids": 1.0, "smile": 0.3, "fa1": 0.35, "fa2": 0.6, "ba1": 0.3, "ba2": 0.5,
+                                       "fl1": 0.0, "fl2": 0.0, "bl1": 0.0, "bl2": 0.0, "drop": 0.0}, kk)
+            ang = f * (math.pi / 2) * kk          # lain back: the head away from where it sat facing
+            pm.rotate(ang - getattr(pm, "fallen", 0.0), about_point=zoo.rider_seat(pm))
+            pm.fallen = ang
+            lift = getattr(pm, "body_w", 0.2) * u * 0.5 * kk
+            pm.shift(pivot + UP * lift - zoo.rider_seat(pm))
+            pm.abed = (pivot.copy(), getattr(pm, "body_w", 0.2) * u * 0.5, st["f1"].copy())   # for `stand`
         self.tweens.append(Call(t0, t1, start, step, lambda: None, rate_functions.linear))
 
     # -- a ball kicked -------------------------------------------------------------------------------------------

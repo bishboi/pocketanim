@@ -283,19 +283,19 @@ lines: its `shot` line, its `ent` lines, then its actions in time order."""
 LANG = {
     "hinglish": """
 THE NARRATION IS IN HINGLISH: everyday Hindi in Roman letters, with English words where people naturally use them
-("Socho, 1440 mein ek kitaab banane mein mahine lagte the."). Plans, and the words a picture is made from (pic,
-photo, backdrop, img), stay in English: the image model reads English. Words ON THE SCREEN (tag, label, card, title,
-note, bubble, callout, stamp) are short and read as an Indian viewer reads them: the narration's own Hinglish words or
-plain English terms, in Roman letters; a `title` or a key `tag` may be in Hindi (Devanagari: "भारत", "छापाखाना") where
-that is how it is written (a name, a heading). A `phrase` uses the narration's exact words.""",
+("Socho, 1440 mein ek kitaab banane mein mahine lagte the."). Everything WRITTEN ON THE SCREEN is in proper English,
+never Hinglish or Hindi: tags, labels, cards, titles, notes, bubbles, callouts, stamps, chart and map labels say
+"VILLAGE", "FARMERS", "1 MONTH", "PRINTING PRESS", never "gaon", "kisan", "ek mahina", "chhapakhana". Use no `phrase`
+(it shows the narration's own Hinglish words): put the key idea in an English `tag` instead. Plans, and the words a
+picture is made from (pic, photo, backdrop, img), are in English too.""",
 }
 SCRIPT_LANG = {
     "hinglish": """
 WRITE IN HINGLISH, as a popular Indian YouTube explainer speaks: everyday Hindi in Roman letters (never Devanagari),
 mixing in English words where people naturally use them (technical terms, names, many nouns), e.g. "Socho, 1440 mein
 ek kitaab banane mein mahine lagte the. Ek monk, ek candle, aur bas." Simple common spellings (hai, mein, kya, nahi,
-bahut, kyunki, lekin, aur); numbers as digits; friendly and direct ("dekho", "socho", "aapko pata hai?"). The VIDEO
-titles in Hinglish too.""",
+bahut, kyunki, lekin, aur); numbers as digits; friendly and direct ("dekho", "socho", "aapko pata hai?"). TITLES
+(the video's, the chapters') are in proper English: they are written on the screen.""",
 }
 
 

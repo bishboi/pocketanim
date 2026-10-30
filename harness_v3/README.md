@@ -76,8 +76,10 @@ language. Then:
   banane mein mahine lagte the.").
 - **Planning and pictures:** the storyboard, score, cast and layout-fix calls are told the narration is Hinglish.
   Their plans and picture prompts stay in English, because the image model reads English.
-- **On screen:** words (tags, labels, cards, notes, bubbles) are short, in the narration's own Hinglish or plain
-  English, always in Roman letters. A `phrase` uses the narration's exact words.
+- **On screen:** everything written on the screen is proper English, never Hinglish or Hindi: tags, labels, cards,
+  notes, bubbles, chart and map labels, the video's and the chapters' titles ("VILLAGE", not "gaon"). No `phrase`
+  (it would show the narration's Hinglish words); the key idea goes in an English tag. Captions, when on, are the
+  one exception: they are the narration itself.
 - **Voice:** it is told to say Hindi words as Hindi and English words in an Indian English accent.
 - **Word timing:** Whisper does not hear Roman-letter Hindi as written. Each line's words are spread over the line
   by their syllables instead, and held at the pauses heard inside it. Each line is spoken separately, so a line's

@@ -466,6 +466,77 @@ def script_prompt(pages: str, videos: int, seconds: int, notes: str = "", langua
     return system, user
 
 
+# A book's pages as one long video (books.py), written in two steps so it really is long: its chapters planned in
+# one call, then each chapter written in its own (all at once), told how long it is and what comes either side.
+VIDEO_MINUTES = float(__import__("os").environ.get("V3_VIDEO_MINUTES", "20"))
+WORDS_A_MINUTE = 140                            # a narrator's pace, the pauses between lines in it
+
+OUTLINE = """You are a great teacher planning ONE long animated explainer (a documentary of about MINUTES minutes)
+from pages of a book. Plan its chapters; write only this, nothing else:
+
+TITLE: the video's title
+CHAPTER: a title | what it tells, from the pages (2-4 sentences: the events, people, numbers, ideas it covers) | MIN
+
+with 6-10 chapters whose MIN (minutes, e.g. 2.5) add up to about MINUTES. One story with one big question: the first
+chapter opens with a hook (a scene, a puzzle, a surprising number) and asks it; each chapter answers part of it and
+opens the next; the last answers it. Use what the pages hold, in depth: their examples, people, numbers, causes and
+consequences, the wrong ideas people had. Facts come from the pages only: no invented events, people, quotes, numbers
+or dates; if the pages hold less than MINUTES minutes, plan fewer minutes rather than pad."""
+
+CHAPTER = """You write ONE CHAPTER of the narration of a long animated explainer, from pages of a book. Write only
+its spoken lines, one sentence a line, about WORDS words (it is spoken in about MIN minutes), nothing else: no title,
+no headings, no notes.
+""" + SCRIPT.split("HOW A GREAT TEACHER TELLS IT:", 1)[1].replace("\n- One story with one big question, asked in the first video and answered by the last. Each video picks up where the\n  one before leaves off and ends on something open that the next one answers (the last ends on the answer).", "") + """
+- Start with a line that names where we are going in this chapter ("Now, the money."), unless it is the first:
+  the first opens with the hook. End on something open that the next chapter answers (the last: on the answer,
+  and one line that looks forward).
+- Never repeat what another chapter tells (their plans are below); a one-line reminder of the last chapter is enough."""
+
+
+def outline_prompt(pages: str, notes: str = "", language: str | None = None,
+                   minutes: float | None = None) -> tuple[str, str]:
+    m = minutes or VIDEO_MINUTES
+    system = OUTLINE.replace("MINUTES", f"{m:g}") + SCRIPT_LANG.get(language or "en", "")
+    user = ((f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "") + f"THE PAGES:\n{pages}")
+    return system, user
+
+
+def parse_outline(text: str) -> tuple[str, list[dict]]:
+    """`TITLE: ...` and `CHAPTER: title | plan | minutes` lines -> (title, [{title, plan, minutes}])."""
+    title, out = "", []
+    for line in text.splitlines():
+        s = line.strip().strip("*").strip()
+        low = s.lower()
+        if low.startswith("title:"):
+            title = s.split(":", 1)[1].strip(" *#")
+        elif low.startswith("chapter"):
+            body = s.split(":", 1)[1] if ":" in s else s[7:]
+            parts = [p.strip() for p in body.split("|")]
+            if not parts or not parts[0]:
+                continue
+            mins = 2.5
+            if len(parts) > 2:
+                m = re.search(r"\d+(?:\.\d+)?", parts[-1])
+                mins = float(m.group(0)) if m else 2.5
+            out.append({"title": parts[0].strip(" *#"), "plan": parts[1] if len(parts) > 1 else "",
+                        "minutes": max(0.5, min(6.0, mins))})
+    return title, out
+
+
+def chapter_prompt(pages: str, title: str, chapters: list[dict], k: int, notes: str = "",
+                   language: str | None = None) -> tuple[str, str]:
+    c = chapters[k]
+    words = int(c["minutes"] * WORDS_A_MINUTE)
+    system = CHAPTER.replace("WORDS", str(words)).replace("MIN", f"{c['minutes']:g}") + SCRIPT_LANG.get(language or "en", "")
+    plan = "\n".join(f"{'>> ' if i == k else '   '}{i + 1}. {x['title']}: {x['plan']} ({x['minutes']:g} min)"
+                     for i, x in enumerate(chapters))
+    user = (f"THE VIDEO: {title}\nITS CHAPTERS (>> is the one you write):\n{plan}\n"
+            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
+            + f"\nWrite chapter {k + 1}, \"{c['title']}\": about {words} words, one sentence a line."
+            + f"\n\nTHE PAGES:\n{pages}")
+    return system, user
+
+
 def parse_script(text: str) -> list[dict]:
     """`VIDEO: title` then its lines -> [{title, narration}]."""
     out: list[dict] = []

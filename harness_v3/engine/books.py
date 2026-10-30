@@ -29,7 +29,7 @@ import prompts
 import runs
 
 BOOKS = runs.ROOT / "books"
-MAX_CHARS = 40000  # the pages a script call reads (about 10k tokens)
+MAX_CHARS = 100000  # the pages a script call reads (about 25k tokens: enough for a 20-minute video)
 _busy: set[str] = set()
 _lock = threading.Lock()
 
@@ -201,8 +201,8 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
         sec = next((s["title"] for s in book["sections"] if s["from"] == a and s["to"] == b), "")
         book["scripts"].append({"id": sid, "from": a, "to": b, "title": sec or f"Pages {a}-{b}",
                                 "settings": {"model": settings.get("model") or os.environ.get("V3_MODEL_SCRIPT") or runs.DEFAULT_MODEL,
-                                             "videos": int(settings.get("videos") or 3),
-                                             "seconds": int(settings.get("seconds") or 40),
+                                             "videos": 1,       # one long video (prompts.VIDEO_MINUTES)
+                                             "seconds": int(prompts.VIDEO_MINUTES * 60),
                                              "notes": str(settings.get("notes") or ""),
                                              "language": settings.get("language") if settings.get("language") in runs.LANGUAGES else "en"},
                                 "status": "running", "started": time.time(), "videos": []})
@@ -227,15 +227,35 @@ def _script(bid: str, sid: str) -> None:
     st = sc["settings"]
     calls: list[dict] = []
     try:
-        system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"], st["notes"],
-                                             st.get("language"))
+        # One long video, in two steps (a single call writes far less than it is asked for): its chapters planned,
+        # then each chapter written by itself, all at once, each told its length and what comes either side.
+        pages_ = pages_text(bid, sc["from"], sc["to"])
         rec = {"settings": {"model": st["model"]}, "calls": calls}
-        text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user, max_tokens=min(32000, max(4000, int(st["videos"] * st["seconds"] * 4.2) + 600)),
-                         saver=lambda _: _keep(bid, sc, calls))
-        videos = prompts.parse_script(text)
-        if not videos:
-            raise RuntimeError("the answer had no `VIDEO:` parts: " + text[:300])
-        sc["videos"] = [v | {"run": None} for v in videos]
+        lock = threading.Lock()
+
+        def keep(_):
+            with lock:
+                _keep(bid, sc, calls)
+        system, user = prompts.outline_prompt(pages_, st["notes"], st.get("language"), st["seconds"] / 60)
+        text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}: the chapters", system, user, max_tokens=2500,
+                         saver=keep)
+        title, chapters = prompts.parse_outline(text)
+        if not chapters:
+            raise RuntimeError("the plan had no `CHAPTER:` lines: " + text[:300])
+
+        def write(k):
+            system, user = prompts.chapter_prompt(pages_, title, chapters, k, st["notes"], st.get("language"))
+            words = int(chapters[k]["minutes"] * prompts.WORDS_A_MINUTE)
+            out = runs.chat(rec, "script", f"chapter {k + 1}: {chapters[k]['title']}", system, user,
+                            max_tokens=int(words * 2.6) + 400, saver=keep)
+            lines = [re.sub(r"^[\s*\-•>#\d.)]*", "", ln).strip() for ln in out.splitlines()]
+            return [ln for ln in lines if ln and not ln.lower().startswith(("chapter", "title:", "```"))]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(chapters))) as pool:
+            parts = list(pool.map(write, range(len(chapters))))
+        narration = "\n".join(ln for part in parts for ln in part)
+        sc["chapters"] = [{**c, "words": len(" ".join(p).split())} for c, p in zip(chapters, parts)]
+        sc["videos"] = [{"title": title or sc["title"], "narration": narration, "run": None}]
         sc["status"] = "done"
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()

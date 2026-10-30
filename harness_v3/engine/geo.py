@@ -191,15 +191,26 @@ def _biggest(g):
     return unary_union(near)
 
 
+# Whose view of disputed borders the countries are drawn in: blank, Natural Earth's own (de facto); `ind`: India's
+# official borders (Natural Earth's point-of-view layers, at the fine detail only: arg, bra, chn, deu, fra, gbr, idn,
+# ind, isr, jpn, kor, nep, pak, rus, tur, twn, ukr, usa, vnm...). A Hinglish run is drawn in India's.
+def view() -> str:
+    return re.sub(r"[^a-z]", "", os.environ.get("V3_MAP_VIEW", "").lower())[:3]
+
+
+def countries_layer(b=None) -> str:
+    return f"ne_10m_admin_0_countries_{view()}" if view() else f"ne_{detail(b) if b else '50m'}_admin_0_countries"
+
+
 def detail(b) -> str:
-    return "10m" if max(b[2] - b[0], b[3] - b[1]) < 25 else "50m"
+    return "10m" if max(b[2] - b[0], b[3] - b[1]) < 100 else "50m"  # (the finer data wherever a camera may zoom in)
 
 
 def countries(b) -> list[tuple[str, object]]:
     """Today's countries that show in the window (their whole shapes)."""
     from shapely.geometry import box
     clip = box(b[0] - 2, b[1] - 2, b[2] + 2, b[3] + 2)
-    return [(str(p.get("NAME")), g) for p, g in _layer(f"ne_{detail(b)}_admin_0_countries") if g.intersects(clip)]
+    return [(str(p.get("NAME")), g) for p, g in _layer(countries_layer(b)) if g.intersects(clip)]
 
 
 def states(year: int, b) -> list[tuple[str, object]]:
@@ -209,6 +220,36 @@ def states(year: int, b) -> list[tuple[str, object]]:
     return [(str(p.get("NAME")), g) for p, g in _year_layer(year) if p.get("NAME") and g.intersects(clip)]
 
 
+ADMIN1 = "ne_10m_admin_1_states_provinces"
+
+
+def _province_names(p: dict) -> set[str]:
+    names = {_norm(p.get(k)) for k in ("name", "name_en", "gn_name", "woe_name")}
+    names |= {_norm(x) for x in str(p.get("name_alt") or "").split("|")}
+    return names - {""}
+
+
+def provinces(b, of: set[str] | None = None) -> list[tuple[str, str, object]]:
+    """The states and provinces (Natural Earth admin-1) that show in the window: (name, country, shape); `of`:
+    only those of these countries."""
+    from shapely.geometry import box
+    clip = box(*b)
+    return [(str(p.get("name")), str(p.get("admin")), g) for p, g in _layer(ADMIN1)
+            if (of is None or p.get("admin") in of) and g.intersects(clip)]
+
+
+def province(key: str, b=None):
+    """A state or province by name (Uttar Pradesh, Bavaria, Texas), the one in the window when two share a name."""
+    hit = [(p, g) for p, g in _layer(ADMIN1) if key in _province_names(p)]
+    if not hit:
+        return None
+    if b is not None and len(hit) > 1:
+        from shapely.geometry import box
+        clip = box(*b)
+        hit.sort(key=lambda pg: -pg[1].intersection(clip).area)
+    return hit[0][1], str(hit[0][0].get("name"))
+
+
 def land(b):
     """All the land in the window, one shape (the coast, with no borders drawn in it)."""
     from shapely.ops import unary_union
@@ -216,7 +257,7 @@ def land(b):
 
 
 def _country(key: str):
-    for p, g in _layer("ne_50m_admin_0_countries"):
+    for p, g in _layer(countries_layer()):
         if key in _country_names(p):
             return str(p.get("NAME")), g
     return None
@@ -236,9 +277,11 @@ def shape(name: str, year: int | None = None, b=None):
             hit = [(p, g) for p, g in feats if key in _norm(p["NAME"]).split() or _norm(p["NAME"]).startswith(key)
                    or key.startswith(_norm(p["NAME"]) + " ") or _norm(p["NAME"]).endswith(" " + key)]
         if hit:
-            return unary_union([g for _, g in hit]), str(max(hit, key=lambda pg: pg[1].area)[0]["NAME"])
+            # (several states made one: the slivers the data leaves between neighbours closed, no spikes inside)
+            g = unary_union([g.buffer(0.06) for _, g in hit]).buffer(-0.06) if len(hit) > 1 else hit[0][1]
+            return g, str(max(hit, key=lambda pg: pg[1].area)[0]["NAME"])
     if b is not None and detail(b) == "10m":
-        for p, g in _layer("ne_10m_admin_0_countries"):
+        for p, g in _layer(countries_layer(b) if view() else "ne_10m_admin_0_countries"):
             if key in _country_names(p):
                 return g, str(p.get("NAME"))
     found = _country(key)
@@ -247,6 +290,9 @@ def shape(name: str, year: int | None = None, b=None):
     for p, g in _layer("ne_50m_admin_0_map_units"):     # a country's parts: England, Scotland, Flanders...
         if key in {_norm(p.get(k)) for k in ("NAME", "NAME_LONG", "GEOUNIT", "NAME_EN")}:
             return g, str(p.get("NAME"))
+    found = province(key, b)                        # a state or province: Uttar Pradesh, Bavaria, Texas
+    if found:
+        return found
     for p, g in _layer("ne_10m_geography_marine_polys"):
         if key in {_norm(p.get("name")), _norm(p.get("name_en")), _norm(p.get("namealt"))} - {""}:
             return g, str(p.get("name"))

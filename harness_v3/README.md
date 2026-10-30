@@ -177,6 +177,18 @@ is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.par
 name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
 fills the `w`/`h` it is given (12 x 6.6 by default).
 
+Maps are drawn exactly as the data has them:
+- **Lines stay put.** A map's borders, coasts, rivers and regions never tremble (the hand-drawn boil skips them),
+  and their corners are rounded instead of spiking.
+- **Detail.** Coasts and borders come from Natural Earth's 1:10m data for any window up to 100 degrees across, kept
+  fine enough to zoom in 3x.
+- **Historical states** (`year`) and regions are cut to the real coastline: only their inland borders come from the
+  coarser historical data, and the narrow strip it leaves along a shore is filled to meet the real coast.
+- **States and provinces.** `provinces` on a map draws them inside the countries that fill it (India's states, the
+  US states, Germany's Länder), and `region "Uttar Pradesh" on M` shades one.
+- **Disputed borders** follow `V3_MAP_VIEW`: blank is Natural Earth's de facto view; `ind` is India's official
+  borders, the default for Hinglish runs.
+
 Small pictures (`pic`, and what were icons: `icon NAME` is drawn as a small picture of the thing unless
 `V3_ICONS=1`) are hand-drawn, like sketchbook doodles with people as simple stick-like figures (`V3_SMALL_STYLE`), and
 each is cut out on a paper edge, as a sticker. Photos stay prints. A place beyond a map's region is drawn at the

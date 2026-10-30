@@ -83,11 +83,12 @@ RULES
 KIT = {
     "map": """  map REGION   a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
                a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`,
-               `compass`, `scale` (a scale bar); it comes in an atlas frame (`frame plain` for a bare one; `full`:
+               `compass`, `scale` (a scale bar), `provinces` (the states/provinces inside the countries: India's states,
+               the US states, Germany's Länder); it comes in an atlas frame (`frame plain` for a bare one; `full`:
                the whole screen, edge to edge, for a shot that is all map: put pins, people, arrows on it);
                `w 12 h 6.6` (it fills that). Every place on it is MAP.PLACE: eu.paris, eu.constantinople, eu.north_sea
-  region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
-               is; `color`, `opacity`, `outline`
+  region "NAME" on M   a country, a state or province ("Uttar Pradesh", "Bavaria", "Texas"), a state of the map's
+               year ("Holy Roman Empire") or a sea, shaded where it really is; `color`, `opacity`, `outline`
   pin "PLACE" on M     a town marked, its name beside (`side left`)  |  river "NAME" on M
   shade "WHAT" on M K:V ...   countries coloured by a value, with a key (a choropleth)
   march M.a M.b M.c [width W]   a thick arrow swelling along a route (armies, migrations, trade winds)

@@ -68,6 +68,8 @@ ON_PARENT = ("region", "pin", "river", "event", "span", "labels", "bubble", "len
 MARKS = {"ring": "coral", "circle": "coral", "mark": "coral", "underline": "coral", "highlight": "accent",
          "strike": "red", "box": "coral", "tick": "green", "cross": "red", "stamp": "red", "callout": "ink"}
 SIDES = ("left", "right", "up", "down")
+# What is drawn from real geography: kept exactly where it is (no boil, no hand wobble).
+MAP_KINDS = ("map", "region", "river", "shade", "inset", "globe", "land", "islands", "layers")
 # Putting a thing against another (`below X`...), and what goes beside a piece's part when put `at` it.
 REL = ("below", "above", "left", "right")
 PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart", "layers", "circuit"}
@@ -600,6 +602,10 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                 self._beside(m, rel[0], rel[1], e)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
+        if e.kind in MAP_KINDS:
+            # a map's lines are measured, not drawn by hand: its borders, coasts, rivers and regions never tremble
+            for x in m.get_family():
+                x.no_boil = True
         if e.kind == "note" and e.mods.get("to"):
             # its arrow to what it is about (drawn after the words, with them)
             try:
@@ -1644,9 +1650,12 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         def start():
             new = VGroup()
             for _, g in geo.states(year, m.bounds):
+                g = m.on_land(g)
                 new.add(*m.shape_mob(g, fill=None, stroke=look.col("grey") if "grey" in look.L else look.col("soft"),
                                      width=1.5, screen=True))
             new.set_z_index(max(x.z_index for x in m.get_family()) + 1)
+            for x in new.get_family():
+                x.no_boil = True
             self.marks.setdefault(name, []).append(new)
             self.follows.append([new, m, m.get_center().copy(), None])
             self.add(new)

@@ -150,6 +150,8 @@ class Leaf:
 
     def out(self) -> dict:
         d = {"k": self.kind, "z": int(getattr(self.m, "z_index", 0)), "r": self.rank, "on": self.on}
+        if getattr(self.m, "no_boil", False):
+            d["nb"] = 1                         # a map's line: the player keeps it still
         if self.kind == "i":
             d["img"] = self.img
             d["keys"] = _thin(self.shapes[0]["frames"], image=True)

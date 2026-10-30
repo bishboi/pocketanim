@@ -97,8 +97,14 @@ def _proc(rid: str, cmd: list[str], env: dict | None = None, on_line=None) -> su
     """A step's program, killed when its run is stopped (as subprocess.run, output captured). Its output is read as
     it comes, each line given to `on_line` (progress and log)."""
     # Its own process group: a stop kills it and what it started (a render's chunks).
+    view = {}
+    try:                                        # a Hinglish run's maps in India's view of its borders (V3_MAP_VIEW wins)
+        if not os.environ.get("V3_MAP_VIEW") and (load(rid)["settings"].get("language") == "hinglish"):
+            view = {"V3_MAP_VIEW": "ind"}
+    except Exception:  # noqa: BLE001
+        pass
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-                         bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", **(env or {})})
+                         bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", **view, **(env or {})})
     _procs.setdefault(rid, set()).add(p)
     out: list[str] = []
     err: list[str] = []

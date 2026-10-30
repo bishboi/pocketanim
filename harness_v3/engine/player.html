@@ -188,12 +188,16 @@ function drawPart(fr) {
     // The shape moved into the world (its own map), then drawn through the camera: a line's width is the
     // renderer's (stroke_width x 0.01 world units) whatever the shape's map is, as it is there.
     let M = new DOMMatrix([a, b, c, d, e, g]);
-    if (T.boil && l.z < 900 && sw > 0.5 && sa > 0.05 && fa < 0.05) M = boiled(l, sh, M, fr);
+    if (T.boil && !l.nb && l.z < 900 && sw > 0.5 && sa > 0.05 && fa < 0.05) M = boiled(l, sh, M, fr);
     const p = new Path2D();
     p.addPath(path(sh), M);
     ctx.setTransform(s, 0, 0, -s, tx, ty);
     if (fa > 0.001) { ctx.fillStyle = rgba(fr_, fg, fb, fa); ctx.fill(p); }
-    if (sw > 0 && sa > 0.001) { ctx.lineWidth = sw * 0.01; ctx.strokeStyle = rgba(sr, sg, sb, sa); ctx.stroke(p); }
+    if (sw > 0 && sa > 0.001) {
+      ctx.lineWidth = sw * 0.01; ctx.strokeStyle = rgba(sr, sg, sb, sa);
+      ctx.lineJoin = l.nb ? "round" : "miter";          // (a map's borders bend round: no spikes at sharp turns)
+      ctx.stroke(p);
+    }
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

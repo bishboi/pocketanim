@@ -38,7 +38,7 @@ from pathlib import Path
 import numpy as np
 from manim import (BOLD, DOWN, LEFT, ORIGIN, RIGHT, UP, Arc, Circle, CubicBezier, DashedVMobject, Dot, Group,
                    Line, Rectangle, RoundedRectangle, SVGMobject, Text, VGroup, VMobject, CurvedArrow, Arrow,
-                   ParametricFunction, NORMAL, ITALIC, ImageMobject, MarkupText)
+                   ParametricFunction, NORMAL, ITALIC, ImageMobject, MarkupText, LineJointType)
 
 import assets
 
@@ -428,7 +428,7 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = GeoMap(args[0] if args else "world", float(mods.get("w", 12)), float(mods.get("h", 6.6)),
                    int(mods["year"]) if mods.get("year") is not None else None, bool(mods.get("names")),
                    bool(mods.get("rivers")), mods.get("fill"), bool(mods.get("compass")), bool(mods.get("scale")),
-                   str(mods.get("frame") or "classic"))
+                   str(mods.get("frame") or "classic"), bool(mods.get("provinces")))
     elif kind in ("region", "pin", "river"):
         ref = mods.get("map") or mods.get("on")
         on = find(ref) if find and ref else None
@@ -851,7 +851,8 @@ class GeoMap(VGroup):
     names]. Places on it: `NAME.place`."""
 
     def __init__(self, region: str, w: float = 12.0, h: float = 6.6, year: int | None = None, names: bool = False,
-                 rivers: bool = False, fill=None, compass: bool = False, scale: bool = False, frame: str = "plain"):
+                 rivers: bool = False, fill=None, compass: bool = False, scale: bool = False, frame: str = "plain",
+                 provinces: bool = False):
         super().__init__()
         import geo
         from shapely.geometry import box
@@ -881,18 +882,41 @@ class GeoMap(VGroup):
         land_c = col(fill or ("card" if L.get("_name") == "editorial" else "sand"))
         land, borders = VGroup(), VGroup()
         self.shapes = {}
-        for name, g in geo.countries(self.bounds):
-            mob = self.shape_mob(g, fill=land_c, stroke=col("soft"), width=0 if year is not None else 1.3)
-            if len(mob):
-                land.add(mob)
-                self.shapes[name] = g
+        today = geo.countries(self.bounds)
+        from shapely.ops import unary_union
+        # the land as it really is (Natural Earth's coast): what a state of another year or a region is cut to, so
+        # their coasts are the real coast and only their inner borders come from the coarser historical data
+        self.land_g = unary_union([g.buffer(0) for _, g in today]).intersection(self.clip.buffer(1.0))
+        if year is None:
+            for name, g in today:
+                mob = self.shape_mob(g, fill=land_c, stroke=col("soft"), width=1.3)
+                if len(mob):
+                    land.add(mob)
+                    self.shapes[name] = g
+        else:                                   # today's borders not drawn: the land one shape (no seams in it)
+            land.add(*self.shape_mob(self.land_g, fill=land_c, stroke=land_c, width=0.8))
+        self.unclaimed = None
         if year is not None:
             self.shapes = {}
-            for name, g in geo.states(year, self.bounds):
+            st = geo.states(year, self.bounds)
+            # the land no state of that year covers: the strip between the historical data's rough coast and the
+            # real one, which each state grows into so it meets the real coast (no sawtooth along the shore)
+            try:
+                self.unclaimed = self.land_g.difference(unary_union([g.buffer(0) for _, g in st]))
+            except Exception:  # noqa: BLE001
+                self.unclaimed = None
+            for name, g in st:
+                g = self.on_land(g)
                 mob = self.shape_mob(g, fill=None, stroke=col("grey") if "grey" in L else col("soft"), width=1.5)
                 if len(mob):
                     borders.add(mob)
                     self.shapes[name] = g
+        if provinces and year is None:
+            # the states and provinces inside the countries that fill the window (thin, lighter than borders)
+            seen = self.clip.intersection(self.land_g).area or 1.0
+            big = {n for n, g in today if g.intersection(self.clip).area > 0.12 * seen}
+            for _, admin, g in geo.provinces(self.bounds, {self._admin(n) for n in big}):
+                borders.add(*self.shape_mob(g.intersection(self.land_g), fill=None, stroke=col("soft"), width=0.7))
         rv = VGroup()
         if rivers:
             for _, g in geo.rivers(self.bounds):
@@ -1027,6 +1051,27 @@ class GeoMap(VGroup):
             return [q for part in g.geoms for q in self._polys(part)]
         return []
 
+    @staticmethod
+    def _admin(name: str) -> str:
+        """A country's name as the admin-1 layer gives it (`admin`), from its NAME."""
+        return {"United States of America": "United States of America", "Dem. Rep. Congo": "Democratic Republic of the Congo",
+                "Bosnia and Herz.": "Bosnia and Herzegovina", "Czechia": "Czechia"}.get(name, name)
+
+    def on_land(self, g):
+        """A state's or region's shape cut to the real land (a sea, mostly water, as it is)."""
+        land = getattr(self, "land_g", None)
+        if land is None or g is None or g.is_empty:
+            return g
+        try:
+            g = g.buffer(0)
+            seen = g.intersection(self.clip)
+            free = getattr(self, "unclaimed", None)
+            grown = g.union(g.buffer(0.35).intersection(free)) if free is not None and not free.is_empty else g
+            cut = grown.intersection(land)
+        except Exception:  # noqa: BLE001
+            return g
+        return cut if seen.is_empty or cut.area >= 0.25 * seen.area else g
+
     def shape_mob(self, g, fill=None, stroke=None, width: float = 1.3, opacity: float = 1.0, screen: bool = False):
         """A shape (lon/lat) clipped to the map, as filled outlines; `screen`: where the map now stands."""
         try:
@@ -1038,13 +1083,15 @@ class GeoMap(VGroup):
         for p in self._polys(g):
             if p.area < self.span ** 2 * 2e-5:
                 continue
-            p = p.simplify(self.span / 700, preserve_topology=True)
+            p = p.simplify(self.span / 1800, preserve_topology=True)      # (fine enough to zoom in 3x)
             pts = [to(x, y) for x, y in list(p.exterior.coords)[:-1]]
             if len(pts) < 3:
                 continue
             m = VMobject(fill_color=fill or "#000000", fill_opacity=opacity if fill else 0,
                          stroke_color=stroke or fill or "#000000", stroke_width=width, stroke_opacity=1 if width else 0)
             m.set_points_as_corners([*pts, pts[0]])
+            m.joint_type = LineJointType.ROUND  # (a sharp bend of a border is no spike)
+            m.no_boil = True
             out.add(m)
         return out
 
@@ -1060,9 +1107,11 @@ class GeoMap(VGroup):
         for ln in lines:
             if not isinstance(ln, LineString) or ln.length < self.span / 200:
                 continue
-            ln = ln.simplify(self.span / 900)
+            ln = ln.simplify(self.span / 1800)
             m = VMobject(stroke_color=color, stroke_width=width)
             m.set_points_as_corners([to(x, y) for x, y in ln.coords])
+            m.joint_type = LineJointType.ROUND
+            m.no_boil = True
             out.add(m)
         return out
 
@@ -1098,6 +1147,7 @@ def region(m: GeoMap, name: str, mods: dict, c=None):
     import geo
     year = mods.get("year", m.year)
     g, _ = geo.shape(name, int(year) if year is not None else None, m.bounds)
+    g = m.on_land(g)
     colour = col(c or mods.get("fill") or "accent")
     if mods.get("outline"):
         return m.shape_mob(g, fill=None, stroke=colour, width=STROKE * 0.6, screen=True)

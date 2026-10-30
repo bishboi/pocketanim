@@ -113,6 +113,8 @@ def boil(index: int, step: int) -> tuple[float, float, float]:
 
 def boils(x) -> bool:
     """An outline that boils: a drawn line (stroked, not filled: never the glyphs of words, never a filled land)."""
+    if getattr(x, "no_boil", False):           # (a map's borders, coasts and rivers: measured lines stay put)
+        return False
     try:
         return len(x.points) >= 4 and float(x.get_stroke_width()) > 0.5 and float(x.get_stroke_opacity()) > 0.05 \
             and float(x.get_fill_opacity()) < 0.05

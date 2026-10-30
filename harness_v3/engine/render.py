@@ -361,10 +361,30 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
             sb = (lo[0], lo[1], hi[0], hi[1])
         e = 0.35
         inside = sb[0] >= bb[0] - e and sb[2] <= bb[2] + e and sb[1] >= bb[1] - e and sb[3] <= bb[3] + e
-        if not inside:
+        if not inside or self.on_words(bm, sb):
             return False
         area = lambda b: max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])  # noqa: E731
         return self._holder(big) or area(sb) <= 0.45 * area(bb)
+
+    @staticmethod
+    def words_of(m) -> list[tuple[float, float, float, float]]:
+        """The boxes of the words in a thing (a card's title, a label on a box)."""
+        from manim import MarkupText, Text
+        out = []
+        for x in m.get_family():
+            if isinstance(x, (Text, MarkupText)) and len(x.get_family()) > 1:
+                lo, hi = x.get_corner(DOWN + LEFT), x.get_corner(UP + RIGHT)
+                out.append((lo[0], lo[1], hi[0], hi[1]))
+        return out
+
+    @classmethod
+    def on_words(cls, big_m, sb) -> bool:
+        """Whether a box lies over the words of a thing (more than a corner of them): a picture on a card's title."""
+        for w in cls.words_of(big_m):
+            ox, oy = min(w[2], sb[2]) - max(w[0], sb[0]), min(w[3], sb[3]) - max(w[1], sb[1])
+            if ox > 0 and oy > 0 and ox * oy > 0.12 * min((w[2] - w[0]) * (w[3] - w[1]), (sb[2] - sb[0]) * (sb[3] - sb[1])):
+                return True
+        return False
 
     def _holder(self, e: S.Ent) -> bool:
         """A shape that things are put on: a box, a disc, a region, an icon on its badge."""
@@ -406,13 +426,24 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                         (a0, a1), (b0, b1) = times.get(a.name, (0, 1e9)), times.get(b.name, (0, 1e9))
                         if a1 <= b0 or b1 <= a0:
                             continue
-                        push = self._apart(self.E[a.name], self.E[b.name], self._holder(a), self._holder(b))
+                        ma, mb = self.E[a.name], self.E[b.name]
+                        box = lambda m: (m.get_left()[0], m.get_bottom()[1], m.get_right()[0], m.get_top()[1])  # noqa: E731
+                        # a holder holds what is set on it, but not over its words (a picture on a card's title)
+                        push = self._apart(ma, mb, self._holder(a) and not self.on_words(ma, box(mb)),
+                                           self._holder(b) and not self.on_words(mb, box(ma)))
                         if push is None:
                             continue
                         group = [self.E[b.name]] + [self.E[x.name] for x in riders[b.name]]
                         before = self.E[b.name].get_center().copy()
-                        self.E[b.name].shift(push)
-                        self._on_screen(self.E[b.name], shot)
+                        # the shortest way out that stays on the screen (no room above a card: beside it, or below)
+                        for way in self._ways_out(ma, mb, push):
+                            mb.move_to(before + way)
+                            self._on_screen(mb, shot)
+                            if self._apart(ma, mb, False, False) is None:
+                                break
+                        else:
+                            mb.move_to(before + push)
+                            self._on_screen(mb, shot)
                         for m in group[1:]:
                             m.shift(self.E[b.name].get_center() - before)
                         sc.notes.append(f"{b.name} moved off {a.name} (they overlapped)")
@@ -455,6 +486,15 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         if ox < oy:
             return np.array([(ox + gap) * (1 if cb[0] >= ca[0] else -1), 0.0, 0.0])
         return np.array([0.0, (oy + gap) * (1 if cb[1] >= ca[1] else -1), 0.0])
+
+    @staticmethod
+    def _ways_out(a, b, first, gap: float = 0.3) -> list:
+        """The four ways b can move to clear a, the one asked first, then by how far."""
+        al, ar, ab, at = a.get_left()[0], a.get_right()[0], a.get_bottom()[1], a.get_top()[1]
+        bl, br, bb, bt = b.get_left()[0], b.get_right()[0], b.get_bottom()[1], b.get_top()[1]
+        ways = [np.array([ar - bl + gap, 0.0, 0.0]), np.array([al - br - gap, 0.0, 0.0]),
+                np.array([0.0, at - bb + gap, 0.0]), np.array([0.0, ab - bt - gap, 0.0])]
+        return [first] + sorted(ways, key=lambda w: float(np.linalg.norm(w)))
 
     @staticmethod
     def _inside(small, big, e: float = 0.35) -> bool:
@@ -817,7 +857,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         elif v in ("scale", "spin", "pulse", "shake"):
             for (name, m), a0, a1 in self._staggered(self._targets(act.target), t0, t1, stagger):
                 if v == "scale":
-                    self._scale(m, float(act.args[0]) if act.args else 1.2, a0, a1)
+                    self._scale(m, float(act.args[0]) if act.args else 1.2, a0, a1, name)
                 elif v == "spin":
                     self._spin(m, float(act.args[0]) if act.args else 360, a0, a1)
                 elif v == "pulse":
@@ -1308,15 +1348,63 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
 
         self.tweens.append(Call(t0, t1, start, lambda a: al.set(state["a0"] + (to - state["a0"]) * a)))
 
-    def _scale(self, m, k, t0, t1) -> None:
+    def _room(self, name: str, m, k: float) -> float:
+        """How far a thing can grow (at most k) without covering what is up beside it or leaving its shot's
+        screen: what sits on it, and what it sits on, do not count."""
+        e = self.SCORE.ents.get(name)
+        if k <= 1.0 or e is None or e.kind in ("map", "backdrop", "weather", "globe") or m is not self.E.get(name):
+            return k
+        box = lambda x: (x.get_left()[0], x.get_bottom()[1], x.get_right()[0], x.get_top()[1])  # noqa: E731
+        me = box(m)
+        cx, cy = (me[0] + me[2]) / 2, (me[1] + me[3]) / 2
+        hw, hh = (me[2] - me[0]) / 2, (me[3] - me[1]) / 2
+        others = []
+        for n, x in self.E.items():
+            o = self.SCORE.ents.get(n)
+            if x is m or o is None or o.shot != e.shot or id(x) not in self.up or o.kind in ("backdrop", "weather"):
+                continue
+            ob = box(x)
+            if ob[0] >= me[0] - 0.05 and ob[2] <= me[2] + 0.05 and ob[1] >= me[1] - 0.05 and ob[3] <= me[3] + 0.05:
+                continue                        # on it: grows with it
+            if me[0] >= ob[0] - 0.05 and me[2] <= ob[2] + 0.05 and me[1] >= ob[1] - 0.05 and me[3] <= ob[3] + 0.05:
+                continue                        # it sits on this (a pin on its map)
+            if min(me[2], ob[2]) > max(me[0], ob[0]) and min(me[3], ob[3]) > max(me[1], ob[1]):
+                continue                        # already over it: not this action's doing
+            others.append(ob)
+        o = self._origin(e.shot)
+        z = self.SCORE.shots[e.shot].zoom if e.shot in self.SCORE.shots else 1.0
+        sw, sh = S.SCREEN_W / z / 2 - 0.2, S.SCREEN_H / z / 2 - 0.2
+
+        def fits(kk):
+            b = (cx - hw * kk, cy - hh * kk, cx + hw * kk, cy + hh * kk)
+            if b[0] < o[0] - sw or b[2] > o[0] + sw or b[1] < o[1] - sh or b[3] > o[1] + sh:
+                return kk <= 1.0
+            return not any(min(b[2], ob[2]) + 0.12 > max(b[0], ob[0]) and min(b[3], ob[3]) + 0.12 > max(b[1], ob[1])
+                           for ob in others)
+        if fits(k):
+            return k
+        lo, hi = 1.0, k
+        for _ in range(14):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if fits(mid) else (lo, mid)
+        if lo < k - 0.01:
+            self.SCORE.notes.append(f"{name} grown {lo:.2f}x, not {k:g}x: it would have covered what is beside it")
+        return lo
+
+    def _scale(self, m, k, t0, t1, name: str | None = None) -> None:
         k = max(float(k), 0.01)                 # to nothing: as small as a speck (0 would undo nothing after it)
-        state = {"k": 1.0}
+        state = {"k": 1.0, "want": k}
+
+        def start():
+            if name is not None:                # grown only as far as there is room (nothing covered by it)
+                state["want"] = self._room(name, m, k)
 
         def step(a):
+            k = state["want"]
             kk = k ** a
             m.scale(kk / state["k"])
             state["k"] = kk
-        self.tweens.append(Call(t0, t1, None, step, None, rate_functions.ease_out_back if k > 1 else rate_functions.smooth))
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_out_back if k > 1 else rate_functions.smooth))
 
     def _spin(self, m, deg, t0, t1) -> None:
         state = {"r": 0.0}

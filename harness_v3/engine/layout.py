@@ -30,6 +30,7 @@ import score as S
 FREE = {"path", "arrow", "waves", "backdrop", "weather", "region", "river", "pin", "event", "span", "labels", "bubble",
         "march", "lens", "shade", "inset", "split"}
 WORDS_KINDS = ("text", "tag", "label", "card", "title", "quote")
+SOLID = {"card", "photo", "pic", "portrait", "doc", "quote", "clipping", "polaroids", "who", "flag", "stat"}
 
 
 class CheckScene(R.ScoreScene):
@@ -104,7 +105,8 @@ def check(score_text: str, words_json: dict) -> dict:
     for name, m in E.items():
         t0, t1 = times.get(name, (0.0, 1e9))
         b = _box(m)
-        moves = sorted((a for a in sc.acts if a.verb in ("move", "walk") and a.target == name), key=lambda a: a.t0)
+        moves = sorted((a for a in sc.acts if a.verb in ("move", "walk", "scale") and name in a.target.split(",")),
+                       key=lambda a: a.t0)
         cur, start = b, t0
         for a in moves:
             end = a.t1 if a.t1 is not None else a.t0 + 0.9
@@ -167,9 +169,14 @@ def check(score_text: str, words_json: dict) -> dict:
                         if t1 - t0 < 0.3:
                             continue
                         k = _cover(ab, bb)
-                        if k >= 0.2 and not _held(scene, a, b, ab, bb):
+                        # words hidden: said whatever the share (a corner of a card over another's title hides it)
+                        hid = k > 0.02 and (_on_words(scene, E[a.name], ab, bb) or _on_words(scene, E[b.name], bb, ab))
+                        # two opaque pieces (cards, prints, cut-outs) one partly over the other look broken at any share
+                        solid = a.kind in SOLID and b.kind in SOLID and k > 0.05
+                        if (k >= 0.2 or hid or solid) and not _held(scene, a, b, ab, bb):
                             say(shot.name, f"from {_word_at(words, t0)}: {where(a.name, ab)} and {where(b.name, bb)} "
-                                           f"overlap ({k * 100:.0f}% of the smaller is covered)")
+                                           f"overlap ({k * 100:.0f}% of the smaller is covered"
+                                           + (", over the words" if hid else "") + ")")
     # lines the engine could not read or play (each is left out of the video): said in the shot they are in
     for shot, text in _unplayable(scene, sc, score_text):
         say(shot, text)
@@ -225,6 +232,12 @@ def _moved(scene, sc, name, a, cur):
     args = a.args
     w, h = cur[2] - cur[0], cur[3] - cur[1]
     c = np.array([(cur[0] + cur[2]) / 2, (cur[1] + cur[3]) / 2])
+    if a.verb == "scale":                       # grown (or shrunk) about its middle, as the score asks (the render
+        try:                                    # holds a growth back from what is beside it: said here to fix)
+            k = float(args[0]) if args else 1.2
+        except ValueError:
+            return None
+        return (c[0] - w * k / 2, c[1] - h * k / 2, c[0] + w * k / 2, c[1] + h * k / 2)
     try:
         if "to" in args:
             ref = args[args.index("to") + 1]
@@ -240,6 +253,21 @@ def _moved(scene, sc, name, a, cur):
     except (ValueError, IndexError, KeyError):
         return None
     return (c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2)
+
+
+def _on_words(scene, m, box_now, other) -> bool:
+    """Whether `other` lies over m's words, m's words taken where they are now (moved and grown with m's box)."""
+    b0 = _box(m)
+    kx = (box_now[2] - box_now[0]) / max(1e-6, b0[2] - b0[0])
+    ky = (box_now[3] - box_now[1]) / max(1e-6, b0[3] - b0[1])
+    for w in scene.words_of(m):
+        ww = (box_now[0] + (w[0] - b0[0]) * kx, box_now[1] + (w[1] - b0[1]) * ky,
+              box_now[0] + (w[2] - b0[0]) * kx, box_now[1] + (w[3] - b0[1]) * ky)
+        ox, oy = min(ww[2], other[2]) - max(ww[0], other[0]), min(ww[3], other[3]) - max(ww[1], other[1])
+        if ox > 0 and oy > 0 and ox * oy > 0.12 * min((ww[2] - ww[0]) * (ww[3] - ww[1]),
+                                                       (other[2] - other[0]) * (other[3] - other[1])):
+            return True
+    return False
 
 
 def _judged(scene, sc, a, b) -> bool:

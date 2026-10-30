@@ -172,7 +172,8 @@ def depth(kind: str) -> float:
 def parallax_weight(dist: float, screen_w: float) -> float:
     """How much of its depth a thing shows with the camera `dist` from its shot: none at home (a shot's layout is
     exact while it is looked at, and moves within a shot keep their places) nor a screen away, most between."""
-    x = (dist / screen_w - 0.12) / 0.8
+    # (none while the camera is anywhere in the shot, a zoom to a place on its map included: only on the way between)
+    x = (dist / screen_w - 0.5) / 0.48
     if x <= 0 or x >= 1:
         return 0.0
     return math.sin(math.pi * x) ** 1.5

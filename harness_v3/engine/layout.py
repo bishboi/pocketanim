@@ -47,8 +47,11 @@ class CheckScene(R.ScoreScene):
 
 
 def _box(m) -> tuple[float, float, float, float]:
+    """A thing's box on the screen; a cut-out picture's is what shows of it (not the clear margin round its shadow)."""
     lo, hi = m.get_corner(R.DOWN + R.LEFT), m.get_corner(R.UP + R.RIGHT)
-    return float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1])
+    fx, fy = getattr(m, "shown", (1.0, 1.0))
+    cx, cy, hw, hh = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (hi[0] - lo[0]) * fx / 2, (hi[1] - lo[1]) * fy / 2
+    return float(cx - hw), float(cy - hh), float(cx + hw), float(cy + hh)
 
 
 def _area(b) -> float:
@@ -126,7 +129,7 @@ def check(score_text: str, words_json: dict) -> dict:
                 say(shot.name, f"{e.name} (timeline) has no event or span on it: add the dates the narration names "
                                "(event YEAR \"WORDS\" on " + e.name + ") or leave it out")
             # off the screen
-            if e.kind not in ("backdrop", "weather"):
+            if e.kind not in ("backdrop", "weather") and not (e.kind == "map" and e.mods.get("full")):
                 out = max(o[0] - hw - b[0], b[2] - (o[0] + hw), o[1] - hh - b[1], b[3] - (o[1] + hh))
                 if out > 0.15:
                     say(shot.name, f"{where(e.name, b)} runs {out:.1f} off the screen (x from -{hw:.1f} to {hw:.1f}, "
@@ -258,10 +261,9 @@ def _judged(scene, sc, a, b) -> bool:
 
 
 def _held(scene, a, b, ab, bb) -> bool:
-    """One inside the other, the bigger a holder (a label on its card, an icon on its badge, words on a box)."""
-    def inside(s, g, e=0.35):
-        return s[0] >= g[0] - e and s[2] <= g[2] + e and s[1] >= g[1] - e and s[3] <= g[3] + e
-    return (scene._holder(a) and inside(bb, ab)) or (scene._holder(b) and inside(ab, bb))
+    """One set on the other on purpose (render.ScoreScene.nested): a label on its card, letters in their tray, a coin
+    in a hand, tools on a map; never anything over words."""
+    return scene.nested(a, b, ab, bb) or scene.nested(b, a, bb, ab)
 
 
 def main() -> None:

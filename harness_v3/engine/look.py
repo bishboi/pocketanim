@@ -664,6 +664,7 @@ def picture(kind: str, prompt: str, width: float, mods: dict):
     if p.exists():
         box = (float(mods["w"]), float(mods["h"])) if mods.get("w") and mods.get("h") else None
         m = image(p, width, box)
+        m.shown = _shown(p)              # how much of its box is the picture (the layout check measures that)
         m.spots = assets.spots(p)        # where its named parts are (a vision model's, kept beside it)
         cr = assets.credit(p)
         if cr and cr.get("needs_credit"):   # an archive picture whose licence asks for its author: said under it
@@ -890,7 +891,7 @@ class GeoMap(VGroup):
             self.add(self._scale(sw / 2, sh / 2))
         if fm:
             self.add(self._frame(sw / 2, sh / 2, fm))
-        else:
+        elif frame != "none":                   # (`full`: no edge at all, it is the screen)
             sea.set_stroke(col("soft"), 1.5)
         self.places = _Places(self)
 

@@ -498,14 +498,43 @@ def flow(args: list[str], mods: dict, c=None) -> VGroup:
             boxes[n].move_to(p)
     colour = col(c or "ink")
     arrows: dict[tuple[str, str], VGroup] = {}
+    def crosses(p0, mid, p1, skip) -> bool:
+        """Whether the arrow (through `mid`, or straight) runs over a card that is not its own."""
+        ctrl = 2 * mid - (p0 + p1) / 2 if mid is not None else (p0 + p1) / 2
+        for t in np.linspace(0.08, 0.92, 24):
+            q = (1 - t) ** 2 * p0 + 2 * (1 - t) * t * ctrl + t ** 2 * p1
+            for n, bx in boxes.items():
+                if n in skip:
+                    continue
+                c_ = bx.get_center()
+                if abs(q[0] - c_[0]) < bx.width / 2 + 0.1 and abs(q[1] - c_[1]) < bx.height / 2 + 0.1:
+                    return True
+        return False
     for a, b, words in edges:
         A, B = boxes[a], boxes[b]
         same = layer[a] == layer[b] or (a, b) in back
         p0, p1 = edge_point(A, B.get_center()), edge_point(B, A.get_center())
+        d = p1 - p0
+        nrm = np.array([-d[1], d[0], 0.0]) / (np.linalg.norm(d) or 1)
+        mid = None
         if same:                    # a loop or a step within a layer: bowed aside
-            d = p1 - p0
-            nrm = np.array([-d[1], d[0], 0.0]) / (np.linalg.norm(d) or 1)
             mid = (p0 + p1) / 2 + nrm * max(0.8, np.linalg.norm(d) * 0.3)
+        elif crosses(p0, None, p1, {a, b}):
+            # an arrow past a layer would run over the cards between: bowed round them, the side with room
+            for bow in (0.6, 0.9, 1.2, 1.6, 2.0, 2.6):
+                hit = None
+                for side in (1, -1):
+                    cand = (p0 + p1) / 2 + nrm * side * max(bow, np.linalg.norm(d) * bow * 0.25)
+                    q0, q1 = edge_point(A, cand), edge_point(B, cand)
+                    if not crosses(q0, cand, q1, {a, b}):
+                        hit = cand
+                        break
+                if hit is not None:
+                    mid = hit
+                    break
+            if mid is None:
+                mid = (p0 + p1) / 2 + nrm * max(2.0, np.linalg.norm(d) * 0.5)
+        if mid is not None:
             p0, p1 = edge_point(A, mid), edge_point(B, mid)
             ar = tipped([p0, mid, p1], colour)
         else:

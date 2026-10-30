@@ -76,7 +76,8 @@ RULES
 KIT = {
     "map": """  map REGION   a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
                a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`,
-               `compass`, `scale` (a scale bar); it comes in an atlas frame (`frame plain` for a bare one);
+               `compass`, `scale` (a scale bar); it comes in an atlas frame (`frame plain` for a bare one; `full`:
+               the whole screen, edge to edge, for a shot that is all map: put pins, people, arrows on it);
                `w 12 h 6.6` (it fills that). Every place on it is MAP.PLACE: eu.paris, eu.constantinople, eu.north_sea
   region "NAME" on M   a country, a state of the map's year ("Holy Roman Empire") or a sea, shaded where it really
                is; `color`, `opacity`, `outline`
@@ -277,7 +278,9 @@ REPAIR = """You fix one SHOT of an animated explainer's score. The engine built 
 - nothing is empty (a tag with words, a timeline with its dates on it), or it is left out.
 Keep the same things, the same words and the same timing; change where things are and how big. Use the REAL SIZES
 to place them, or put one against another: `below X`, `above X`, `left X`, `right X` (X a thing or a part of a piece,
-like `below fl.economic`; `gap G`). Answer with only the shot's lines, its `shot` line first."""
+like `below fl.economic`; `gap G`). Answer with only the shot's lines, its `shot` line first.
+Things set wholly on a bigger thing on purpose (pins and pictures on a map, letters in a tray, a coin in a hand, words
+on a card) are not reported and stay as they are: move only what the problems name."""
 
 
 def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict]) -> tuple[str, str]:

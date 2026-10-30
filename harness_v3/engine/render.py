@@ -333,7 +333,30 @@ class ScoreScene(MovingCameraScene):
               "numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market",
               "climate", "quiz", "clock", "odometer", "clipping", "layers", "globe", "who", "polaroids", "person",
               "nation", "country"}
-    HOLDERS = {"rect", "circle", "blob", "card", "photo", "split"}
+    HOLDERS = {"rect", "circle", "blob", "card", "photo", "split", "map", "globe", "backdrop"}
+    # Words are never a holder: what lies over them hides them.
+    WORDY = {"text", "tag", "label", "title", "stat", "num", "phrase", "quote", "list", "steps", "table", "compare"}
+
+    def nested(self, big: S.Ent, small: S.Ent, bb=None, sb=None) -> bool:
+        """`small` set on `big` on purpose: wholly inside it and much smaller (letters in their tray, a coin in a
+        hand, a ring round a picture, tools on a map), or inside a holder (a card, a box, a map). Never on words."""
+        if big.kind in self.WORDY:
+            return False
+        bm, sm = self.E.get(big.name), self.E.get(small.name)
+        if bm is None or sm is None:
+            return False
+        if bb is None:
+            lo, hi = bm.get_corner(DOWN + LEFT), bm.get_corner(UP + RIGHT)
+            bb = (lo[0], lo[1], hi[0], hi[1])
+        if sb is None:
+            lo, hi = sm.get_corner(DOWN + LEFT), sm.get_corner(UP + RIGHT)
+            sb = (lo[0], lo[1], hi[0], hi[1])
+        e = 0.35
+        inside = sb[0] >= bb[0] - e and sb[2] <= bb[2] + e and sb[1] >= bb[1] - e and sb[3] <= bb[3] + e
+        if not inside:
+            return False
+        area = lambda b: max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])  # noqa: E731
+        return self._holder(big) or area(sb) <= 0.45 * area(bb)
 
     def _holder(self, e: S.Ent) -> bool:
         """A shape that things are put on: a box, a disc, a region, an icon on its badge."""
@@ -350,8 +373,9 @@ class ScoreScene(MovingCameraScene):
                     and not e.mods.get("on") and not isinstance(e.mods.get("at"), str)
                     and not any(isinstance(e.mods.get(k), str) for k in REL)]
             def holds(big, small) -> bool:
-                # Only a shape holds things (a box, a disc, a region): a long title's box is not a card.
-                return big is not small and self._holder(big) and self._inside(self.E[small.name], self.E[big.name])
+                # A shape holds things (a box, a disc, a map), and a thing holds what is set wholly on it and is much
+                # smaller (letters in their tray): a long title's box holds nothing.
+                return big is not small and self.nested(big, small)
             # What sits on another (a badge on its box, a label on its card) moves with it, and is not moved itself.
             riders = {e.name: [x for x in ents if holds(e, x)] for e in ents}
             for e in ents:                      # nothing hangs off its shot's screen (a long title, a far `at`)
@@ -534,7 +558,13 @@ class ScoreScene(MovingCameraScene):
             e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
 
         if e.kind in ("person", "nation", "country"):
-            e.mods.setdefault("_name", e.name)      # its looks picked from its name when the score does not say
+            e.mods.setdefault("_name", e.name)
+        if e.kind == "map" and e.mods.get("full") and e.shot in self.SCORE.shots:
+            # the whole screen: edge to edge, no frame, in the middle of its shot
+            z = self.SCORE.shots[e.shot].zoom
+            e.mods["w"], e.mods["h"] = S.SCREEN_W / z + 0.1, S.SCREEN_H / z + 0.1
+            e.mods["frame"] = "none"
+            e.mods.setdefault("at", (0.0, 0.0))      # its looks picked from its name when the score does not say
         def one():
             return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot),
                               find=lambda n: self.E.get(n))
@@ -564,7 +594,7 @@ class ScoreScene(MovingCameraScene):
                 self._beside(m, rel[0], rel[1], e)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
-        if e.kind == "map" and e.shot in self.SCORE.shots:
+        if e.kind == "map" and e.shot in self.SCORE.shots and not e.mods.get("full"):
             # Kept on its screen as it is placed, before anything is drawn on it (its regions and pins follow).
             self._on_screen(m, self.SCORE.shots[e.shot])
         # A region sits under what is on it; a map under its regions, a pin over them.
@@ -667,6 +697,7 @@ class ScoreScene(MovingCameraScene):
                       f"{type(e).__name__}: {e}", file=sys.stderr)
         if self.parallax:
             self._parallax()
+        self._ride()
         # A mark goes where what it marks goes (a ring round a thing that then moves, a fill in a box that slides).
         for rec in self.follows:
             mk, what, last, fill = rec
@@ -2063,13 +2094,57 @@ class ScoreScene(MovingCameraScene):
                     if base in sc.ents and base != n:
                         return of(base, (*seen, n))
             return feel.depth(e.kind)
+        self._map_kids()
+        riding = {k_ for kids in self.kids.values() for k_ in kids}
         for n, e in sc.ents.items():
-            if n in self.E and e.shot in sc.shots:
+            if n in self.E and e.shot in sc.shots and n not in riding:   # (what is on a map goes with its map)
                 k = of(n)
                 if abs(k - 1.0) > 1e-3:
                     self.depth[n] = k
                     self.home[n] = self._origin(e.shot)
                     self.offset[n] = np.zeros(3)
+
+    def _map_kids(self) -> None:
+        """What is drawn on each map (its regions, pins, rivers, shades; what is put at its places; arrows and paths
+        between its places): it goes where the map goes, as the map is moved, scaled or slid (_ride)."""
+        sc = self.SCORE
+        maps = {n for n, m in self.E.items() if isinstance(m, look.GeoMap)}
+        self.kids: dict[str, list[str]] = {n: [] for n in maps}
+        for n, e in sc.ents.items():
+            if n in maps or n not in self.E:
+                continue
+            refs = [e.mods.get("on"), e.mods.get("map"), e.mods.get("at")]
+            if e.kind in ("arrow", "path", "march"):
+                refs += list(e.args)
+            for ref in refs:
+                base = ref.split(".", 1)[0] if isinstance(ref, str) else None
+                if base in maps and (ref == base and e.kind in ON_PARENT + ("march",) or "." in ref):
+                    self.kids[base].append(n)
+                    break
+        self.map_at = {n: self._map_frame(n) for n in maps}
+
+    def _map_frame(self, n: str):
+        o, x, y = (d.get_center().copy() for d in self.E[n]._ref)
+        return o, x, y
+
+    def _ride(self) -> None:
+        """Each map's own points: where they were and where they are; what is on it carried the same way."""
+        for n, kids in self.kids.items():
+            if not kids:
+                continue
+            o0, x0, y0 = self.map_at[n]
+            o1, x1, y1 = self._map_frame(n)
+            if np.allclose(o0, o1, atol=1e-6) and np.allclose(x0, x1, atol=1e-6) and np.allclose(y0, y1, atol=1e-6):
+                continue
+            A0 = np.array([[x0[0] - o0[0], y0[0] - o0[0]], [x0[1] - o0[1], y0[1] - o0[1]]])
+            A1 = np.array([[x1[0] - o1[0], y1[0] - o1[0]], [x1[1] - o1[1], y1[1] - o1[1]]])
+            M = A1 @ np.linalg.inv(A0)
+            for k_ in kids:
+                for leaf in self.E[k_].family_members_with_points():
+                    P = leaf.points
+                    xy = (P[:, :2] - o0[:2]) @ M.T + o1[:2]
+                    P[:, 0], P[:, 1] = xy[:, 0], xy[:, 1]
+            self.map_at[n] = (o1, x1, y1)
 
     def _parallax(self) -> None:
         f = self.camera.frame

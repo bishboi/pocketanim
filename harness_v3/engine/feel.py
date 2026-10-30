@@ -54,7 +54,7 @@ def seed(name: str) -> int:
 
 # Kinds that are paper cut-outs: they come on slapped down and leave peeled off when the score says no way.
 CUTOUTS = {"pic", "photo", "portrait", "card", "tag", "flag", "stat", "quote", "doc", "clipping", "polaroids", "who",
-           "bubble", "icon", "title", "person"}
+           "bubble", "icon", "title", "person", "prop"}
 # Kinds that land with a nudge to their neighbours.
 LANDS = ("slap", "pop", "drop", "stamp")
 
@@ -163,7 +163,7 @@ def overlay_rgba(w: int = 960, h: int = 540, ink: str = "#2b2118", grain: float 
 
 DEPTH = {"backdrop": 0.72, "split": 0.8, "map": 0.86, "globe": 0.86, "islands": 0.86, "land": 0.86, "waves": 0.86,
          "weather": 1.0, "pic": 1.07, "photo": 1.07, "portrait": 1.07, "polaroids": 1.07, "clipping": 1.07,
-         "card": 1.05, "who": 1.07, "person": 1.07, "nation": 1.07, "country": 1.07, "text": 1.12, "label": 1.12, "tag": 1.12, "title": 1.12,
+         "card": 1.05, "who": 1.07, "person": 1.07, "animal": 1.07, "prop": 1.07, "nation": 1.07, "country": 1.07, "text": 1.12, "label": 1.12, "tag": 1.12, "title": 1.12,
          "num": 1.12, "stat": 1.1, "quote": 1.08}
 
 

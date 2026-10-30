@@ -1090,10 +1090,17 @@ class Peg(Person):
         nothing = lambda: (Line([0, 0, 0], [0, -0.01, 0], stroke_width=0, stroke_opacity=0),)  # noqa: E731
         self.legs = {n: nothing() for n in ("bl", "bs", "fl", "fs")}
         aw = 2.8 * k
-        self.arms = {n: (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=aw),) for n in ("ba", "bf", "fa", "ff")}
-        self.hands = {n: rigid(Circle(radius=0.017, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.8),
-                               "hand_" + n) for n in ("b", "f")}
-        self.shoes = {}
+        sleeve = skin if spec["arms"] == "skin" else (spec["arms"] or cloth)
+        # sleeves: the cloth's colour over an ink line (an outlined arm), the far one a shade darker
+        self.arms = {n: (Line([0, 0, 0], [0, -0.1, 0], stroke_color=ink, stroke_width=aw * 2.3),
+                         Line([0, 0, 0], [0, -0.1, 0], stroke_color=sleeve if n[0] == "f" else _shade(sleeve, 0.88),
+                              stroke_width=aw * 1.35)) for n in ("ba", "bf", "fa", "ff")}
+        self.hands = {n: rigid(Circle(radius=0.021, fill_color=skin if n == "f" else _shade(skin, 0.92), fill_opacity=1,
+                                      stroke_color=ink, stroke_width=ow * 0.8), "hand_" + n) for n in ("b", "f")}
+        # shoes peeping from under the body (they hop with it)
+        self.shoes = {n: rigid(Ellipse(width=0.1, height=0.045, fill_color=SHOE if n == "f" else _shade(SHOE, 1.25),
+                                       fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.6)
+                               .move_to([0.03, -0.02, 0]), "foot_" + n) for n in ("b", "f")}
         R = self.R
         hat = str(mods.get("hat") or "").lower()
         covered = hat in COVERED
@@ -1106,6 +1113,7 @@ class Peg(Person):
         self.add(rigid(hb, "head"), rigid(back, "head"))
         H = self.D["TORSO"] + 0.08
         self.add(rigid(attire.behind(decor, ink, ow, self.W, -0.035, H), "torso"))
+        self.add(self.shoes["b"], self.shoes["f"])
         self.add(*self.arms["ba"], *self.arms["bf"])
         held = attire.offhand(str(decor.get("offhand") or ""), ink, ow, k)
         if held is None:
@@ -1116,6 +1124,13 @@ class Peg(Person):
         self.add(self.neck)
         self.head = Circle(radius=R, fill_color=skin, fill_opacity=1, stroke_color=ink, stroke_width=ow)
         self.add(rigid(self.head, "head"))
+        # a little shading on the head's far side, and an ear
+        self.add(rigid(_shade_side(R, _shade(skin, 0.9)), "head"))
+        if not covered and hair_s not in ("long",):
+            self.add(rigid(VGroup(Circle(radius=R * 0.2, fill_color=skin, fill_opacity=1, stroke_color=ink,
+                                         stroke_width=ow * 0.8).move_to([-R * 0.82, -R * 0.08, 0]),
+                                  Circle(radius=R * 0.09, fill_color=_shade(skin, 0.85), fill_opacity=1,
+                                         stroke_width=0).move_to([-R * 0.8, -R * 0.08, 0])), "head"))
         self.add(rigid(front, "head"))
         if mods.get("beard") or mods.get("longbeard"):
             self.add(rigid(_beard(hair, ink, ow, R * 0.75, bool(mods.get("longbeard")) or old)
@@ -1155,6 +1170,14 @@ class Peg(Person):
         return q
 
 
+def _shade_side(R, c):
+    """A crescent of shade along the far side of a round head (the light from the front)."""
+    pts = _arc(0, 0, R * 0.97, 110, 250, 14) + _arc(R * 0.22, 0, R * 0.86, 245, 115, 14)
+    m = VMobject(fill_color=c, fill_opacity=0.55, stroke_width=0)
+    m.set_points_smoothly([np.array([x, y, 0.0]) for x, y in pts] + [np.array([pts[0][0], pts[0][1], 0.0])])
+    return m
+
+
 def _peg_body(wear: str, spec: dict, cloth, legs, ink, ow, skin, W: float, H: float) -> VGroup:
     """A peg figure's body (the hips at 0, its foot a little under): the clothes painted on a rounded block."""
     from manim import RoundedRectangle
@@ -1164,6 +1187,14 @@ def _peg_body(wear: str, spec: dict, cloth, legs, ink, ow, skin, W: float, H: fl
                             stroke_width=0).move_to([0, (H + y0) / 2, 0])
     g = VGroup(body)
     dark = _shade(cloth, 0.72)
+    # shade down the far side, a light down the near one (a rounded body, lit from the front)
+    side = VMobject(fill_color=_shade(cloth, 0.84), fill_opacity=0.75, stroke_width=0)
+    side.set_points_smoothly([np.array([x, y, 0.0]) for x, y in (
+        (-W / 2 + 0.004, y0 + full * 0.22), (-W / 2 + 0.01, H - full * 0.2), (-W / 2 + 0.055, H - full * 0.12),
+        (-W / 2 + 0.07, H - full * 0.3), (-W / 2 + 0.065, y0 + full * 0.25), (-W / 2 + 0.03, y0 + full * 0.08),
+        (-W / 2 + 0.004, y0 + full * 0.22))])
+    g.add(side, _stroke([(W / 2 - 0.045, H - full * 0.22), (W / 2 - 0.035, H - full * 0.45)], "#FFFFFF", ow * 1.1)
+          .set_stroke(opacity=0.35))
     line = lambda pts, c=ink, w=ow: _stroke(pts, c, w)  # noqa: E731
     long_ = wear in ("dress", "gown", "robe", "habit", "toga", "tunic")
     if not long_ and legs != cloth:             # trousers below the waist
@@ -1201,6 +1232,8 @@ def _peg_body(wear: str, spec: dict, cloth, legs, ink, ow, skin, W: float, H: fl
     if wear in ("dress", "gown"):
         g.add(_poly([(-0.06, top), (0.06, top), (0.0, top - 0.06)], "#F7F5F0", ink, ow * 0.6),
               line([(-W / 2 + 0.02, y0 + full * 0.55), (W / 2 - 0.02, y0 + full * 0.55)], dark, ow * 1.2))
+    # the head's shadow on the top of the body
+    g.add(Ellipse(width=W * 0.62, height=0.05, fill_color=ink, fill_opacity=0.13, stroke_width=0).move_to([0.01, H - 0.012, 0]))
     outline = RoundedRectangle(width=W, height=full, corner_radius=W * 0.32, fill_opacity=0, stroke_color=ink,
                                stroke_width=ow).move_to([0, (H + y0) / 2, 0])
     g.add(outline)

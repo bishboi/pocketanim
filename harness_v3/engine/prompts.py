@@ -18,8 +18,26 @@ shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `e
 ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wide, 8 tall, centred on the shot.
   KINDS: text "WORDS" | circle | rect | blob | ring | waves N | dots N (`shape user`: little drawn people) | num V
          | bar V | arrow A B | path P P P...
+         | prop NAME [open] [color C] [sign ₹] [label "WORDS"] [of fruit|bread|flowers|grain|fish] [size H]
+           A THING READY DRAWN, in the people's hand and scale (it stands on its `at`: its bottom middle there; set
+           it on the ground at y -2.9 beside people, or on a table's top). USE A PROP FIRST whenever the thing is on
+           this shelf (no picture is searched for or made); `size 6-9` to show one big, alone:
+           money: moneybag coins coin goldbars cash gem crown chest | writing: book books openbook ledger scroll
+           letter document charter newspaper oldmap quill inkwell seal | furniture: table desk chair stool throne
+           bench bookshelf lectern bed | containers: barrel crate box sack basket pot jar bucket | light: candle diya
+           lantern campfire | tools, arms: sword shield spear bow cannon anvil plough wheel charkha scales hourglass
+           key bell goblet telescope lightbulb printingpress | places: tree palm bush rock well tent hut house tower
+           gate fence signpost flagpole cart boat ship.  `open X` / `shut X`: a chest (its gold shows), box, letter,
+           gate
+         | animal KIND [mood FACE] [plain] [howdah] [face left] [size H]   AN ANIMAL, drawn, alive (feet at its `at`):
+           horse pony donkey zebra cow ox bull buffalo elephant camel dog wolf fox cat tiger lion leopard sheep goat
+           pig deer rat bear chicken rooster peacock duck eagle bird crow parrot. (`plain`: no saddle, cloth or
+           garland; an elephant `howdah` carries a canopied seat; a peacock `display` fans its tail.) A person's verbs
+           work on it (walk, run, turn, jump, nod, look, emote, talk; carry puts a load on its back; sit lies it
+           down); its own: graze A | rear A | fly BIRD to X,Y. `ride P A` puts a person in the saddle (it then goes
+           where A goes: walk A to X,Y and the rider comes too), `dismount P [to X,Y]`
          | pic "WHAT" (a small hand-drawn picture, cut out on paper: ONE object, person or building; 1-3 a shot;
-           there are no icons: a small thing is a pic)
+           there are no icons: a small thing is a pic; only for what the prop shelf has not got)
          | photo "A SCENE" (a framed print of a place or scene). Say exactly what to draw, of its time and place:
            pic "a 14th-century English silver penny, worn, both faces stamped" not pic "a coin"; photo "a muddy
            medieval village street at dawn, timber houses, a church tower behind" not photo "a village". No words in it.
@@ -221,7 +239,8 @@ KIT_WORDS = {
     "people": r"\bperson|people|\bm[ae]n\b|wom[ae]n|merchant|monk|farmer|worker|soldier|travell?er|\bwalk|"
               r"carr(y|ied)|pointed|buyer|seller|peasant|crowd|alliance|allies|\brival|treaty|neighbou?r|invad|"
               r"annex|bull(y|ied)|nation|\bga(ve|ive)\b|thr(ew|ow)|argu|quarrel|whisper|handshake|shook hands|"
-              r"deal\b|push|tug|alive|character",
+              r"deal\b|push|tug|alive|character|horse|elephant|camel|\bride|rode|cattle|\bcows?\b|\box\b|"
+              r"\bdogs?\b|animal",
 }
 
 
@@ -279,6 +298,7 @@ cast NAME person as ROLE [hair H] [beard] [skin S] [mood FACE]   (ROLE: king|que
 cast NAME person [wear W] [hat H] [hair H] [beard] [tool T] [mood FACE]   (no role fits: wear habit|gown|coat|suit...)
 cast NAME nation COUNTRY [color C] [mood FACE] [named]
 cast NAME pic "WHAT, as a cut-out" alive [mood FACE]   (an object with a face, legs and arms)
+cast NAME animal KIND [mood FACE] [plain]   (a horse, an elephant, a dog... that comes back: see the animal kind)
 for example: cast monk person as monk longbeard mood calm"""
 
 SCORE = """You write one SHOT of an animated explainer's score, in the grammar below. You get the shot's plan, its
@@ -352,6 +372,8 @@ cast NAME person [wear habit|gown|coat|suit|armor|tunic|robe|dress|uniform|lab|a
      [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark] [tool T] [old|kid] [mood FACE]
 cast NAME nation COUNTRY [color C] [mood FACE] [named]
 cast NAME pic "WHAT, a cut-out object" alive [mood FACE]
+cast NAME animal horse|pony|donkey|zebra|cow|ox|bull|buffalo|elephant|camel|dog|wolf|fox|cat|tiger|lion|leopard|
+     sheep|goat|pig|deer|rat|bear|chicken|rooster|peacock|duck|eagle|bird|crow|parrot [mood FACE] [plain]
 NAME is one short lowercase word (gutenberg, monk, prussia, coin). At most 8 characters; none at all is fine
 (answer `none`)."""
 
@@ -362,7 +384,7 @@ def cast_prompt(words: list[dict], language: str | None = None) -> tuple[str, st
     return with_language(CAST, language), f"NARRATION: {said_}\n\nWrite the cast lines (a character the narration voices as @NAME keeps that name)."
 
 
-CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic)\b.*?)[`\s]*$", re.I)
+CAST_LINE = re.compile(r"^[\s*>\-`]*(cast\s+[A-Za-z_]\w*\s+(?:person|nation|country|pic|animal)\b.*?)[`\s]*$", re.I)
 
 
 def parse_cast(text: str) -> list[str]:

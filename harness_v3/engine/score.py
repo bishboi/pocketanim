@@ -98,7 +98,10 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "majority": None, "answer": "i", "digits": "i", "date": "s", "where": "s", "round": None,
         "hat": "s", "tool": "s", "as": "s", "seat": None, "face": "s", "wear": "s", "hair": "s", "beard": None,
         "longbeard": None, "mustache": None, "stubble": None, "named": None, "frame": "s", "full": None, "skin": "s", "mood": "s", "old": None, "kid": None,
-        "alive": None, "per": "n", "cols": "i", "lit": "i", "provinces": None, "style": "s"}
+        "alive": None, "per": "n", "cols": "i", "lit": "i", "provinces": None, "style": "s",
+        "howdah": None, "plain": None, "display": None, "doe": None, "cub": None, "mallard": None, "open": None,
+        "empty": None, "rolled": None, "cushion": None, "load": None, "fruit": None, "sign": "s", "of": "s",
+        "cloth": "s"}
 
 WORD = re.compile(r"^w(\d+)([+-]\d*\.?\d+)?$")
 SECS = re.compile(r"^t(\d*\.?\d+)$")
@@ -210,7 +213,8 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
                "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote", "dance", "clap",
                "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug", "react", "annex", "travel",
-               "give", "throw", "push", "tug", "argue", "whisper"}
+               "give", "throw", "push", "tug", "argue", "whisper", "ride", "dismount", "graze", "rear", "fly",
+               "open", "shut"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
 KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
@@ -218,7 +222,7 @@ KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
          "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
          "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
-         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note", "eyes"}
+         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note", "eyes", "animal", "prop"}
 ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
 
 

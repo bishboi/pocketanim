@@ -74,7 +74,7 @@ MAP_KINDS = ("map", "region", "river", "shade", "inset", "globe", "land", "islan
 REL = ("below", "above", "left", "right")
 PIECES = {"flow", "tree", "pyramid", "cycle", "compare", "table", "steps", "list", "venn", "chart", "layers", "circuit"}
 BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "flag", "dots", "stat", "portrait",
-                "person", "phrase", "nation", "country"}
+                "person", "phrase", "nation", "country", "animal", "prop"}
 HUD_Z = 970             # what stays on the screen (captions, the chapter bar) over everything but the grain
 
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
@@ -86,10 +86,11 @@ DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "
                "turn": 0.4, "bring": 1.4, "chapter": 0.1, "run": 1.2, "cheer": 1.4, "shrug": 1.0,
                "think": 1.6, "bow": 1.2, "jump": 0.9, "nod": 0.8, "emote": 0.5, "dance": 3.0, "clap": 1.6,
                "facepalm": 1.8, "laugh": 1.8, "cry": 2.4, "shiver": 1.6, "kick": 0.7, "look": 0.5, "faint": 1.0,
-               "hug": 1.6, **acts.RUN}
+               "hug": 1.6, "ride": 0.9, "dismount": 0.8, "graze": 1.8, "rear": 1.3, "fly": 2.2, "open": 0.8,
+               "shut": 0.6, **acts.RUN}
 PERSON_VERBS = ("walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think",
                 "bow", "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look",
-                "faint", "hug")
+                "faint", "hug", "ride", "dismount", "graze", "rear", "fly")
 TAIL = float(os.environ.get("V3_TAIL", "3.2"))      # seconds held after the last word (a long video's parts
                                                     # but the last: none, parts.py)
 # A part of a long video (parts.py): where it stands in the whole, so the chapter bar runs over all of it.
@@ -186,6 +187,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         self.alpha: dict[int, Alpha] = {}
         self.marks: dict[str, list] = {}         # entity name -> rings and lines drawn on it
         self.fills: dict[str, dict] = {}         # entity name -> the level a `fill` has brought it to
+        self.mounts: list[list] = []             # [rider, animal]: a person in the saddle, carried each frame
         self.follows: list[list] = []            # [mark, what it marks, where that was, a fill's record]: kept together
         self.up: set[int] = set()                # what is on the screen
         self.tweens: list[Tween] = []
@@ -341,7 +343,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
               "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "portrait", "tree",
               "numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market",
               "climate", "quiz", "clock", "odometer", "clipping", "layers", "globe", "who", "polaroids", "person",
-              "nation", "country"}
+              "nation", "country", "animal", "prop"}
     HOLDERS = {"rect", "circle", "blob", "card", "photo", "split", "map", "globe", "backdrop"}
     # Words are never a holder: what lies over them hides them.
     WORDY = {"text", "tag", "label", "title", "stat", "num", "phrase", "quote", "list", "steps", "table", "compare"}
@@ -648,6 +650,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
             m.move_to(where)
             if self._figure(e):     # a figure stands where it is put: its feet there
                 m.shift(where - m.feet())
+            elif e.kind == "prop":  # a thing stands on its place (set on the ground, a table, a shelf)
+                m.shift(where - m.get_bottom())
             rel = self._relation(e)
             if rel:
                 self._beside(m, rel[0], rel[1], e)
@@ -772,6 +776,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         if self.parallax:
             self._parallax()
         self._ride()
+        self._mounted()
         # A mark goes where what it marks goes (a ring round a thing that then moves, a fill in a box that slides).
         for rec in self.follows:
             mk, what, last, fill = rec
@@ -940,6 +945,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         elif v == "flow":
             self._flow(self._track(self.E[act.target]), int(self._opt(act, "n", 6, int)),
                        look.col(next((x for x in act.args if x in look.L), "coral")), t0, t1)
+        elif v in ("open", "shut"):
+            self._open(act, t0, t1)
         elif v in PERSON_VERBS:
             self._person(act, t0, t1)
         elif v == "bring":
@@ -967,7 +974,7 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
     @staticmethod
     def _figure(e) -> bool:
         """A figure with legs (a person, a country, a thing come alive): it stands where it is put, feet there."""
-        return e is not None and (e.kind in ("person", "nation", "country") or bool(e.mods.get("alive")))
+        return e is not None and (e.kind in ("person", "nation", "country", "animal") or bool(e.mods.get("alive")))
 
     def _kind(self, name: str) -> str:
         e = self.SCORE.ents.get(name)
@@ -1872,6 +1879,138 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
 
     # ------------------------------------------------------------ people -----------------------------------------------
+    # ------------------------------------------------------------ animals, riding, lids ----------------------------------
+    def _beast(self, name, m, act: S.Act, t0, t1) -> None:
+        """An animal's own verbs (graze, rear, fly) and a person's riding one (ride, dismount)."""
+        import zoo
+        v = act.verb
+        dur = max(t1 - t0, 0.05)
+        st = {}
+        if v in ("graze", "rear", "fly") and not isinstance(m, zoo.Animal):
+            raise ValueError(f"{v} is an animal's (`ent NAME animal KIND`): {name} is a {self._kind(name)}")
+        if v == "graze":                        # the head down to the grass, nibbling, and up again
+            def step(a):
+                k = min(1.0, a * dur / 0.4, max(0.0, (dur - a * dur) / 0.4))
+                q = dict(m.pose)
+                q["graze"] = k * (0.9 + 0.08 * math.sin(a * dur * 9.0))
+                q["mouth"] = k * 0.3 * max(0.0, math.sin(a * dur * 9.0))
+                m.set_pose(q)
+            self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
+            return
+        if v == "rear":                         # up on the hind legs and down
+            def step(a):
+                q = dict(m.pose)
+                q["rear"] = math.sin(math.pi * a) * (1.0 + 0.1 * math.sin(a * dur * 14.0))
+                q["mouth"] = 0.5 * math.sin(math.pi * a)
+                m.set_pose(q)
+            self.tweens.append(Call(t0, t1, None, step, None, rate_functions.linear))
+            return
+        if v == "fly":                          # a bird: wings beating, up along an arc and down where it lands
+            if not m.bird:
+                raise ValueError(f"fly is a bird's: {name} is a {m.kind}")
+
+            def start():
+                st["f0"] = m.feet().copy()
+                st["f1"] = self._dest(name, m, act)
+                m.pose["face"] = 1.0 if st["f1"][0] >= st["f0"][0] else -1.0
+                st["h"] = max(1.2, 0.35 * float(np.linalg.norm(st["f1"] - st["f0"])))
+
+            def step(a):
+                e = rate_functions.ease_in_out_sine(a)
+                pos = st["f0"] + (st["f1"] - st["f0"]) * e + UP * st["h"] * math.sin(math.pi * a)
+                m.shift(pos - m.feet())
+                q = dict(m.pose)
+                q["flap"] = (0.5 + 0.5 * math.sin(a * dur * 18.0)) * min(1.0, a * 8, (1 - a) * 8)
+                q["flying"] = 1.0 if 0.03 < a < 0.97 else 0.0
+                m.set_pose(q)
+            self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+            return
+        if v == "ride":                         # `ride P ANIMAL`: up into the saddle, then carried with it
+            if not act.args:
+                raise ValueError("ride needs the animal: `ride P HORSE`")
+            (an, am), = self._targets(act.args[0])[:1]
+            if not isinstance(am, zoo.Animal):
+                raise ValueError(f"ride: {an} is not an animal")
+
+            def start():
+                st["p0"] = dict(m.pose)
+                st["at"] = zoo.rider_seat(m).copy()
+                self.mounts = [mt for mt in self.mounts if mt[0] is not m]
+                z = max((x.z_index for x in am.get_family()), default=0)
+                m.set_z_index(z + 1)
+
+            def step(a):
+                goal = am.saddle()
+                hop = UP * 0.9 * m.unit() * 0.3 * math.sin(math.pi * a)
+                pose = zoo.rider_pose(m)
+                pose["face"] = am.facing()
+                k = min(1.0, a * 1.5)
+                q = dict(m.pose)
+                for key in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2", "bl1", "bl2", "drop", "lean", "face"):
+                    q[key] = st["p0"][key] + (pose[key] - st["p0"][key]) * k
+                m.set_pose(q)
+                m.shift(st["at"] + (goal - st["at"]) * rate_functions.ease_in_out_sine(a) + hop - zoo.rider_seat(m))
+
+            def stop():
+                self.mounts.append([m, am])
+            self.tweens.append(Call(t0, t1, start, step, stop, rate_functions.linear))
+            return
+        # dismount: down beside the animal (or `to X,Y`), standing
+        def start():
+            mt = next((x for x in self.mounts if x[0] is m), None)
+            self.mounts = [x for x in self.mounts if x[0] is not m]
+            st["p0"] = dict(m.pose)
+            st["f0"] = m.feet().copy()
+            if "to" in act.args:
+                st["f1"] = self._dest(name, m, act)
+            elif mt is not None:
+                am = mt[1]
+                side = -am.facing()
+                st["f1"] = am.feet() + RIGHT * side * (am.width * 0.5 + 0.35 * m.unit())
+            else:
+                st["f1"] = st["f0"] + DOWN * 0.5 * m.unit()
+
+        def step(a):
+            k = rate_functions.ease_in_out_sine(a)
+            q = dict(m.pose)
+            for key in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2", "bl1", "bl2", "drop", "lean"):
+                q[key] = st["p0"][key] + (m.rest[key] - st["p0"][key]) * k
+            m.set_pose(q)
+            pos = st["f0"] + (st["f1"] - st["f0"]) * k + UP * 0.3 * m.unit() * math.sin(math.pi * a)
+            m.shift(pos - m.feet())
+        self.tweens.append(Call(t0, t1, start, step, None, rate_functions.linear))
+
+    def _mounted(self) -> None:
+        """Riders kept in their saddles: facing the animal's way, sitting where it now carries them."""
+        import zoo
+        for rider, beast in self.mounts:
+            q = dict(rider.pose)
+            q.update({k: v for k, v in zoo.rider_pose(rider).items() if k in ("fa1", "fa2", "ba1", "ba2", "fl1", "fl2",
+                                                                             "bl1", "bl2", "drop", "lean")})
+            q["face"] = beast.facing()
+            if q != rider.pose:
+                rider.set_pose(q)
+            rider.shift(beast.saddle() - zoo.rider_seat(rider))
+
+    def _open(self, act: S.Act, t0, t1) -> None:
+        """`open X` / `shut X`: a thing with a lid (a chest, a box, a letter, a gate) opened or shut as it plays."""
+        import props
+        for name, m in self._targets(act.target):
+            if not isinstance(m, props.Prop) or m.lid is None:
+                raise ValueError(f"{act.verb}: {name} has nothing to open (a chest, box, letter or gate does)")
+            st = {}
+
+            def start(m=m, st=st):
+                st["k0"] = m.open_k
+
+            def step(a, m=m, st=st):
+                goal = 1.0 if act.verb == "open" else 0.0
+                k = st["k0"] + (goal - st["k0"]) * a
+                if act.verb == "open":           # a little past, and settling
+                    k += 0.08 * math.sin(math.pi * a) * (1 - a)
+                m.set_open(k)
+            self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_out_cubic))
+
     def _person(self, act: S.Act, t0, t1) -> None:
         """A person's poses over time: each verb sets only its own part of the pose (a walk its legs, a talk its
         mouth), so a person can talk while walking."""
@@ -1880,6 +2019,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
         if not isinstance(m, P.Person):
             raise ValueError(f"{act.verb} is a person's (`ent NAME person`): {name} is a {self._kind(name)}")
         v = act.verb
+        if v in ("graze", "rear", "fly", "ride", "dismount"):
+            return self._beast(name, m, act, t0, t1)
         legs = ("fl1", "fl2", "bl1", "bl2", "bob", "drop", "lean")
         arms = ("fa1", "fa2", "ba1", "ba2")
         dur = max(t1 - t0, 0.05)
@@ -1913,7 +2054,8 @@ class ScoreScene(acts.MoreActs, MovingCameraScene):
                 pos = st["f0"] + (st["f1"] - st["f0"]) * rate_functions.ease_in_out_sine(a)
                 m.shift(pos - m.feet())
                 gone = float(np.linalg.norm(pos - st["f0"]))
-                phase = gone / max((0.42 if v == "run" else 0.3) * m.unit(), 1e-3) * math.pi / 2
+                stride = getattr(m, "stride", 0.3) * (1.4 if v == "run" else 1.0)
+                phase = gone / max(stride * m.unit(), 1e-3) * math.pi / 2
                 ramp = min(1.0, tt / 0.25, max(0.0, (dur - tt) / 0.25))
                 target = P.mix(m.rest, P.walk_pose(phase, v == "run"), ramp)
                 keys = legs + (() if getattr(m, "carrying", False) else arms)

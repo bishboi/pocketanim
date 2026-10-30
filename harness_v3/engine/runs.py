@@ -197,11 +197,12 @@ def listing() -> list[dict]:
         except Exception:  # noqa: BLE001 -- a run being written
             continue
         out.append({k: r.get(k) for k in ("id", "title", "created", "cost", "tokens", "status")} |
-                   {"seconds": (r.get("words") or {}).get("seconds")})
+                   {"seconds": (r.get("words") or {}).get("seconds"),
+                    "language": (r.get("settings") or {}).get("language") or "en"})
     return out
 
 
-LANGUAGES = {"en": "English", "hinglish": "Hinglish (Hindi in Roman letters, with English words)"}
+LANGUAGES = {"en": "English", "hinglish": "Hinglish"}     # hinglish: everyday Hindi in Roman letters, English words in it
 
 
 def default_voice() -> str:
@@ -1144,6 +1145,22 @@ def start(rid: str, step: str = "voice", shot: int | None = None) -> None:
         raise ValueError(f"no step {step!r}")
     _busy.add(rid)
     threading.Thread(target=go, args=(rid, step, shot), daemon=True).start()
+
+
+def set_settings(rid: str, changes: dict) -> dict:
+    """A run's language or voice changed (then made again from the voice step, by the caller)."""
+    if rid in _busy:
+        raise RuntimeError("this run is busy: stop it or wait for it")
+    with _mut:
+        run = load(rid)
+        if changes.get("language") is not None:
+            if changes["language"] not in LANGUAGES:
+                raise ValueError(f"no language {changes['language']!r}")
+            run["settings"]["language"] = changes["language"]
+        if changes.get("voice"):
+            run["settings"]["voice"] = str(changes["voice"])
+        save(run)
+    return run["settings"]
 
 
 def set_score(rid: str, text: str) -> None:

@@ -233,7 +233,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):  # noqa: N802
         path = self.path.split("?", 1)[0]
         try:
-            if m := re.fullmatch(r"/api/runs/([\w-]+)/score", path):
+            if m := re.fullmatch(r"/api/runs/([\w-]+)/settings", path):
+                self._json({"settings": runs.set_settings(m.group(1), self._body())})
+            elif m := re.fullmatch(r"/api/runs/([\w-]+)/score", path):
                 runs.set_score(m.group(1), str(self._body().get("text") or ""))
                 self._json({"ok": True})
             elif m := re.fullmatch(r"/api/books/([\w-]+)/scripts/(\w+)/(\d+)", path):

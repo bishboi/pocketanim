@@ -119,7 +119,8 @@ async function loadRuns() {
   $("#runs").innerHTML = list.map((r) => `<div class="run ${r.id === sel ? "sel" : ""}" onclick="pick('${r.id}')">
     <div class="t">${esc(r.title)}</div>
     <div class="row soft"><span class="chip ${r.status}">${r.status}</span><span class="money">${usd(r.cost)}</span>
-      <span>${r.tokens || 0} tok</span>${r.seconds ? `<span>${r.seconds.toFixed(0)} s</span>` : ""}</div></div>`).join("")
+      <span>${r.tokens || 0} tok</span>${r.seconds ? `<span>${r.seconds.toFixed(0)} s</span>` : ""}
+      ${r.language && r.language !== "en" ? `<span class="chip">${esc(langName(r.language))}</span>` : ""}</div></div>`).join("")
     || `<p class="soft">No runs yet.</p>`;
 }
 
@@ -192,6 +193,10 @@ function render() {
       <span class="money big">${usd(r.cost)}</span><span class="soft">${r.tokens || 0} tokens · ${calls.length} calls</span>
       ${data.busy ? `<button onclick="stopRun()">■ Stop</button>` : ""}</div>
     ${st.book ? `<div class="row soft" style="margin-top:4px">from 📄 <a href="#" style="color:var(--accent)" onclick="pickBook('${st.book.id}');return false">${esc(st.book.title)}</a> · pages ${esc(st.book.pages)} · video ${st.book.video + 1}</div>` : ""}
+    <div class="row" style="margin-top:6px;gap:8px">
+      <label class="soft" for="r-lang">Language</label><select id="r-lang" style="width:auto" title="${LANG_HINT}" onchange="langPicked('r')" ${data.busy ? "disabled" : ""}>${langOptions(st.language || "en")}</select>
+      <label class="soft" for="r-voice">Voice</label><select id="r-voice" style="width:auto;max-width:220px" ${data.busy ? "disabled" : ""}>${(config.voices || []).map((x) => `<option ${x === st.voice ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      <button onclick="remakeVoice()" ${data.busy ? "disabled" : ""} title="the narration spoken again in this language and voice, and the video made again from there">Make again from the voice</button></div>
     <div class="row soft" style="margin-top:4px">model ${esc(st.model)} · voice ${esc(st.voice)} · quality ${st.quality}
       · critic ${st.critic ? "on" : "off"}${st.given_score ? " · score given by hand" : ""} · ${new Date(r.created * 1000).toLocaleString()}
       ${r.words ? ` · ${r.words.count} words, ${r.words.seconds.toFixed(1)} s` : ""}</div>
@@ -295,6 +300,33 @@ function bothPlay() {
   b.currentTime = a.currentTime = 0; a.play(); b.play();
 }
 
+// The languages a video can be told in (the narration, the voice, the words on the screen), as options.
+function langOptions(v, extra) {
+  const all = Object.entries(config.languages || {en: "English"});
+  return (extra ? `<option value="">${esc(extra)}</option>` : "") +
+    all.map(([k, name]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(name)}</option>`).join("");
+}
+const langName = (k) => (config.languages || {})[k || "en"] || k || "English";
+const LANG_HINT = "Hinglish: everyday Hindi in Roman letters with English words, as Indian explainers speak; the script, the voice and the words on the screen all follow it";
+
+// Hinglish wants a voice that speaks Hindi (Gemini TTS; the offline Piper voices are English): one picked, and the
+// narration's example in Hinglish.
+function langPicked(f) {
+  const lang = $(`#${f}-lang`).value, voice = $(`#${f}-voice`), text = $("#n-text");
+  if (lang === "hinglish" && voice && !voice.value.startsWith("gemini:")) voice.value = "gemini:Kore";
+  if (f === "n" && text) text.placeholder = lang === "hinglish"
+    ? "Socho, 1440 mein ek kitaab banane mein mahine lagte the.\nEk monk, ek candle, aur ek quill, bas itna hi."
+    : "In 1853, four American warships sailed into Tokyo Bay.";
+}
+
+async function remakeVoice() {
+  const body = {language: $("#r-lang").value, voice: $("#r-voice").value};
+  try {
+    await api(`/api/runs/${sel}/settings`, {method: "PUT", body: JSON.stringify(body)});
+    await again("voice");
+  } catch (e) { alert(e.message); }
+}
+
 async function again(step, shot) {
   try { await api(`/api/runs/${sel}/step`, {method: "POST", body: JSON.stringify({step, shot})}); refresh(true); loadRuns(); }
   catch (e) { alert(e.message); }
@@ -315,7 +347,7 @@ function showNew() {
         <textarea id="n-text" rows="8" placeholder="In 1853, four American warships sailed into Tokyo Bay."></textarea></div>
       <div><label>Model (storyboard, score, critic)</label><input id="n-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
       <div><label>Voice (gemini: Google's Gemini TTS; the rest offline Piper)</label><select id="n-voice">${opt(config.voices, config.default_voice || "en_US-ryan-high")}</select></div>
-      <div><label>Language</label><select id="n-lang">${Object.entries(config.languages || {en: "English"}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+      <div><label>Language (the narration, its voice and the words on the screen)</label><select id="n-lang" title="${LANG_HINT}" onchange="langPicked('n')">${langOptions("en")}</select></div>
       <div><label>Look</label><select id="n-look"><option value="editorial" selected>editorial (paper, cards, pictures)</option><option value="paper">paper (line icons)</option></select></div>
       <div><label>Quality</label><select id="n-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
       <div><label>Voice speed (length scale) / pause</label><div class="row" style="flex-wrap:nowrap"><input id="n-speed" value="1.22"><input id="n-pause" value="0.85"></div></div>
@@ -441,7 +473,7 @@ function renderBook() {
           <div><label>Model</label><input id="s-model" list="models" value="${esc(config.script_model || config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Videos (at most)</label><input id="s-videos" type="number" min="1" max="12" value="3"></div>
           <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="1500" value="40" title="up to 1200 (20 minutes): a long video is made in parts"></div>
-          <div><label>Language</label><select id="s-lang">${Object.entries(config.languages || {en: "English"}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div>
+          <div><label>Language (the script is written in it)</label><select id="s-lang" title="${LANG_HINT}">${langOptions("en")}</select></div>
           <div class="full"><label>Notes for the writer (optional)</label><input id="s-notes" placeholder="for class 8; start from the monsoon; skip the dates"></div>
         </div>
         <p><button class="primary" onclick="writeScript()" ${d.busy ? "disabled" : ""}>${d.busy ? "Writing…" : `Write the script of pages ${range.from}–${range.to}`}</button></p></div>
@@ -449,6 +481,7 @@ function renderBook() {
         <div class="form" style="margin-top:6px">
           <div><label>Model (storyboard, score, critic)</label><input id="v-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Voice</label><select id="v-voice">${opt(config.voices, config.default_voice || "en_US-ryan-high")}</select></div>
+          <div><label>Language</label><select id="v-lang" onchange="langPicked('v')">${langOptions("", "as its script")}</select></div>
           <div><label>Quality</label><select id="v-q"><option value="l">480p (fast)</option><option value="m" selected>720p</option><option value="h">1080p</option></select></div>
           <div><label><input type="checkbox" id="v-critic" style="width:auto"> Critic</label></div>
           ${modelFields("v")}
@@ -460,7 +493,7 @@ function renderBook() {
 function scriptCard(s) {
   const head = `<div class="row"><b>${esc(s.title)}</b><span class="soft">pages ${s.from}–${s.to}</span>
     <span class="chip ${s.status}">${s.status}</span>${s.seconds != null ? `<span class="soft">${secs(s.seconds)}</span>` : ""}
-    ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}<span class="soft">${esc(s.settings.model)} · ${s.settings.videos} × ${s.settings.seconds} s</span>
+    ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}<span class="soft">${esc(s.settings.model)} · ${s.settings.videos} × ${s.settings.seconds} s · ${esc(langName(s.settings.language))}</span>
     <span style="flex:1"></span>
     ${s.videos.some((v) => !v.run) ? `<button class="primary" onclick="buildVideos('${s.id}')">Build all not built</button>` : ""}
     <button onclick="dropScript('${s.id}')">Drop</button></div>`;
@@ -501,6 +534,7 @@ async function saveVideo(sid, k) {
 async function buildVideos(sid, k) {
   if (k != null) await saveVideo(sid, k);
   const body = {script: sid, video: k, model: $("#v-model").value, voice: $("#v-voice").value, quality: $("#v-q").value, critic: $("#v-critic").checked,
+    ...($("#v-lang").value ? {language: $("#v-lang").value} : {}),
     models: readModels("v")};
   try { await api(`/api/books/${bsel}/build`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }
   catch (e) { alert(e.message); }

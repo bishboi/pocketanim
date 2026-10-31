@@ -430,11 +430,21 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             args, mods = parse_mods(toks[3:])
             if cast is not None:
                 args, mods = list(cast[1]) + args, {**cast[2], **mods}
+            nd = mods.get("nudge")
+            if isinstance(nd, tuple) and (abs(nd[0]) > SCREEN_W / 2 or abs(nd[1]) > SCREEN_H / 2):
+                # a nudge is a small shift from its place; one as big as the screen is the shot's own place over again
+                sc.notes.append(f"line {n}: `nudge {nd[0]:g},{nd[1]:g}` would put {toks[1]} off the screen: no nudge "
+                                f"(a nudge is a small shift, in the shot's own coordinates)")
+                mods.pop("nudge")
             for k in ("below", "above", "left", "right"):
                 # `at X below 0.8`: below X, 0.8 apart
                 if isinstance(mods.get(k), str) and re.match(r"^-?[\d.]+$", mods[k]) and isinstance(mods.get("at"), str):
                     mods["gap"] = float(mods[k])
                     mods[k] = mods.pop("at")
+            name = toks[1]
+            if name in sc.cast and cast is None and toks[2] != sc.cast[name][0]:
+                sc.notes.append(f"line {n}: {name!r} is a cast {sc.cast[name][0]}, and this makes it a {toks[2]}: from here "
+                                f"on {name} is the {toks[2]} (call it another name, {name}_{toks[2]}, to keep the cast one)")
             name = toks[1]
             if name in alias and sc.ents[alias[name]].shot != shot.name:
                 new = f"{name}_{shot.name}"

@@ -191,6 +191,7 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         self.mounts: list[list] = []             # [rider, animal]: a person in the saddle, carried each frame
         self.follows: list[list] = []            # [mark, what it marks, where that was, a fill's record]: kept together
         self.up: set[int] = set()                # what is on the screen
+        self.parked: dict[str, list[str]] = {}   # what went out with its map (it comes back with it)
         self.tweens: list[Tween] = []
         self.clock = 0.0
         self.texture, self.motion = feel.texture_on(sc), feel.motion_on(sc)
@@ -747,6 +748,17 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 self._alpha(whole).set(0.0)
             self.add(whole)
 
+    def _kids_along(self, name: str, a: float) -> None:
+        """What went out with its map comes back on as the map does (`in` or `bring`), its fade with the map's."""
+        for k in self.parked.get(name, ()):
+            km = self.E[k]
+            if id(km) not in self.up:
+                self.up.add(id(km))
+                self.add(km)
+            self._alpha(km).set(a)
+        if a >= 1.0:
+            self.parked.pop(name, None)
+
     FIGS = ("person", "animal", "nation", "country")
     FLAT = ("pic", "photo", "map", "card", "backdrop", "portrait", "polaroids", "clipping", "doc", "split", "who",
             "globe", "layers", "inset")
@@ -1109,6 +1121,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 state["s"] = 0.02
 
         def step(a):
+            if m is self.E.get(name):
+                self._kids_along(name, min(1.0, max(0.0, a * 1.6)))
             if "anim" in state:
                 state["anim"].interpolate(a)
                 if "nib" in state:
@@ -1129,6 +1143,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 state["s"] = s
 
         def stop():
+            if m is self.E.get(name):
+                self._kids_along(name, 1.0)
             if "anim" in state:
                 state["anim"].interpolate(1)
                 state["anim"].finish()
@@ -1253,10 +1269,14 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
 
         def start():
             st["a0"] = al.now
+            st["kids"] = [(k, self._alpha(self.E[k]).now) for k in self.kids.get(name, ())
+                          if m is self.E.get(name) and id(self.E[k]) in self.up]
             st["pivot"] = (m.get_corner(DOWN + (LEFT if sign > 0 else RIGHT)) if how == "peel" else m.get_center()).copy()
             st["tf"] = (1.0, 0.0, np.zeros(3), st["pivot"])
 
         def step(a):
+            for k, a0 in st["kids"]:
+                self._alpha(self.E[k]).set(a0 * (1 - a))
             self._undo(m, st)
             if how == "peel":
                 # a corner lifted, then flicked away
@@ -1273,6 +1293,11 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             self._redo(m, st, k, 0.0, d)
 
         def stop():
+            for k, _ in st["kids"]:
+                self.remove(self.E[k])
+                self.up.discard(id(self.E[k]))
+            if st["kids"]:
+                self.parked[name] = [k for k, _ in st["kids"]]
             for mk in self.marks.get(name, []) if m is self.E.get(name) else []:
                 self.remove(mk)
             if m is self.E.get(name):
@@ -2514,14 +2539,23 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             st["rel1"] = (dest - np.array([s.x, s.y, 0.0])) / w1
             st["fw"] = f.width
             self.still.add(name)                # no parallax while it rides on the screen
+            if id(m) not in self.up:            # taken out before (or never in): it comes back as it is brought
+                self._show(name, m)
+                st["fade"] = True
 
         def step(a):
+            if st.get("fade"):
+                self._alpha(m).set(min(1.0, a * 2))
+                self._kids_along(name, min(1.0, a * 2))
             m.scale(f.width / st["fw"])
             st["fw"] = f.width
             rel = st["rel0"] + (st["rel1"] - st["rel0"]) * a
             m.shift(f.get_center() + rel * f.width - m.get_center())
 
         def stop():
+            if st.get("fade"):
+                self._alpha(m).set(1.0)
+                self._kids_along(name, 1.0)
             self.SCORE.ents[name].shot = shot
             self.home[name] = self._origin(shot)
             self.still.discard(name)

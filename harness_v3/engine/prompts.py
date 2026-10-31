@@ -89,7 +89,8 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            a correction, "← not this one!")
   MODS: at X,Y | at NAME.PLACE (a place on a map, a year on a timeline; a picture at a flow's node goes beside it) |
         below X | above X | left X | right X (against X's edge, `gap G`; X a thing or a part: below fl.town) | size S | color C | fill C | bold | x N (N copies) with
-        row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
+        row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y (a small shift, under 2: never the shot's own place; what is
+        on a map is put by the map, it needs no at or nudge) | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
 TIME VERB TARGET [ARGS]       an action. TIME: wN (as word N is said), wN-wM (over those words), wN+0.4, tSECONDS, end
@@ -341,6 +342,7 @@ one line, so it looks the same every time:
 cast NAME person as ROLE [hair H] [beard] [skin S] [mood FACE]   (ROLE: king|queen|lord|lady|knight|soldier|peasant|merchant|monk|nun|bishop|priest|scholar|maharaja|rani|kisan|sepoy|...: the person's whole outfit)
 cast NAME person [wear W] [hat H] [hair H] [beard] [tool T] [mood FACE]   (no role fits: wear habit|gown|coat|suit...)
 cast NAME nation COUNTRY [color C] [mood FACE] [named]
+     (a cast NAME is that figure's alone: a map's region of it is another name, `ent china_land region "China" on map`)
 cast NAME pic "WHAT, as a cut-out" alive [mood FACE]   (an object with a face, legs and arms)
 cast NAME animal KIND [mood FACE] [plain]   (a horse, an elephant, a dog... that comes back: see the animal kind)
 for example: cast monk person as monk longbeard mood calm"""
@@ -415,6 +417,7 @@ cast NAME person as ROLE [hair H] [beard] [skin S] [mood FACE]   (ROLE dresses t
 cast NAME person [wear habit|gown|coat|suit|armor|tunic|robe|dress|uniform|lab|apron|toga|shirt] [hat H] [hair H]
      [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark] [tool T] [old|kid] [mood FACE]
 cast NAME nation COUNTRY [color C] [mood FACE] [named]
+                        (a cast NAME is that figure's alone: a map's region of it is another name, `ent china_land region "China" on map`)
 cast NAME pic "WHAT, a cut-out object" alive [mood FACE]
 cast NAME animal horse|pony|donkey|zebra|cow|ox|bull|buffalo|elephant|camel|dog|wolf|fox|cat|tiger|lion|leopard|
      sheep|goat|pig|deer|rat|bear|chicken|rooster|peacock|duck|eagle|bird|crow|parrot [mood FACE] [plain]

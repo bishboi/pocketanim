@@ -42,11 +42,12 @@ FOOD = ("bread", "apple", "mango", "banana", "coconut", "fish", "bowl", "thali",
 CUPS = ("teacup", "kulhad", "goblet", "jar", "bucket", "milkcan")
 READ = ("book", "books", "openbook", "ledger", "newspaper", "scroll", "document", "charter", "letter", "oldmap",
         "notebook", "clipboard", "folder", "receipt")
-SEATS = {"chair": 0.24, "stool": 0.2, "bench": 0.22, "throne": 0.3, "charpai": 0.23, "bed": 0.28}
+SEATS = {"chair": 0.24, "stool": 0.2, "bench": 0.22, "throne": 0.3, "charpai": 0.23, "bed": 0.28, "sofa": 0.26}
 BEDS = {"bed": 0.3, "charpai": 0.23}
 BUILDINGS = ("house", "hut", "tent", "castle", "palace", "temple", "mosque", "church", "school", "hospital", "bank",
-             "shop", "tower", "gate", "skyscraper", "factory", "lighthouse")
-WEARS = ("crown", "helmet")
+             "shop", "tower", "gate", "skyscraper", "factory", "lighthouse", "parliament", "court", "prison", "barn",
+             "warehouse", "igloo", "pagoda", "door")
+WEARS = ("crown", "helmet", "gradcap")
 RAISE = ("trophy", "medal", "gem", "coin", "goldbars", "seal", "lightbulb", "key", "sword", "flagindia")
 USES = {**{n: "eat" for n in FOOD}, **{n: "drink" for n in CUPS}, **{n: "read" for n in READ},
         **{n: "sit" for n in SEATS}, **{n: "enter" for n in BUILDINGS}, **{n: "wear" for n in WEARS},
@@ -58,11 +59,22 @@ USES = {**{n: "eat" for n in FOOD}, **{n: "drink" for n in CUPS}, **{n: "read" f
         "bicycle": "ride", "rickshaw": "ride", "cart": "ride", "tractor": "ride", "boat": "ride", "car": "ride",
         "bus": "ride", "truck": "ride", "train": "ride", "plane": "ride", "carriage": "ride", "autorickshaw": "ride",
         "ship": "ride", "microphone": "talk", "megaphone": "phone", "plough": "push", "wheel": "push",
-        "telescope": "read", "map": "read", "lantern": "holdup", "torch": "holdup", "goblet": "drink"}
+        "telescope": "read", "map": "read", "lantern": "holdup", "torch": "holdup", "goblet": "drink",
+        "motorcycle": "ride", "scooter": "ride", "canoe": "ride", "sailboat": "ride", "hotairballoon": "ride",
+        "wheelchair": "ride", "jeep": "ride", "ambulance": "ride", "firetruck": "ride", "policecar": "ride",
+        "helicopter": "ride", "submarine": "ride", "jet": "ride", "tram": "ride", "bulldozer": "ride",
+        "hammer": "hammer", "shovel": "sweep", "hoe": "sweep", "pitchfork": "sweep", "wheelbarrow": "push",
+        "cake": "eat", "pizza": "eat", "samosa": "eat", "laddoo": "eat", "roti": "eat", "icecream": "eat",
+        "teapot": "holdup", "passport": "read", "ticket": "read", "calendar": "read",
+        "cheque": "read", "idcard": "holdup", "tablet": "type", "evm": "vote", "gavel": "hammer",
+        "scepter": "holdup", "orb": "holdup", "spectacles": "holdup", "necklace": "holdup",
+        "dumbbell": "holdup", "racket": "holdup", "hockeystick": "holdup"}
 # Where a rider sits on a vehicle (its own frame), and those that swallow their riders (seen through no window)
 VEHICLE_SEATS = {"bicycle": (-0.06, 0.24), "rickshaw": (0.2, 0.3), "cart": (-0.05, 0.3), "tractor": (-0.15, 0.3),
-                 "boat": (0.05, 0.12)}
-INSIDE = ("car", "bus", "truck", "train", "plane", "carriage", "autorickshaw", "ship")
+                 "boat": (0.05, 0.12), "motorcycle": (-0.2, 0.41), "scooter": (-0.26, 0.41), "canoe": (0.0, 0.04),
+                 "sailboat": (-0.12, 0.05), "hotairballoon": (0.0, 0.08), "wheelchair": (0.03, 0.22), "jeep": (-0.15, 0.22)}
+INSIDE = ("car", "bus", "truck", "train", "plane", "carriage", "autorickshaw", "ship", "ambulance", "firetruck",
+          "policecar", "helicopter", "submarine", "jet", "tram", "bulldozer")
 
 
 def verb_for(prop_name: str) -> str:

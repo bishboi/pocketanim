@@ -25,30 +25,41 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            small, a house taller than a person); `size S` makes its longest side S on the screen (a person is 2.6
            tall; a crown shown alone: size 1.5-2.5; a bench: size 2-3; a house: size 3-4):
            money, trade: moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt
-           abacus safe stall scales shoppingcart pricetag cashregister atm suitcase backpack | writing,
-           office: book books openbook ledger scroll letter document charter newspaper oldmap quill inkwell
-           seal pencil notebook clipboard folder stamp typewriter briefcase ballotbox | modern: laptop
-           computer phone oldphone radio tv camera microphone megaphone clock lightbulb battery robot drone
-           calculator streetlight trafficlight | science, industry: flask testtube microscope magnet gear
-           telescope rocket satellite solarpanel windmill factory oilwell printingpress dna deskglobe
-           compass windturbine pylon oilbarrel fuelpump container crane | furniture, home: table desk chair
-           stool throne bench bookshelf lectern bed charpai rug vase broom umbrella ladder rope chain
-           padlock key bell gift balloon kite ball trophy medal goblet hourglass magnifier cricketbat sofa tablelamp mirror door window stairs
-           kettle pan plate bottle jug mailbox fan fridge shoe shirt whiteboard blackboard | containers:
-           barrel crate box sack basket pot jar bucket milkcan tiffin | food: bread apple mango banana
-           coconut wheat bowl (of rice|dal|soup) thali teacup kulhad fish | care: medkit pills syringe mask
-           thermometer heart gradcap diploma | light: candle diya lantern campfire | arms: sword shield
-           spear bow axe musket cannon bomb helmet dagger mace armor arrow quiver catapult cannonballs
-           chariot tank banner drum horn | work: anvil plough wheel charkha | getting about: cart carriage
-           bicycle rickshaw autorickshaw car bus truck tractor train plane boat ship | places: house hut
-           tent well tower castle palace temple mosque church school hospital bank shop skyscraper
-           lighthouse bridge gate fence signpost flagpole flagindia bunting pyramids obelisk pillar arch
-           statue fountain stupa | nature: tree palm bush rock mountain cloud sun moon flower lotus cactus
-           mushroom pinetree wave raincloud lightning snowflake star rainbow volcano island leaf sprout
-           beehive nest logs haystack | India: diya charkha charpai thali kulhad tiffin lattu rangoli
+           abacus safe stall scales shoppingcart pricetag cashregister atm suitcase backpack scepter orb
+           ring necklace | writing, office: book books openbook ledger scroll letter document charter
+           newspaper oldmap quill inkwell seal pencil notebook clipboard folder stamp typewriter briefcase
+           ballotbox calendar ticket passport idcard cheque parcel | modern: laptop computer phone oldphone
+           radio tv camera microphone megaphone clock lightbulb battery robot drone calculator streetlight
+           trafficlight printer router satellitedish cctv chip tablet mobiletower plug | science, industry:
+           flask testtube microscope magnet gear telescope rocket satellite solarpanel windmill factory
+           oilwell printingpress dna deskglobe compass windturbine pylon oilbarrel fuelpump container crane
+           atom molecule virus cell brain skull bone tooth prism planet earth comet bunsen sundial |
+           furniture, home: table desk chair stool throne bench bookshelf lectern bed charpai rug vase broom
+           umbrella ladder rope chain padlock key bell gift balloon kite ball trophy medal goblet hourglass
+           magnifier cricketbat sofa tablelamp mirror door window stairs kettle pan plate bottle jug mailbox
+           fan fridge shoe shirt whiteboard blackboard spectacles fireextinguisher | containers: barrel
+           crate box sack basket pot jar bucket milkcan tiffin | food: bread apple mango banana coconut
+           wheat bowl (of rice|dal|soup) thali teacup kulhad fish cake pizza egg carrot tomato onion chili
+           grapes watermelon icecream samosa laddoo sugarcane teapot roti pressurecooker mortar gascylinder
+           | care: medkit pills syringe mask thermometer heart gradcap diploma stethoscope bandage
+           wheelchair | light: candle diya lantern campfire | arms: sword shield spear bow axe musket cannon
+           bomb helmet dagger mace armor arrow quiver catapult cannonballs chariot tank banner drum horn
+           crossbow torch | work: anvil plough wheel charkha | getting about: cart carriage bicycle rickshaw
+           autorickshaw car bus truck tractor train plane boat ship motorcycle scooter helicopter
+           hotairballoon submarine sailboat canoe ambulance firetruck policecar jeep bulldozer jet tram |
+           places: house hut tent well tower castle palace temple mosque church school hospital bank shop
+           skyscraper lighthouse bridge gate fence signpost flagpole flagindia bunting pyramids obelisk
+           pillar arch statue fountain stupa parliament court prison dam barn silo warehouse igloo pagoda
+           tajmahal indiagate eiffeltower colosseum greatwall powerplant | nature: tree palm bush rock
+           mountain cloud sun moon flower lotus cactus mushroom pinetree wave raincloud lightning snowflake
+           star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado | tools:
+           hammer saw wrench screwdriver shovel pickaxe sickle hoe pitchfork wateringcan wheelbarrow toolbox
+           scissors paintbrush easel | music, play, sport: guitar piano harmonium dhol violin headphones
+           speaker dice chessboard playingcards gamecontroller racket dumbbell hockeystick | law: gavel
+           handcuffs evm stopsign | India: diya charkha charpai thali kulhad tiffin lattu rangoli
            autorickshaw rickshaw flagindia loom kalash conch sitar tabla flute palanquin chulha handpump
-           spices.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
-           wave, windmills, turbines and fans turn, smoke and steam drift by themselves.
+           spices samosa laddoo roti sugarcane harmonium dhol gascylinder tajmahal indiagate evm.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
+           wave, windmills, turbines, fans and propellers turn, smoke and steam drift by themselves.
            PEOPLE USE THEM (they walk up to it first): `use P X` does what the thing is for (eat bread, drink tea,
            read a book, sit on a chair, enter a house, wear a crown, ride a bicycle, count coins, vote, ring a bell,
            hammer an anvil, type on a laptop, phone, climb a ladder, kick a ball). Or say it: pickup P X | put P X on

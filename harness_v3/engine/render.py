@@ -630,7 +630,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
     def _make(self, e: S.Ent) -> None:
         if e.kind == "labels":                  # the shot's screen, so names stay on it
             o = self._origin(e.shot)
-            e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3)
+            e.mods["_screen"] = (o[0] - S.SCREEN_W / 2 + 0.3, o[0] + S.SCREEN_W / 2 - 0.3,
+                                 o[1] - S.SCREEN_H / 2 + 0.55, o[1] + S.SCREEN_H / 2 - 0.45)
 
         if self._figure(e):
             e.mods.setdefault("_name", e.name)
@@ -839,6 +840,9 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
+        if v == "in" and self._kind(act.target) == "labels":   # labels: one after another, each popping on
+            stagger = 0.45 if stagger is None else stagger
+            how = how or "pop"
         if (v in acts.RUN or v in ("emote", "look")) and self._more(act, t0, t1):
             return
         if v in ("ring", "count", "type", "write", "drop") and self._kind(act.target) == "person" and \

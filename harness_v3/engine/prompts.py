@@ -235,8 +235,11 @@ KIT = {
                verb above works (a coin that walks off, a lock that crosses its arms, a book that cries); feet at y
                about -2.6. One a shot, for the idea the story turns on.
   react P idea|question|exclaim|shock|love|zzz|anger|sweat|sparkle   a doodle over the head: a feeling at a glance""",
-    "labels": """  labels "PART" "PART" ... on PIC   the parts of a pic or photo named: a dot on each, a line out to its name
-               (where each part is, is found in the picture; `"PART@X,Y"`, 0..1 from its top left, says it)""",
+    "labels": """  labels "PART" "PART" ... on PIC|MAP   parts named, one after another: each part lit (a soft ring; on a map a
+               region of that name shaded), a dot, a line to its name. On a picture, where each part is is found in
+               it; on a map a Capitalised name is that place or region (labels "Brittany" "Alps" "Loire" on fr), a
+               lowercase kind of land (forests, plains) is spread over the country unless `"forests@X,Y"` (0..1 from
+               the top left) says where. Keep to 3-6 short names.""",
 }
 KIT_WORDS = {
     "map": r"\bmaps?\b|\broute|\bregion|\bpin\b|border|empire|coast|march|migrat|globe|earth's|layers|literacy|rate in|"

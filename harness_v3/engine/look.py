@@ -492,7 +492,10 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
                 args = ["line", str(mods.pop("line"))] + list(args)
             m = kit.chart(args, mods, c)
         elif kind == "labels":
-            m = kit.labels(on, args, mods, c, mods.get("_screen"))
+            # a name that is also a switch (`rivers`, `names`, `outline`) was read as one: it is a name here
+            import score as _S
+            extra = [k_ for k_, v_ in mods.items() if v_ is True and _S.MODS.get(k_, "x") is None]
+            m = kit.labels(on, list(args) + extra, mods, c, mods.get("_screen"))
         elif kind in ("pyramid", "cycle", "flow", "compare", "table", "steps", "stat", "venn"):
             m = getattr(kit, kind)(args, mods, c)
         elif kind == "tree":                        # a flow from the top down: kings, lords, knights
@@ -607,7 +610,7 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind == "card":
         m = card(args[0] if args else "", mods, size or 1.0)
     elif kind == "tag":
-        m = tag(args[0] if args else "", size or 0.55, mods.get("fill") or "accent", c)
+        m = tag(args[0] if args else "", size or 0.55, mods.get("fill") or c or "accent", None)
     elif kind == "label":
         m = label(args[0] if args else "", size or 0.2, c or "soft")
     elif kind == "path":
@@ -799,13 +802,33 @@ def soft_shadow(mob, k: float = 1.0):
     return g
 
 
+def readable_on(fill) -> str:
+    """Ink or white, whichever reads on a colour."""
+    h = col(fill).lstrip("#")
+    if len(h) != 6:
+        return "ink"
+    r_, g_, b_ = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return "ink" if 0.299 * r_ + 0.587 * g_ + 0.114 * b_ > 0.55 else "#FFFFFF"
+
+
 def tag(words: str, size: float = 0.55, fill="accent", color=None):
-    """Words set on a block of the accent colour (Video1's 204%, $2 TRILLION A YEAR): a headline number or claim."""
-    t = text(words.upper(), size, bold=True, color=color or "ink")
+    """Words set on a block of the accent colour (Video1's 204%, $2 TRILLION A YEAR): a headline number or claim.
+    Its words are always ink or white, whichever reads on the block (never the block's own colour)."""
+    words_c = color if color and col(color) != col(fill) and readable_on(fill) == readable_on(color) \
+        and abs(_lum(color) - _lum(fill)) > 0.45 else readable_on(fill)
+    t = text(words.upper(), size, bold=True, color=words_c)
     pad = size * 0.32
     box = Rectangle(width=t.width + pad * 2, height=t.height + pad * 1.5, fill_color=col(fill), fill_opacity=1,
                     stroke_width=0)
     return VGroup(box, t.move_to(box))
+
+
+def _lum(c) -> float:
+    h = col(c).lstrip("#")
+    if len(h) != 6:
+        return 0.0
+    r_, g_, b_ = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.299 * r_ + 0.587 * g_ + 0.114 * b_
 
 
 def label(words: str, size: float = 0.2, color="soft"):
@@ -906,6 +929,7 @@ class GeoMap(VGroup):
         fm = 0.3 if frame == "classic" and min(w, h) > 2.5 else 0.0
         w, h = w - 2 * fm, h - 2 * fm
         lon0, lat0, lon1, lat1 = geo.bounds(region)
+        self.region_name = region
         self.k = math.cos(math.radians((lat0 + lat1) / 2))
         # The window widened (or made taller) round its middle to fill w x h: the map takes the room it is given.
         sx, sy = (lon1 - lon0) * self.k, lat1 - lat0

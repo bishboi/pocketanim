@@ -621,17 +621,55 @@ def title(words: str, mods: dict, c=None) -> VGroup:
 
 # ---------------------------------------------------------------- a picture's parts named ---------------------------
 
+def _land_spots(m, n: int) -> list:
+    """n points spread over a map's own country (or its land), far apart: where unnamed parts are pointed at."""
+    try:
+        import geo
+        from shapely.geometry import Point
+        try:
+            g, _ = geo.shape(m.region_name, None, m.bounds)
+            g = g.intersection(m.clip)
+        except Exception:  # noqa: BLE001
+            g = m.land_g.intersection(m.clip)
+        if g.is_empty:
+            return []
+        g = g.buffer(-0.04 * m.span) if not g.buffer(-0.04 * m.span).is_empty else g
+        x0, y0, x1, y1 = g.bounds
+        cand = [(x0 + (x1 - x0) * (i + 0.5) / 14, y0 + (y1 - y0) * (j + 0.5) / 14) for i in range(14) for j in range(14)]
+        cand = [c for c in cand if g.contains(Point(*c))]
+        if not cand:
+            return []
+        c0 = g.representative_point()
+        picks = [min(cand, key=lambda c: (c[0] - c0.x) ** 2 + (c[1] - c0.y) ** 2)]
+        while len(picks) < min(n, len(cand)):     # each next one the farthest from those picked
+            picks.append(max(cand, key=lambda c: min((c[0] - q[0]) ** 2 + (c[1] - q[1]) ** 2 for q in picks)))
+        return [np.array(m.to_screen(x, y), dtype=float) for x, y in picks]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float] | None = None) -> VGroup:
-    """Each part of a picture named: a dot where it is, a line out to its name beside the picture (left of it for a
-    part on its left half). Where a part is: `"NAME@X,Y"` (0..1 from the picture's top left), else as found in the
-    picture by a vision model (the assets step, kept beside the picture), else spread down its middle."""
+    """Each part of a picture or a map named: the part lit (on a map, a named region shaded; else a soft ring round
+    the spot), a dot on it, a line out to its name. Where a part is: `"NAME@X,Y"` (0..1 from the picture's top
+    left), else as found in the picture by a vision model (the assets step), else on a map the place or region of
+    that name, else spread over the picture. The names go beside the picture when the screen has room there, else
+    on the picture as paper chips beside their parts (never off the screen). Each label is its own part: they come
+    on one after another."""
+    from manim import RoundedRectangle
+    import look
     found = getattr(pic, "spots", {}) or {}
     pic = getattr(pic, "frame_of", pic)        # the picture itself, not its credit line
+    is_map = isinstance(pic, look.GeoMap)
     ul, dr = pic.get_corner(UP + LEFT), pic.get_corner(DOWN + RIGHT)
-    spots = []
+    pw, ph = dr[0] - ul[0], ul[1] - dr[1]
+    colour = col(c or "accent")
+    size = float(mods.get("size") or 0.2)
+    spots = []                                  # (name, point, lit part or None)
+    free = [(0.32, 0.3), (0.68, 0.36), (0.4, 0.62), (0.7, 0.7), (0.25, 0.8), (0.55, 0.18), (0.5, 0.5)]
     for i, raw in enumerate(names):
         nm, _, at = raw.partition("@")
-        fx, fy = None, None
+        fx = fy = None
+        lit = None
         if at:
             try:
                 fx, fy = (float(v) for v in at.split(","))
@@ -639,37 +677,93 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
                 pass
         if fx is None and key(nm) in found:
             fx, fy = found[key(nm)]
-        if fx is None:
-            fx, fy = 0.5, (i + 1) / (len(names) + 1)
-        p = np.array([ul[0] + (dr[0] - ul[0]) * fx, ul[1] + (dr[1] - ul[1]) * fy, 0.0])
-        side = -1 if fx < 0.5 else 1
-        if screen:                          # a name that would run off the screen goes on the other side
-            tw = label(nm.replace("_", " "), float(mods.get("size") or 0.15)).width + 0.45
-            if side < 0 and ul[0] - tw < screen[0]:
-                side = 1
-            elif side > 0 and dr[0] + tw > screen[1]:
-                side = -1
-        spots.append((nm.replace("_", " "), p, side))
-    colour = col(c or "ink")
-    size = float(mods.get("size") or 0.15)
-    out: list[VGroup | None] = [None] * len(spots)
-    for side in (-1, 1):
-        mine = sorted([i for i, s in enumerate(spots) if s[2] == side], key=lambda i: -spots[i][1][1])
-        ys: list[float] = []
-        for i in mine:
-            y = spots[i][1][1]
-            if ys and ys[-1] - y < 0.42:
-                y = ys[-1] - 0.42
-            ys.append(y)
-        for i, y in zip(mine, ys):
-            nm, p, _ = spots[i]
-            t = halo(label(nm, size, "ink"))
+        p = None
+        proper = nm[:1].isupper()               # a name (Brittany, Alps), not a kind of land (forests, plains)
+        if fx is None and is_map and proper:    # a region of that name shaded, or a place of that name
+            try:
+                lit = look.region(pic, nm, {"opacity": 0.4}, c or "accent")
+                p = np.array(lit.anchor, dtype=float)
+            except Exception:  # noqa: BLE001
+                lit = None
+                try:
+                    q = pic.places[nm].get_center()
+                    if nm not in pic.places.outside:
+                        p = np.array(q, dtype=float)
+                except Exception:  # noqa: BLE001
+                    p = None
+        if p is None and fx is None and is_map:  # a part of the land with no name of its own: spread over the country
+            land = _land_spots(pic, len(names))
+            if land:
+                p = land[i % len(land)]
+        if p is None:
+            if fx is None:
+                fx, fy = free[i % len(free)]
+            p = np.array([ul[0] + pw * fx, ul[1] - ph * fy, 0.0])
+        spots.append((nm.replace("_", " "), p, lit))
+    # where the names go: beside the picture if the screen has room there, else on it
+    words = [halo(label(nm, size, "ink"), 7) for nm, _, _ in spots]
+    widest = max((t.width for t in words), default=0) + 0.6
+    room_l = screen is None or ul[0] - widest >= screen[0]
+    room_r = screen is None or dr[0] + widest <= screen[1]
+    out = []
+    placed = []                                 # chips already set (their boxes), so none lands on another
+    for (nm, p, lit), t in zip(spots, words):
+        side = -1 if p[0] < (ul[0] + dr[0]) / 2 else 1
+        part = VGroup()
+        if lit is not None:
+            part.add(lit)
+        else:                                   # a soft ring round the spot: the part it names
+            part.add(Circle(radius=0.32, fill_color=colour, fill_opacity=0.28, stroke_color=colour, stroke_width=3)
+                     .move_to(p))
+        dot = Dot(p, radius=0.075, color=col("ink")).set_stroke(col("bg"), width=4, background=True)
+        outside = (room_l if side < 0 else room_r) or (room_r if side < 0 else room_l)
+        if outside:
+            if not (room_l if side < 0 else room_r):
+                side = -side
             x = (ul[0] - 0.35 - t.width / 2) if side < 0 else (dr[0] + 0.35 + t.width / 2)
-            t.move_to([x, y, 0])
-            end = np.array([x + (t.width / 2 + 0.1) * (1 if side < 0 else -1), y, 0])
-            dot = Dot(p, radius=0.07, color=colour).set_stroke(col("bg"), width=4, background=True)
-            ln = Line(p, end, stroke_color=colour, stroke_width=STROKE * 0.35)
-            out[i] = VGroup(dot, ln, t)
+            t.move_to([x, p[1], 0])
+            chip = t
+            end = np.array([x + (t.width / 2 + 0.1) * (1 if side < 0 else -1), p[1], 0])
+        else:                                   # a paper chip on the picture beside its part, clear of the others
+            box = RoundedRectangle(width=t.width + 0.3, height=t.height + 0.24, corner_radius=0.08, fill_color=col("bg"),
+                                   fill_opacity=0.96, stroke_color=col("ink"), stroke_width=1.6)
+            chip = VGroup(box, t.move_to(box))
+            cw, ch = chip.width, chip.height
+            x_lo, x_hi = ul[0] + cw / 2 + 0.1, dr[0] - cw / 2 - 0.1
+            y_lo, y_hi = dr[1] + ch / 2 + 0.1, ul[1] - ch / 2 - 0.1
+            if screen is not None and len(screen) == 4:
+                x_lo, x_hi = max(x_lo, screen[0] + cw / 2), min(x_hi, screen[1] - cw / 2)
+                y_lo, y_hi = max(y_lo, screen[2] + ch / 2), min(y_hi, screen[3] - ch / 2)
+            dots = [q for _, q, _ in spots]
+
+            def clash(c_):
+                if any(abs(c_[0] - b[0]) < (cw + b[2]) / 2 + 0.1 and abs(c_[1] - b[1]) < (ch + b[3]) / 2 + 0.1
+                       for b in placed):
+                    return 2.0
+                return sum(1.0 for q in dots if abs(c_[0] - q[0]) < cw / 2 + 0.3 and abs(c_[1] - q[1]) < ch / 2 + 0.3)
+            best, score = None, 1e9
+            for dist in (0.6, 0.95, 1.4, 1.9):
+                for ang in (135, 45, 180, 0, 225, 315, 90, 270):
+                    if side > 0:
+                        ang = 180 - ang     # (a part on the right: its name to its left first)
+                    r_ = math.radians(ang)
+                    c_ = p + np.array([math.cos(r_) * (dist + cw / 2), math.sin(r_) * (dist * 0.8 + ch / 2), 0.0])
+                    c_[0] = min(max(c_[0], x_lo), x_hi)
+                    c_[1] = min(max(c_[1], y_lo), y_hi)
+                    sc_ = clash(c_) * 10 + dist
+                    if sc_ < score:
+                        best, score = c_, sc_
+                if score < 10:
+                    break
+            at = best
+            chip.move_to(at)
+            placed.append((at[0], at[1], cw, ch))
+            end = np.array([at[0] + (cw / 2) * (1 if at[0] < p[0] else -1), at[1], 0.0])
+            if abs(at[0] - p[0]) < cw / 2:      # right over or under it: the line to the chip's near edge
+                end = np.array([p[0], at[1] + (ch / 2) * (1 if at[1] < p[1] else -1), 0.0])
+        ln = Line(p, end, stroke_color=col("ink"), stroke_width=STROKE * 0.35)
+        part.add(ln, dot, chip)
+        out.append(part)
     return VGroup(*out)
 
 
@@ -783,9 +877,13 @@ def steps(args: list[str], mods: dict, c=None) -> VGroup:
 def stat(args: list[str], mods: dict, c=None) -> VGroup:
     """A big figure with its meaning under it: `stat 20 "of Europe died" suffix "%"`; it counts (`count st 20`)."""
     from look import Num
-    v = float(args[0]) if args else 0
-    n = Num(v, mods.get("prefix", ""), mods.get("suffix", ""), float(mods.get("size") or 1.3), c)
-    words = label(args[1] if len(args) > 1 else "", 0.17, "ink")
+    raw = str(args[0]) if args else "0"         # `stat 60%`, `stat "$2.5"`, `stat 1,200`: the number and its signs
+    m_ = re.search(r"-?\d[\d,]*\.?\d*", raw)
+    v = float(m_.group(0).replace(",", "")) if m_ else 0.0
+    prefix = mods.get("prefix", raw[:m_.start()] if m_ else "")
+    suffix = mods.get("suffix", raw[m_.end():] if m_ else "")
+    n = Num(v, prefix, suffix, float(mods.get("size") or 1.3), c)
+    words = label(args[1] if len(args) > 1 else str(mods.get("sub") or ""), 0.17, "ink")
     bar = Rectangle(width=max(n.width, words.width) + 0.3, height=0.1, fill_color=col("accent"), fill_opacity=1,
                     stroke_width=0)
     return VGroup(n, VGroup(bar.next_to(n, DOWN, buff=0.15), words.next_to(bar, DOWN, buff=0.2)))

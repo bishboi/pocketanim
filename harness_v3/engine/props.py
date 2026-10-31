@@ -7,23 +7,29 @@ size shows one alone (size 6-10). Those with a lid open and shut as it plays: `o
 gold; a letter its flap; a box, a door). Any of them can be carried, given, thrown, moved.
 
 Money, trade: moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt abacus safe stall scales
+              shoppingcart pricetag cashregister atm suitcase backpack
 Writing, office: book books openbook ledger scroll letter document charter newspaper oldmap quill inkwell seal pencil
                  notebook clipboard folder stamp typewriter briefcase ballotbox
 Modern: laptop computer phone oldphone radio tv camera microphone megaphone clock lightbulb battery
+        robot drone calculator streetlight trafficlight
 Science, industry: flask testtube microscope magnet gear telescope rocket satellite solarpanel windmill factory oilwell
-                   printingpress
+                   printingpress dna deskglobe compass windturbine pylon oilbarrel fuelpump container crane
 Home: table desk chair stool throne bench bookshelf lectern bed charpai rug vase broom umbrella ladder rope chain
       padlock key bell goblet hourglass gift balloon kite ball cricketbat trophy medal lattu rangoli
+      sofa tablelamp mirror door window stairs kettle pan plate bottle jug mailbox fan fridge shoe shirt whiteboard blackboard
 Containers: barrel crate box sack basket pot jar bucket milkcan tiffin
 Food: bread apple mango banana coconut wheat bowl thali teacup kulhad fish
-Care: medkit pills syringe
+Care, learning: medkit pills syringe mask thermometer heart gradcap diploma
 Light: candle diya lantern campfire
 Arms: sword shield spear bow axe musket cannon bomb helmet
+      dagger mace armor arrow quiver catapult cannonballs chariot tank banner drum horn
 Work: anvil plough wheel charkha
 Getting about: cart carriage bicycle rickshaw autorickshaw car bus truck tractor train plane boat ship
 Places: house hut tent well tower castle palace temple mosque church school hospital bank shop skyscraper lighthouse
-        bridge gate fence signpost flagpole flagindia bunting
+        bridge gate fence signpost flagpole flagindia bunting pyramids obelisk pillar arch statue fountain stupa
 Nature: tree palm bush rock mountain cloud sun moon flower lotus cactus mushroom
+        pinetree wave raincloud lightning snowflake star rainbow volcano island leaf sprout beehive nest logs haystack
+India: loom kalash conch sitar tabla flute palanquin chulha handpump spices
 """
 
 from __future__ import annotations
@@ -1730,6 +1736,671 @@ def _flagindia(m, w):
     return g, None
 
 
+# -- war and the past ----------------------------------------------------------------------------------------------
+
+def _catapult(m, w):
+    g = VGroup(rect(-0.4, 0.08, 0.4, 0.14, WOOD, w), line((-0.3, 0.14), (-0.1, 0.42), WOOD_D, w * 2.6),
+               line((0.1, 0.14), (-0.1, 0.42), WOOD_D, w * 2.6), line((-0.32, 0.4), (0.2, 0.62), WOOD, w * 2.4),
+               blob([(0.16, 0.6), (0.26, 0.68), (0.3, 0.62), (0.22, 0.56)], WOOD_D, w), circ(0.24, 0.66, 0.05, "#8E969C", w * 0.6))
+    g.add(*wheelset((-0.28, 0.28), 0.08, w, WOOD_D))
+    return g, None
+
+
+def _armor(m, w):
+    """A suit of armour on its stand."""
+    g = VGroup(rect(-0.12, 0.0, 0.12, 0.04, WOOD_D, w), line((0.0, 0.04), (0.0, 0.2), WOOD_D, w * 2),
+               rrect(-0.12, 0.2, 0.12, 0.5, 0.05, "#A7AEB3", w), *(line((-0.11, y), (0.11, y), "#7E868C", w * 0.6) for y in (0.28, 0.36, 0.44)),
+               ell(-0.16, 0.48, 0.1, 0.08, "#8E969C", w), ell(0.16, 0.48, 0.1, 0.08, "#8E969C", w),
+               rrect(-0.08, 0.5, 0.08, 0.68, 0.04, "#A7AEB3", w), rect(-0.02, 0.58, 0.08, 0.6, "#2B2622", 0),
+               blob([(0.0, 0.68), (-0.05, 0.78), (0.03, 0.8)], RED, w * 0.6))
+    return g, None
+
+
+def _arrow(m, w):
+    return VGroup(line((-0.3, 0.05), (0.25, 0.05), WOOD, w * 1.6), poly([(0.24, 0.02), (0.32, 0.05), (0.24, 0.08)], IRON, w * 0.6),
+                  poly([(-0.3, 0.05), (-0.36, 0.09), (-0.26, 0.05), (-0.36, 0.01)], "#F7F5F0", w * 0.6)), None
+
+
+def _quiver(m, w):
+    g = VGroup(*(line((x, 0.3), (x + 0.02, 0.48), WOOD, w * 1.2) for x in (-0.03, 0.0, 0.03)),
+               *(poly([(x - 0.015, 0.47), (x + 0.035, 0.47), (x + 0.01, 0.53)], "#F7F5F0", w * 0.5) for x in (-0.03, 0.0, 0.03)),
+               rrect(-0.06, 0.0, 0.06, 0.34, 0.03, "#6B4226", w), line((-0.06, 0.25), (0.06, 0.25), "#3A2A1E", w))
+    return g, None
+
+
+def _banner(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(line((0.0, 0.0), (0.0, 1.0), WOOD, w * 2), line((-0.02, 0.92), (0.26, 0.92), WOOD, w * 1.6),
+                  live(poly([(0.0, 0.92), (0.26, 0.92), (0.26, 0.5), (0.13, 0.42), (0.0, 0.5)], c, w), "flag"),
+                  circ(0.13, 0.7, 0.05, GOLD, w * 0.6), poly([(0.0, 1.0), (0.03, 1.06), (-0.03, 1.06)], GOLD, w * 0.5)), None
+
+
+def _drum(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(rect(-0.14, 0.0, 0.14, 0.2, c, w), ell(0.0, 0.2, 0.28, 0.07, "#F3EADA", w),
+                  *(line((x, 0.0), (x + 0.07, 0.2), GOLD, w * 0.8) for x in (-0.14, -0.04, 0.06)),
+                  line((0.1, 0.24), (0.24, 0.36), WOOD, w * 1.4), circ(0.24, 0.36, 0.015, WOOD_D, 0)), None
+
+
+def _horn(m, w):
+    return VGroup(tube([(-0.25, 0.1), (0.0, 0.12), (0.18, 0.16)], [0.02, 0.03, 0.05], GOLD, w),
+                  ell(0.2, 0.16, 0.05, 0.14, GOLD_D, w), line((-0.27, 0.1), (-0.24, 0.1), GOLD_D, w * 2)), None
+
+
+def _chariot(m, w):
+    c = col(m["color"]) if m.get("color") else "#B5643C"
+    g = VGroup(line((0.15, 0.25), (0.6, 0.22), WOOD_D, w * 2.4),
+               blob([(-0.25, 0.18), (-0.25, 0.42), (-0.1, 0.48), (0.15, 0.42), (0.18, 0.18)], c, w),
+               stroke([(-0.23, 0.38), (0.15, 0.36)], GOLD, w * 1.4))
+    wh, _ = _wheel({"color": WOOD_D}, w)
+    wh.scale(0.9, about_point=np.array([0.0, 0.0, 0.0])).shift([-0.05, 0.0, 0])
+    g.add(wh)
+    return g, None
+
+
+def _dagger(m, w):
+    return VGroup(poly([(-0.012, 0.1), (0.012, 0.1), (0.0, 0.3)], "#C9D0D4", w), rect(-0.04, 0.09, 0.04, 0.105, GOLD, w * 0.6),
+                  rect(-0.01, 0.02, 0.01, 0.09, "#5B4A3A", w * 0.6), circ(0.0, 0.015, 0.015, GOLD, w * 0.5)), None
+
+
+def _mace(m, w):
+    g = VGroup(line((0.0, 0.0), (0.0, 0.42), WOOD, w * 2.4), circ(0.0, 0.48, 0.07, "#8E969C", w))
+    for a in np.linspace(0, 2 * math.pi, 9)[:-1]:
+        g.add(poly([(0.06 * math.cos(a - 0.3), 0.48 + 0.06 * math.sin(a - 0.3)), (0.11 * math.cos(a), 0.48 + 0.11 * math.sin(a)),
+                    (0.06 * math.cos(a + 0.3), 0.48 + 0.06 * math.sin(a + 0.3))], "#B8BEC2", w * 0.5))
+    return g, None
+
+
+def _cannonballs(m, w):
+    g = VGroup()
+    for r, n in ((0, 3), (1, 2), (2, 1)):
+        for i in range(n):
+            g.add(circ(-0.09 * (n - 1) + i * 0.18, 0.08 + r * 0.15, 0.08, "#2B2826", w * 0.7))
+    return g, None
+
+
+def _tank(m, w):
+    c = col(m["color"]) if m.get("color") else "#5B6B3A"
+    return VGroup(rrect(-0.45, 0.0, 0.45, 0.16, 0.08, "#3A3631", w),
+                  *(circ(x, 0.08, 0.055, "#6E747A", w * 0.6) for x in np.linspace(-0.35, 0.35, 6)),
+                  poly([(-0.42, 0.16), (0.42, 0.16), (0.36, 0.28), (-0.38, 0.28)], c, w),
+                  rrect(-0.2, 0.28, 0.12, 0.42, 0.05, tint(c, 0.08), w), line((0.1, 0.36), (0.55, 0.38), c, w * 3.2)), None
+
+
+# -- monuments ----------------------------------------------------------------------------------------------------
+
+def _pyramids(m, w):
+    return VGroup(poly([(-0.1, 0.0), (0.3, 0.55), (0.7, 0.0)], "#E2C27A", w), poly([(0.3, 0.55), (0.7, 0.0), (0.45, 0.0)], "#C9A35A", 0),
+                  poly([(-0.7, 0.0), (-0.25, 0.75), (0.2, 0.0)], "#E8C988", w), poly([(-0.25, 0.75), (0.2, 0.0), (-0.05, 0.0)], "#CDA866", 0),
+                  *(stroke([(-0.25 - 0.4 * t, 0.75 - 0.75 * t), (-0.25 + 0.4 * t, 0.75 - 0.75 * t)], "#B8934E", w * 0.4) for t in (0.3, 0.55, 0.8))), None
+
+
+def _obelisk(m, w):
+    return VGroup(rect(-0.14, 0.0, 0.14, 0.06, "#C9BFA8", w), poly([(-0.08, 0.06), (0.08, 0.06), (0.06, 0.85), (-0.06, 0.85)], "#E2D3B0", w),
+                  poly([(-0.06, 0.85), (0.06, 0.85), (0.0, 0.95)], GOLD, w),
+                  *(rect(-0.02, y, 0.02, y + 0.04, "#B8A884", 0) for y in (0.25, 0.4, 0.55, 0.7))), None
+
+
+def _pillar(m, w):
+    c = col(m["color"]) if m.get("color") else "#ECE6DA"
+    return VGroup(rect(-0.14, 0.0, 0.14, 0.05, tint(c, -0.1), w), rect(-0.1, 0.05, 0.1, 0.8, c, w),
+                  *(line((x, 0.06), (x, 0.79), tint(c, -0.15), w * 0.6) for x in (-0.05, 0.0, 0.05)),
+                  rect(-0.14, 0.8, 0.14, 0.86, tint(c, -0.1), w),
+                  blob([(-0.16, 0.86), (-0.18, 0.9), (0.18, 0.9), (0.16, 0.86)], tint(c, -0.05), w)), None
+
+
+def _arch(m, w):
+    c = col(m["color"]) if m.get("color") else "#E2D3B0"
+    pts = [(-0.45, 0.0), (-0.45, 0.85), (0.45, 0.85), (0.45, 0.0), (0.22, 0.0)] + zoo.P._arc(0.0, 0.45, 0.22, 0, 180, 14) + [(-0.22, 0.0)]
+    return VGroup(poly(pts, c, w), rect(-0.5, 0.85, 0.5, 0.95, tint(c, -0.1), w),
+                  *(line((-0.45, y), (-0.22, y), tint(c, -0.15), w * 0.5) for y in (0.2, 0.4)),
+                  *(line((0.22, y), (0.45, y), tint(c, -0.15), w * 0.5) for y in (0.2, 0.4))), None
+
+
+def _statue(m, w):
+    c = col(m["color"]) if m.get("color") else "#9FB5A8"
+    return VGroup(rect(-0.18, 0.0, 0.18, 0.25, "#C9BFA8", w), rect(-0.2, 0.25, 0.2, 0.29, "#B8AE9C", w),
+                  rrect(-0.09, 0.29, 0.09, 0.62, 0.04, c, w), circ(0.0, 0.7, 0.07, c, w),
+                  line((0.08, 0.55), (0.18, 0.8), c, w * 2.6), circ(0.18, 0.82, 0.025, c, w * 0.6),
+                  poly([(-0.09, 0.29), (-0.14, 0.29), (-0.09, 0.5)], tint(c, -0.1), w * 0.5)), None
+
+
+def _fountain(m, w):
+    return VGroup(ell(0.0, 0.08, 0.7, 0.16, "#B8AE9C", w), rect(-0.35, 0.0, 0.35, 0.08, "#C9BFA8", w),
+                  ell(0.0, 0.12, 0.6, 0.1, "#9FC5DA", w * 0.6), rect(-0.03, 0.12, 0.03, 0.35, "#C9BFA8", w),
+                  ell(0.0, 0.36, 0.26, 0.06, "#B8AE9C", w),
+                  live(stroke([(0.0, 0.38), (0.06, 0.48), (0.12, 0.38), (0.15, 0.2)], "#9FC5DA", w * 1.2), "steam"),
+                  live(stroke([(0.0, 0.38), (-0.06, 0.48), (-0.12, 0.38), (-0.15, 0.2)], "#9FC5DA", w * 1.2), "steam")), None
+
+
+def _stupa(m, w):
+    return VGroup(rect(-0.45, 0.0, 0.45, 0.1, "#C9BFA8", w), blob(zoo.P._arc(0.0, 0.1, 0.36, 0, 180, 18), "#F3EEE4", w),
+                  rect(-0.08, 0.46, 0.08, 0.54, "#E2D3B0", w),
+                  *(rect(-0.05 + 0.01 * i, 0.54 + i * 0.05, 0.05 - 0.01 * i, 0.58 + i * 0.05, GOLD, w * 0.5) for i in range(4)),
+                  line((0.0, 0.74), (0.0, 0.82), GOLD_D, w), stroke([(-0.3, 0.2), (0.3, 0.2)], "#E2D3B0", w * 0.8)), None
+
+
+# -- India ------------------------------------------------------------------------------------------------------------
+
+def _loom(m, w):
+    g = VGroup(*(line((x, 0.0), (x, 0.6), WOOD, w * 2.4) for x in (-0.35, 0.35)), line((-0.38, 0.58), (0.38, 0.58), WOOD_D, w * 2.2),
+               line((-0.38, 0.12), (0.38, 0.12), WOOD_D, w * 2.2))
+    cols_ = ["#B83227", "#F2C14E", "#2E7D74", "#F7F5F0"]
+    for i, x in enumerate(np.linspace(-0.3, 0.3, 13)):
+        g.add(line((x, 0.13), (x, 0.57), cols_[i % 4], w * 0.8))
+    g.add(rect(-0.3, 0.13, 0.3, 0.3, "#B83227", w * 0.6), *(line((-0.3, y), (0.3, y), GOLD, w * 0.6) for y in (0.18, 0.24)),
+          rrect(-0.36, 0.34, 0.36, 0.38, 0.02, WOOD_D, w))
+    return g, None
+
+
+def _kalash(m, w):
+    return VGroup(blob([(-0.06, 0.2), (-0.14, 0.12), (-0.1, 0.02), (0.0, 0.0), (0.1, 0.02), (0.14, 0.12), (0.06, 0.2)], GOLD_D, w),
+                  stroke([(-0.13, 0.1), (0.13, 0.1)], RED, w * 1.4),
+                  *(blob([(0.0, 0.21), (x * 0.18, 0.3), (x * 0.12, 0.22)], "#4F8A3A", w * 0.5) for x in (-1, -0.5, 0.5, 1)),
+                  circ(0.0, 0.3, 0.07, "#8C6E52", w), stroke([(-0.05, 0.3), (0.05, 0.3)], RED, w)), None
+
+
+def _conch(m, w):
+    body = blob([(-0.3, 0.1), (-0.16, 0.04), (0.02, 0.02), (0.16, 0.06), (0.3, 0.12), (0.18, 0.18), (0.14, 0.26),
+                 (0.05, 0.22), (0.0, 0.3), (-0.08, 0.24), (-0.14, 0.27), (-0.18, 0.18)], "#F7F1E3", w)
+    lip = blob([(-0.26, 0.11), (-0.12, 0.07), (0.04, 0.08), (-0.02, 0.15), (-0.14, 0.16)], "#F2B8A6", w * 0.5)
+    whorls = [stroke([(0.14 + k * 0.05, 0.08 + k * 0.012), (0.19 + k * 0.03, 0.17 - k * 0.015)], "#CDBF9F", w * 0.6) for k in range(3)]
+    ribs = [stroke([(x, 0.05), (x + 0.03, 0.2)], "#DCCFB2", w * 0.5) for x in (-0.06, 0.02, 0.09)]
+    return VGroup(body, *ribs, *whorls, lip), None
+
+
+def _sitar(m, w):
+    return VGroup(ell(-0.25, 0.12, 0.3, 0.24, "#C2552B", w), line((-0.15, 0.15), (0.45, 0.42), WOOD, w * 3.2),
+                  circ(0.25, 0.33, 0.06, "#C2552B", w * 0.8), *(line((-0.3, 0.12), (0.45, 0.43 - i * 0.01), "#E8E0CC", w * 0.3) for i in range(3)),
+                  *(line((0.3 + i * 0.04, 0.37 + i * 0.02), (0.31 + i * 0.04, 0.42 + i * 0.02), GOLD, w * 0.8) for i in range(3))), None
+
+
+def _tabla(m, w):
+    return VGroup(poly([(-0.25, 0.0), (-0.09, 0.0), (-0.07, 0.2), (-0.27, 0.2)], WOOD, w), ell(-0.17, 0.2, 0.2, 0.05, "#3A3631", w * 0.6),
+                  blob([(0.05, 0.0), (0.27, 0.0), (0.3, 0.1), (0.24, 0.17), (0.08, 0.17), (0.02, 0.1)], "#9AA3A9", w),
+                  ell(0.16, 0.17, 0.22, 0.05, "#3A3631", w * 0.6),
+                  *(line((-0.24 + i * 0.05, 0.02), (-0.24 + i * 0.05, 0.19), "#6B4226", w * 0.5) for i in range(4))), None
+
+
+def _flute(m, w):
+    return VGroup(rrect(-0.35, 0.04, 0.35, 0.08, 0.02, "#C9A066", w), *(circ(x, 0.06, 0.008, "#3A2A1E", 0) for x in np.linspace(-0.1, 0.25, 6)),
+                  line((-0.3, 0.04), (-0.3, 0.08), RED, w * 1.4), line((0.3, 0.04), (0.3, 0.08), RED, w * 1.4)), None
+
+
+def _palanquin(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(line((-0.6, 0.45), (0.6, 0.45), WOOD_D, w * 3), rrect(-0.3, 0.2, 0.3, 0.6, 0.05, c, w),
+                  rect(-0.15, 0.3, 0.15, 0.52, "#F7E9B0", w * 0.6), blob([(-0.34, 0.6), (0.0, 0.78), (0.34, 0.6)], GOLD, w),
+                  *(line((x, 0.6), (x, 0.2), GOLD, w * 0.8) for x in (-0.3, 0.3)), circ(0.0, 0.8, 0.02, RED, 0)), None
+
+
+def _chulha(m, w):
+    return VGroup(blob([(-0.25, 0.0), (-0.24, 0.16), (0.24, 0.16), (0.25, 0.0)], "#B5643C", w),
+                  blob(zoo.P._arc(0.0, 0.0, 0.08, 0, 180, 10), "#3A2A1E", w * 0.6),
+                  live(blob([(-0.04, 0.0), (0.0, 0.08), (0.04, 0.0)], "#F2A93B", 0), "flame"),
+                  blob([(-0.16, 0.16), (-0.18, 0.28), (0.0, 0.32), (0.18, 0.28), (0.16, 0.16)], "#6E747A", w),
+                  live(stroke([(0.0, 0.33), (-0.03, 0.4), (0.01, 0.46)], "#C9C2B2", w), "steam")), None
+
+
+def _handpump(m, w):
+    return VGroup(rect(-0.12, 0.0, 0.12, 0.05, "#B8AE9C", w), rect(-0.04, 0.05, 0.04, 0.5, "#3E7C72", w),
+                  poly([(0.04, 0.4), (0.18, 0.38), (0.18, 0.34), (0.04, 0.36)], "#3E7C72", w * 0.8),
+                  line((-0.03, 0.5), (-0.3, 0.62), "#2E5E57", w * 2), circ(-0.04, 0.5, 0.025, "#2E5E57", w * 0.6),
+                  stroke([(0.17, 0.33), (0.17, 0.18)], "#9FC5DA", w * 1.4)), None
+
+
+def _haystack(m, w):
+    return VGroup(blob([(-0.35, 0.0), (-0.3, 0.3), (-0.12, 0.5), (0.0, 0.55), (0.12, 0.5), (0.3, 0.3), (0.35, 0.0)], "#E2C27A", w),
+                  *(stroke([(x, 0.05), (x * 0.8 + 0.02, 0.35)], "#C9A050", w * 0.6) for x in np.linspace(-0.25, 0.25, 6)),
+                  line((0.2, 0.35), (0.3, 0.7), WOOD, w * 1.4)), None
+
+
+def _spices(m, w):
+    g = VGroup()
+    for x, c in ((-0.22, "#E4572E"), (0.0, "#F2C14E"), (0.22, "#7E5A2B")):
+        g.add(ell(x, 0.07, 0.2, 0.06, "#C9A066", w * 0.7), blob([(x - 0.09, 0.08), (x, 0.17), (x + 0.09, 0.08)], c, w * 0.6),
+              poly([(x - 0.1, 0.07), (x + 0.1, 0.07), (x + 0.07, 0.0), (x - 0.07, 0.0)], "#C9A066", w * 0.7))
+    return g, None
+
+
+# -- science, power and the modern world -------------------------------------------------------------------------
+
+def _dna(m, w):
+    g = VGroup()
+    ys = np.linspace(0.0, 0.8, 40)
+    a = [(0.12 * math.sin(y * 9), y) for y in ys]
+    b = [(-0.12 * math.sin(y * 9), y) for y in ys]
+    for i in range(0, 40, 4):
+        g.add(line(a[i], b[i], ["#E4572E", "#F2C14E", "#2E7D74", "#3E7CB1"][(i // 4) % 4], w * 1.2))
+    g.add(stroke(a, "#2F3B8C", w * 1.8), stroke(b, "#B83227", w * 1.8))
+    return g, None
+
+
+def _deskglobe(m, w):
+    return VGroup(ell(0.0, 0.02, 0.24, 0.05, WOOD_D, w), line((0.0, 0.02), (0.0, 0.12), WOOD_D, w * 2),
+                  circ(0.0, 0.36, 0.22, "#9FC5DA", w),
+                  blob([(-0.12, 0.4), (-0.04, 0.5), (0.02, 0.42), (-0.06, 0.32)], "#7BB04B", w * 0.5),
+                  blob([(0.05, 0.3), (0.14, 0.36), (0.12, 0.22), (0.04, 0.2)], "#7BB04B", w * 0.5),
+                  stroke(zoo.P._arc(0.0, 0.36, 0.26, -120, 120, 16), GOLD_D, w * 1.2)), None
+
+
+def _compass(m, w):
+    return VGroup(circ(0.0, 0.15, 0.15, GOLD_D, w), circ(0.0, 0.15, 0.12, "#F3EADA", w * 0.6),
+                  poly([(0.0, 0.25), (0.025, 0.15), (0.0, 0.05), (-0.025, 0.15)], "#3A3631", w * 0.4),
+                  poly([(0.0, 0.25), (0.025, 0.15), (-0.025, 0.15)], RED, 0), letters("N", 0.0, 0.29, 0.03, "#3A3631")), None
+
+
+def _robot(m, w):
+    c = col(m["color"]) if m.get("color") else "#9AA3A9"
+    return VGroup(rect(-0.1, 0.0, -0.04, 0.15, tint(c, -0.2), w), rect(0.04, 0.0, 0.1, 0.15, tint(c, -0.2), w),
+                  rrect(-0.15, 0.15, 0.15, 0.45, 0.04, c, w), rect(-0.08, 0.25, 0.08, 0.37, "#3E7CB1", w * 0.6),
+                  *(line((s * 0.15, 0.4), (s * 0.24, 0.2), tint(c, -0.2), w * 2) for s in (-1, 1)),
+                  rrect(-0.11, 0.47, 0.11, 0.65, 0.04, c, w), circ(-0.045, 0.56, 0.025, "#9FE3F2", w * 0.5),
+                  circ(0.045, 0.56, 0.025, "#9FE3F2", w * 0.5), line((0.0, 0.65), (0.0, 0.72), c, w), circ(0.0, 0.73, 0.018, RED, 0)), None
+
+
+def _drone(m, w):
+    g = VGroup(rrect(-0.12, 0.06, 0.12, 0.13, 0.03, "#3A3631", w), circ(0.0, 0.07, 0.03, "#3E7CB1", w * 0.5))
+    for s in (-1, 1):
+        g.add(line((0.0, 0.11), (s * 0.28, 0.14), "#3A3631", w * 1.4), ell(s * 0.28, 0.16, 0.2, 0.025, "#B8BEC2", w * 0.5),
+              line((s * 0.28, 0.12), (s * 0.28, 0.16), "#3A3631", w))
+    return g, None
+
+
+def _windturbine(m, w):
+    g = VGroup(poly([(-0.03, 0.0), (0.03, 0.0), (0.015, 0.9), (-0.015, 0.9)], "#F3EEE4", w), rrect(-0.05, 0.88, 0.07, 0.94, 0.02, "#F3EEE4", w))
+    for a in (90, 210, 330):
+        r = math.radians(a)
+        g.add(live(poly([(0.0, 0.91), (0.5 * math.cos(r) - 0.03 * math.sin(r), 0.91 + 0.5 * math.sin(r) + 0.03 * math.cos(r)),
+                         (0.5 * math.cos(r), 0.91 + 0.5 * math.sin(r))], "#FFFFFF", w * 0.8), "spin", (0.0, 0.91)))
+    g.add(circ(0.0, 0.91, 0.03, "#C9C2B2", w * 0.6))
+    return g, None
+
+
+def _pylon(m, w):
+    g = VGroup(poly([(-0.25, 0.0), (0.25, 0.0), (0.0, 1.0)], "#FFFFFF", w).set_fill(opacity=0).set_stroke("#6E747A", w * 1.4))
+    for y in (0.3, 0.55, 0.75):
+        half = 0.25 * (1 - y)
+        g.add(line((-half, y), (half, y), "#6E747A", w), line((-half - 0.15, y + 0.05), (half + 0.15, y + 0.05), "#6E747A", w * 1.2))
+    g.add(*(line((-0.25 * (1 - y0), y0), (0.25 * (1 - y1), y1), "#6E747A", w * 0.6) for y0, y1 in ((0.0, 0.3), (0.3, 0.55))))
+    return g, None
+
+
+def _streetlight(m, w):
+    return VGroup(line((0.0, 0.0), (0.0, 1.0), "#3A3631", w * 2.2), stroke([(0.0, 1.0), (0.08, 1.06), (0.2, 1.04)], "#3A3631", w * 2),
+                  poly([(0.12, 1.04), (0.28, 1.04), (0.24, 0.98), (0.16, 0.98)], "#3A3631", w),
+                  live(poly([(0.16, 0.98), (0.24, 0.98), (0.34, 0.6), (0.06, 0.6)], "#FBE7A1", 0), "puff"),
+                  rect(-0.06, 0.0, 0.06, 0.05, "#3A3631", w)), None
+
+
+def _trafficlight(m, w):
+    return VGroup(line((0.0, 0.0), (0.0, 0.6), "#3A3631", w * 2.2), rrect(-0.08, 0.55, 0.08, 0.95, 0.03, "#2B2826", w),
+                  circ(0.0, 0.88, 0.04, "#E4572E", w * 0.5), circ(0.0, 0.75, 0.04, "#6B5A2B", w * 0.5),
+                  circ(0.0, 0.62, 0.04, "#2E5E3A", w * 0.5)), None
+
+
+def _calculator(m, w):
+    g = VGroup(rrect(-0.11, 0.0, 0.11, 0.3, 0.02, "#3A3631", w), rect(-0.08, 0.22, 0.08, 0.27, "#C9D6A0", w * 0.5))
+    for r in range(4):
+        for c_ in range(3):
+            g.add(rrect(-0.075 + c_ * 0.055, 0.03 + r * 0.045, -0.04 + c_ * 0.055, 0.06 + r * 0.045, 0.006,
+                        "#E4572E" if (r, c_) == (0, 2) else "#9AA3A9", w * 0.3))
+    return g, None
+
+
+def _whiteboard(m, w):
+    g = VGroup(line((-0.3, 0.0), (-0.25, 0.3), "#6E747A", w * 1.6), line((0.3, 0.0), (0.25, 0.3), "#6E747A", w * 1.6),
+               rect(-0.4, 0.3, 0.4, 0.8, "#F7F7F2", w), rect(-0.4, 0.28, 0.4, 0.3, "#9AA3A9", w * 0.6))
+    if str(m.get("of") or "chart") == "chart":         # a rising line drawn on it
+        g.add(stroke([(-0.32, 0.38), (-0.15, 0.48), (0.0, 0.44), (0.15, 0.6), (0.32, 0.72)], "#E4572E", w * 1.4),
+              line((-0.33, 0.36), (0.34, 0.36), "#3A3631", w * 0.6), line((-0.33, 0.36), (-0.33, 0.76), "#3A3631", w * 0.6))
+    if m.get("label"):
+        g.add(letters(str(m["label"]), 0.0, 0.7, 0.07, "#2F3B8C"))
+    return g, None
+
+
+def _blackboard(m, w):
+    g = VGroup(rect(-0.45, 0.25, 0.45, 0.8, WOOD, w), rect(-0.42, 0.28, 0.42, 0.77, "#2E4A3A", w * 0.6),
+               *(line((x, 0.0), (x, 0.28), WOOD_D, w * 2) for x in (-0.35, 0.35)))
+    words = str(m.get("label") or "A + B = C")
+    g.add(letters(words, 0.0, 0.55, 0.1, "#F7F5F0"), rect(0.25, 0.29, 0.33, 0.31, "#F7F5F0", 0))
+    return g, None
+
+
+def _oilbarrel(m, w):
+    c = col(m["color"]) if m.get("color") else "#2F3B4C"
+    return VGroup(rrect(-0.12, 0.0, 0.12, 0.36, 0.02, c, w), *(line((-0.12, y), (0.12, y), tint(c, -0.3), w * 1.4) for y in (0.1, 0.26)),
+                  ell(0.0, 0.36, 0.24, 0.04, tint(c, 0.2), w * 0.6), circ(0.06, 0.36, 0.012, "#3A3631", 0),
+                  blob([(-0.02, 0.15), (0.0, 0.2), (0.02, 0.15), (0.0, 0.13)], "#F2C14E", 0)), None
+
+
+def _fuelpump(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(rect(-0.14, 0.0, 0.14, 0.05, "#6E747A", w), rrect(-0.12, 0.05, 0.12, 0.55, 0.03, c, w),
+                  rect(-0.08, 0.38, 0.08, 0.48, "#F7F5F0", w * 0.6), letters("88.8", 0.0, 0.43, 0.04, "#3A3631"),
+                  stroke([(0.12, 0.3), (0.2, 0.28), (0.22, 0.15), (0.18, 0.1)], "#3A3631", w * 1.4),
+                  rect(0.12, 0.25, 0.17, 0.32, "#3A3631", w * 0.6)), None
+
+
+def _container(m, w):
+    c = col(m["color"]) if m.get("color") else "#B83227"
+    g = VGroup(rect(-0.5, 0.0, 0.5, 0.36, c, w))
+    for x in np.linspace(-0.45, 0.45, 15):
+        g.add(line((x, 0.03), (x, 0.33), tint(c, -0.2), w * 0.6))
+    g.add(rect(-0.5, 0.33, 0.5, 0.36, tint(c, -0.25), 0))
+    if m.get("label"):
+        g.add(letters(str(m["label"]), 0.0, 0.18, 0.08, "#F7F5F0"))
+    return g, None
+
+
+def _crane(m, w):
+    g = VGroup(rect(-0.15, 0.0, 0.15, 0.06, "#3A3631", w), poly([(-0.06, 0.06), (0.06, 0.06), (0.05, 1.1), (-0.05, 1.1)], "#F2C14E", w))
+    for y in np.linspace(0.1, 1.0, 8):
+        g.add(line((-0.05, y), (0.05, y + 0.1), "#C9962B", w * 0.5))
+    g.add(rect(-0.25, 1.1, 0.7, 1.16, "#F2C14E", w), rect(-0.3, 1.0, -0.15, 1.1, "#6E747A", w * 0.6),
+          line((0.6, 1.1), (0.6, 0.6), "#3A3631", w * 0.6), poly([(0.57, 0.6), (0.63, 0.6), (0.6, 0.55)], "#3A3631", w * 0.5))
+    return g, None
+
+
+# -- trade and travel (more) ------------------------------------------------------------------------------------------
+
+def _shoppingcart(m, w):
+    g = VGroup(poly([(-0.2, 0.1), (0.2, 0.1), (0.26, 0.32), (-0.24, 0.32)], "#FFFFFF", w).set_fill(opacity=0).set_stroke("#6E747A", w * 1.4),
+               *(line((x, 0.1), (x * 1.15, 0.32), "#9AA3A9", w * 0.6) for x in (-0.1, 0.0, 0.1)),
+               line((-0.22, 0.21), (0.23, 0.21), "#9AA3A9", w * 0.6), line((0.26, 0.32), (0.34, 0.4), "#6E747A", w * 1.4),
+               circ(-0.15, 0.03, 0.03, "#3A3631", w * 0.5), circ(0.15, 0.03, 0.03, "#3A3631", w * 0.5))
+    if not m.get("empty"):
+        g.add(*(circ(x, 0.33, 0.05, c, w * 0.5) for x, c in ((-0.12, "#D63B2F"), (0.0, "#F2C14E"), (0.12, "#7BB04B"))))
+    return g, None
+
+
+def _pricetag(m, w):
+    return VGroup(poly([(-0.14, 0.0), (0.12, 0.0), (0.2, 0.08), (0.12, 0.16), (-0.14, 0.16)], "#F2C14E", w),
+                  circ(0.13, 0.08, 0.018, "#F3EADA", w * 0.5), letters(str(m.get("sign") or "₹99"), -0.03, 0.08, 0.07, "#3A3631"),
+                  stroke([(0.13, 0.08), (0.2, 0.18), (0.16, 0.26)], "#3A3631", w * 0.6)), None
+
+
+def _cashregister(m, w):
+    return VGroup(rect(-0.22, 0.0, 0.22, 0.1, "#3A3631", w), poly([(-0.2, 0.1), (0.2, 0.1), (0.16, 0.26), (-0.18, 0.26)], "#6E747A", w),
+                  *(circ(-0.12 + (i % 4) * 0.07, 0.14 + (i // 4) * 0.05, 0.015, "#F3EADA", 0) for i in range(8)),
+                  rect(0.04, 0.26, 0.18, 0.36, "#3A3631", w), rect(0.06, 0.28, 0.16, 0.34, "#9FE3A0", w * 0.4),
+                  rect(-0.18, 0.02, 0.18, 0.08, GOLD_D, w * 0.5)), None
+
+
+def _atm(m, w):
+    return VGroup(rrect(-0.2, 0.0, 0.2, 0.75, 0.03, "#2F3B4C", w), rect(-0.14, 0.45, 0.14, 0.65, "#9FC5DA", w * 0.6),
+                  *(rect(-0.1 + (i % 3) * 0.07, 0.25 + (i // 3) * 0.05, -0.05 + (i % 3) * 0.07, 0.28 + (i // 3) * 0.05, "#F3EADA", 0) for i in range(9)),
+                  rect(-0.12, 0.12, 0.12, 0.15, "#1D1C1A", 0), letters("ATM", 0.0, 0.7, 0.04, "#F7F5F0"),
+                  rect(-0.07, 0.15, 0.07, 0.2, "#7FB27F", w * 0.4)), None
+
+
+def _suitcase(m, w):
+    c = col(m["color"]) if m.get("color") else "#8E5A3C"
+    return VGroup(stroke(zoo.P._arc(0.0, 0.4, 0.06, 0, 180, 8), "#3A2A1E", w * 2), rrect(-0.24, 0.02, 0.24, 0.4, 0.04, c, w),
+                  *(line((x, 0.02), (x, 0.4), tint(c, -0.25), w * 1.2) for x in (-0.14, 0.14)),
+                  circ(-0.18, 0.0, 0.025, "#3A3631", 0), circ(0.18, 0.0, 0.025, "#3A3631", 0),
+                  rect(-0.08, 0.25, 0.02, 0.3, "#F3EADA", w * 0.4)), None
+
+
+def _backpack(m, w):
+    c = col(m["color"]) if m.get("color") else "#3E7CB1"
+    return VGroup(rrect(-0.15, 0.0, 0.15, 0.4, 0.07, c, w), rrect(-0.11, 0.04, 0.11, 0.2, 0.04, tint(c, -0.12), w * 0.8),
+                  stroke(zoo.P._arc(0.0, 0.4, 0.06, 0, 180, 8), tint(c, -0.3), w * 1.6),
+                  line((-0.11, 0.2), (0.11, 0.2), GOLD, w * 0.8), rect(-0.02, 0.15, 0.02, 0.2, GOLD, 0)), None
+
+
+# -- a home's things ---------------------------------------------------------------------------------------------
+
+def _sofa(m, w):
+    c = col(m["color"]) if m.get("color") else "#2E6E9E"
+    return VGroup(rrect(-0.45, 0.06, 0.45, 0.45, 0.06, tint(c, -0.1), w), rrect(-0.5, 0.06, -0.36, 0.3, 0.05, c, w),
+                  rrect(0.36, 0.06, 0.5, 0.3, 0.05, c, w), rrect(-0.36, 0.14, 0.0, 0.26, 0.04, c, w), rrect(0.0, 0.14, 0.36, 0.26, 0.04, c, w),
+                  *(rect(x, 0.0, x + 0.04, 0.06, WOOD_D, w * 0.6) for x in (-0.44, 0.4))), None
+
+
+def _tablelamp(m, w):
+    return VGroup(ell(0.0, 0.015, 0.2, 0.04, GOLD_D, w), line((0.0, 0.02), (0.0, 0.3), GOLD_D, w * 1.6),
+                  poly([(-0.14, 0.3), (0.14, 0.3), (0.08, 0.48), (-0.08, 0.48)], "#F7E9B0", w),
+                  live(blob([(-0.12, 0.3), (0.12, 0.3), (0.2, 0.08), (-0.2, 0.08)], "#FBE7A1", 0).set_fill(opacity=0.25), "puff")), None
+
+
+def _mirror(m, w):
+    return VGroup(ell(0.0, 0.45, 0.42, 0.62, GOLD_D, w), ell(0.0, 0.45, 0.34, 0.54, "#CFE3EC", w * 0.6),
+                  stroke([(-0.08, 0.6), (0.06, 0.4)], "#FFFFFF", w * 1.4), stroke([(0.0, 0.66), (0.08, 0.56)], "#FFFFFF", w),
+                  rect(-0.12, 0.0, 0.12, 0.04, WOOD_D, w), line((0.0, 0.04), (0.0, 0.14), WOOD_D, w * 2)), None
+
+
+def _door(m, w):
+    c = col(m["color"]) if m.get("color") else WOOD
+    return VGroup(rect(-0.25, 0.0, 0.25, 0.9, tint(c, -0.2), w), rect(-0.21, 0.0, 0.21, 0.86, c, w),
+                  rect(-0.16, 0.5, 0.16, 0.8, tint(c, 0.08), w * 0.6), rect(-0.16, 0.08, 0.16, 0.42, tint(c, 0.08), w * 0.6),
+                  circ(0.15, 0.45, 0.022, GOLD, w * 0.5)), None
+
+
+def _window(m, w):
+    return VGroup(rect(-0.3, 0.0, 0.3, 0.5, "#F3EEE4", w), rect(-0.26, 0.04, 0.26, 0.46, "#9FC5DA", w * 0.6),
+                  line((0.0, 0.04), (0.0, 0.46), "#F3EEE4", w * 2), line((-0.26, 0.25), (0.26, 0.25), "#F3EEE4", w * 2),
+                  stroke([(-0.2, 0.4), (-0.12, 0.3)], "#FFFFFF", w), rect(-0.34, -0.03, 0.34, 0.0, "#E2D3B0", w * 0.6)), None
+
+
+def _stairs(m, w):
+    c = col(m["color"]) if m.get("color") else "#C9BFA8"
+    g = VGroup()
+    for i in range(6):
+        g.add(rect(-0.45 + i * 0.15, 0.0, 0.45, 0.12 * (i + 1), tint(c, -0.04 * (i % 2)), w))
+    return g, None
+
+
+def _kettle(m, w):
+    c = col(m["color"]) if m.get("color") else "#B8BEC2"
+    return VGroup(blob([(-0.12, 0.0), (-0.15, 0.12), (-0.08, 0.2), (0.08, 0.2), (0.15, 0.12), (0.12, 0.0)], c, w),
+                  tube([(0.12, 0.08), (0.2, 0.14), (0.25, 0.2)], [0.04, 0.03, 0.02], c, w * 0.8),
+                  stroke(zoo.P._arc(0.0, 0.2, 0.1, 10, 170, 10), "#3A3631", w * 1.6), circ(0.0, 0.21, 0.02, "#3A3631", 0),
+                  live(stroke([(0.26, 0.22), (0.24, 0.3), (0.28, 0.38)], "#C9C2B2", w), "steam")), None
+
+
+def _pan(m, w):
+    return VGroup(ell(0.0, 0.05, 0.4, 0.1, "#3A3631", w), ell(0.0, 0.065, 0.32, 0.06, "#5A5F63", w * 0.4),
+                  line((0.2, 0.06), (0.45, 0.1), "#3A3631", w * 2.6),
+                  *(ell(x, 0.07, 0.08, 0.04, c, w * 0.4) for x, c in ((-0.06, "#F7F3E8"), (0.06, "#F2C14E")) if m.get("of"))), None
+
+
+def _plate(m, w):
+    g = VGroup(ell(0.0, 0.03, 0.44, 0.08, "#F7F5F0", w), ell(0.0, 0.035, 0.3, 0.05, "#ECE6DA", w * 0.4))
+    if str(m.get("of") or "") in ("food", "fruit", "bread"):
+        g.add(*(circ(x, 0.07, 0.04, c, w * 0.5) for x, c in ((-0.06, "#D63B2F"), (0.04, "#F2C14E"), (0.0, "#7BB04B"))))
+    return g, None
+
+
+def _bottle(m, w):
+    c = col(m["color"]) if m.get("color") else "#5BB06B"
+    return VGroup(blob([(-0.06, 0.0), (-0.06, 0.22), (-0.025, 0.28), (-0.025, 0.36), (0.025, 0.36), (0.025, 0.28), (0.06, 0.22), (0.06, 0.0)],
+                       c, w).set_fill(opacity=0.85), rect(-0.03, 0.36, 0.03, 0.4, "#8C6E52", w * 0.6),
+                  rect(-0.06, 0.08, 0.06, 0.16, "#F3EADA", w * 0.5), stroke([(-0.035, 0.03), (-0.035, 0.2)], "#FFFFFF", w)), None
+
+
+def _jug(m, w):
+    c = col(m["color"]) if m.get("color") else "#C97B4A"
+    return VGroup(blob([(-0.08, 0.0), (-0.12, 0.14), (-0.08, 0.26), (0.06, 0.28), (0.12, 0.3), (0.1, 0.22), (0.12, 0.12), (0.08, 0.0)], c, w),
+                  stroke(zoo.P._arc(-0.12, 0.16, 0.06, 90, 270, 8), c, w * 2.4), stroke([(-0.1, 0.14), (0.11, 0.14)], "#F3EADA", w)), None
+
+
+def _mailbox(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(line((0.0, 0.0), (0.0, 0.4), WOOD_D, w * 2.4), blob([(-0.2, 0.4), (-0.2, 0.55), (-0.1, 0.62), (0.2, 0.62), (0.2, 0.4)], c, w),
+                  line((0.17, 0.58), (0.17, 0.72), "#3A3631", w), poly([(0.17, 0.72), (0.27, 0.69), (0.17, 0.66)], GOLD, w * 0.5),
+                  rect(-0.16, 0.48, -0.04, 0.5, "#3A3631", 0)), None
+
+
+def _fan(m, w):
+    g = VGroup(ell(0.0, 0.015, 0.22, 0.04, "#3A3631", w), line((0.0, 0.02), (0.0, 0.3), "#3A3631", w * 2),
+               circ(0.0, 0.42, 0.14, "#FFFFFF", w).set_fill(opacity=0.0))
+    for a in (90, 210, 330):
+        r = math.radians(a)
+        g.add(live(blob([(0.0, 0.42), (0.12 * math.cos(r - 0.4), 0.42 + 0.12 * math.sin(r - 0.4)),
+                         (0.12 * math.cos(r + 0.4), 0.42 + 0.12 * math.sin(r + 0.4))], "#9FC5DA", w * 0.6), "spin", (0.0, 0.42)))
+    g.add(circ(0.0, 0.42, 0.025, "#3A3631", 0))
+    return g, None
+
+
+def _fridge(m, w):
+    c = col(m["color"]) if m.get("color") else "#ECE6DA"
+    return VGroup(rrect(-0.2, 0.0, 0.2, 0.95, 0.04, c, w), line((-0.2, 0.62), (0.2, 0.62), tint(c, -0.2), w),
+                  line((0.14, 0.7), (0.14, 0.85), "#9AA3A9", w * 2), line((0.14, 0.35), (0.14, 0.55), "#9AA3A9", w * 2),
+                  rect(-0.12, 0.75, 0.0, 0.85, "#E4572E", w * 0.4)), None
+
+
+def _shoe(m, w):
+    c = col(m["color"]) if m.get("color") else "#6B4226"
+    return VGroup(blob([(-0.18, 0.02), (-0.18, 0.14), (-0.06, 0.15), (0.02, 0.1), (0.18, 0.06), (0.2, 0.02)], c, w),
+                  rect(-0.18, 0.0, 0.2, 0.025, "#2B2622", w * 0.6), *(line((-0.05 + i * 0.03, 0.13), (-0.02 + i * 0.03, 0.09), "#F3EADA", w * 0.5) for i in range(3))), None
+
+
+def _shirt(m, w):
+    c = col(m["color"]) if m.get("color") else "#3E7CB1"
+    return VGroup(poly([(-0.12, 0.0), (0.12, 0.0), (0.12, 0.28), (0.24, 0.24), (0.28, 0.32), (0.12, 0.42), (0.05, 0.42), (0.0, 0.38),
+                        (-0.05, 0.42), (-0.12, 0.42), (-0.28, 0.32), (-0.24, 0.24), (-0.12, 0.28)], c, w),
+                  poly([(-0.05, 0.42), (0.0, 0.34), (0.05, 0.42)], tint(c, 0.3), w * 0.5),
+                  *(circ(0.0, y, 0.01, "#F7F5F0", 0) for y in (0.1, 0.18, 0.26))), None
+
+
+# -- weather and nature (more) ---------------------------------------------------------------------------------------
+
+def _pinetree(m, w):
+    c = col(m["color"]) if m.get("color") else "#2E5E3A"
+    return VGroup(rect(-0.04, 0.0, 0.04, 0.15, "#6B4A2F", w), *(poly([(-0.28 + i * 0.05, 0.12 + i * 0.22), (0.28 - i * 0.05, 0.12 + i * 0.22),
+                                                                      (0.0, 0.42 + i * 0.22)], tint(c, 0.06 * i), w) for i in range(3))), None
+
+
+def _wave(m, w):
+    g = VGroup(blob([(-0.5, 0.0), (-0.5, 0.15), (-0.3, 0.3), (-0.05, 0.42), (0.12, 0.38), (0.05, 0.28), (0.15, 0.22), (0.3, 0.1), (0.5, 0.06), (0.5, 0.0)],
+                    "#3E7CB1", w),
+               stroke([(-0.05, 0.42), (0.12, 0.38), (0.05, 0.28), (0.15, 0.22)], "#F7F5F0", w * 1.6),
+               stroke([(-0.4, 0.08), (-0.2, 0.14), (0.0, 0.1)], "#9FC5DA", w))
+    return g, None
+
+
+def _raincloud(m, w):
+    g, _ = _cloud({"color": "#9AA3A9"}, w)
+    g.shift([0, 0.3, 0])
+    g.add(*(live(line((x, 0.22 - (i % 2) * 0.05), (x - 0.03, 0.1 - (i % 2) * 0.05), "#3E7CB1", w * 1.4), "steam") for i, x in enumerate(np.linspace(-0.15, 0.15, 5))))
+    return g, None
+
+
+def _lightning(m, w):
+    return VGroup(poly([(0.0, 0.6), (0.14, 0.6), (0.05, 0.36), (0.14, 0.36), (-0.06, 0.0), (0.0, 0.28), (-0.1, 0.28)], "#F2C14E", w)), None
+
+
+def _snowflake(m, w):
+    g = VGroup()
+    for a in np.linspace(0, math.pi, 4)[:-1]:
+        ca, sa = math.cos(a), math.sin(a)
+        g.add(line((-0.15 * ca, 0.2 - 0.15 * sa), (0.15 * ca, 0.2 + 0.15 * sa), "#7FB4D6", w * 1.4))
+        for s in (-1, 1):
+            p = (s * 0.1 * ca, 0.2 + s * 0.1 * sa)
+            g.add(line(p, (p[0] + 0.04 * math.cos(a + s * 0.8 + (0 if s > 0 else math.pi)), p[1] + 0.04 * math.sin(a + s * 0.8 + (0 if s > 0 else math.pi))), "#7FB4D6", w))
+    return g, None
+
+
+def _star(m, w):
+    c = col(m["color"]) if m.get("color") else GOLD
+    pts = [(0.15 * (1 if i % 2 == 0 else 0.42) * math.cos(math.pi / 2 + i * math.pi / 5),
+            0.15 + 0.15 * (1 if i % 2 == 0 else 0.42) * math.sin(math.pi / 2 + i * math.pi / 5)) for i in range(10)]
+    return VGroup(poly(pts, c, w), glint(0.04, 0.2, 0.02, w)), None
+
+
+def _rainbow(m, w):
+    g = VGroup()
+    for i, c in enumerate(("#E4572E", "#F2A93B", "#F2C14E", "#7BB04B", "#3E7CB1", "#6B4FA0")):
+        g.add(stroke(zoo.P._arc(0.0, 0.0, 0.5 - i * 0.05, 0, 180, 30), c, w * 2.4))
+    return g, None
+
+
+def _volcano(m, w):
+    return VGroup(poly([(-0.6, 0.0), (-0.14, 0.55), (0.14, 0.55), (0.6, 0.0)], "#6E5A4A", w),
+                  poly([(-0.14, 0.55), (-0.06, 0.4), (0.0, 0.5), (0.06, 0.38), (0.14, 0.55)], "#E4572E", w * 0.6),
+                  poly([(-0.05, 0.42), (-0.15, 0.1), (-0.08, 0.25), (0.0, 0.05), (0.03, 0.3)], "#F2A93B", 0),
+                  *(live(circ(x, y, r, "#8C8A86", w * 0.5), "puff") for x, y, r in ((0.0, 0.66, 0.08), (0.1, 0.78, 0.1), (-0.05, 0.9, 0.12)))), None
+
+
+def _island(m, w):
+    g = VGroup(ell(0.0, 0.03, 1.0, 0.1, "#9FC5DA", w * 0.6), blob([(-0.35, 0.03), (-0.2, 0.12), (0.2, 0.13), (0.35, 0.03)], "#E8D19A", w))
+    p, _ = _palm({}, w)
+    p.scale(0.6, about_point=np.array([0.0, 0.0, 0.0])).shift([0.05, 0.1, 0])
+    g.add(p)
+    return g, None
+
+
+def _leaf(m, w):
+    c = col(m["color"]) if m.get("color") else "#5B8C3A"
+    return VGroup(blob([(0.0, 0.0), (-0.12, 0.15), (-0.08, 0.35), (0.0, 0.42), (0.08, 0.35), (0.12, 0.15)], c, w),
+                  stroke([(0.0, 0.0), (0.0, 0.4)], tint(c, -0.3), w), *(stroke([(0.0, y), (s * 0.07, y + 0.06)], tint(c, -0.3), w * 0.6)
+                                                                        for y in (0.12, 0.22) for s in (-1, 1))), None
+
+
+def _sprout(m, w):
+    return VGroup(ell(0.0, 0.02, 0.3, 0.06, "#8C6E52", w), stroke([(0.0, 0.03), (0.0, 0.2)], "#5B8C3A", w * 1.6),
+                  blob([(0.0, 0.18), (-0.12, 0.26), (-0.04, 0.2)], "#7BB04B", w * 0.6), blob([(0.0, 0.2), (0.12, 0.3), (0.05, 0.21)], "#7BB04B", w * 0.6)), None
+
+
+def _beehive(m, w):
+    g = VGroup(line((0.0, 0.5), (0.0, 0.62), WOOD_D, w * 1.2))
+    for i, (wd, y) in enumerate(((0.16, 0.42), (0.22, 0.32), (0.24, 0.2), (0.2, 0.09))):
+        g.add(ell(0.0, y, wd * 2, 0.13, "#E2B65A", w))
+    bees = [VGroup(ell(x, y, 0.05, 0.03, GOLD, w * 0.4), line((x - 0.02, y), (x + 0.02, y), "#22201E", w * 0.6))
+            for x, y in ((0.3, 0.4), (-0.28, 0.3))]
+    g.add(ell(0.0, 0.12, 0.08, 0.06, "#3A2A1E", 0), *bees)
+    return g, None
+
+
+def _nest(m, w):
+    return VGroup(*(ell(x, 0.13, 0.08, 0.1, "#F3EEE4", w * 0.6) for x in (-0.05, 0.05, 0.0)),
+                  blob([(-0.25, 0.12), (-0.2, 0.02), (0.0, 0.0), (0.2, 0.02), (0.25, 0.12), (0.0, 0.08)], "#8C6E52", w),
+                  *(stroke([(-0.22 + i * 0.06, 0.03), (-0.16 + i * 0.06, 0.12)], "#6B4A2F", w * 0.6) for i in range(8))), None
+
+
+def _logs(m, w):
+    g = VGroup()
+    for r, n in ((0, 3), (1, 2), (2, 1)):
+        for i in range(n):
+            x, y = -0.12 * (n - 1) + i * 0.24, 0.1 + r * 0.17
+            g.add(circ(x, y, 0.1, "#9A6B43", w), circ(x, y, 0.06, "#C9A066", w * 0.4), circ(x, y, 0.02, "#9A6B43", 0))
+    return g, None
+
+
+# -- care and learning (more) -----------------------------------------------------------------------------------------
+
+def _mask(m, w):
+    return VGroup(blob([(-0.18, 0.08), (-0.16, 0.2), (0.0, 0.24), (0.16, 0.2), (0.18, 0.08), (0.0, 0.03)], "#9FD3F0", w),
+                  *(stroke([(-0.13, y), (0.13, y)], "#7FB4D6", w * 0.6) for y in (0.1, 0.15, 0.19)),
+                  stroke([(-0.18, 0.16), (-0.27, 0.18), (-0.25, 0.08), (-0.18, 0.1)], "#F3EEE4", w),
+                  stroke([(0.18, 0.16), (0.27, 0.18), (0.25, 0.08), (0.18, 0.1)], "#F3EEE4", w)), None
+
+
+def _thermometer(m, w):
+    level = float(m.get("of") or 0.7) if str(m.get("of") or "").replace(".", "").isdigit() else 0.7
+    return VGroup(rrect(-0.03, 0.06, 0.03, 0.5, 0.03, "#F7F5F0", w), circ(0.0, 0.06, 0.06, RED, w),
+                  rect(-0.012, 0.06, 0.012, 0.06 + 0.42 * level, RED, 0),
+                  *(line((0.03, y), (0.06, y), "#3A3631", w * 0.5) for y in np.linspace(0.12, 0.46, 7))), None
+
+
+def _heart(m, w):
+    c = col(m["color"]) if m.get("color") else "#D63B2F"
+    return VGroup(blob([(0.0, 0.0), (-0.18, 0.16), (-0.17, 0.28), (-0.08, 0.32), (0.0, 0.25), (0.08, 0.32), (0.17, 0.28), (0.18, 0.16)], c, w),
+                  stroke([(-0.12, 0.25), (-0.1, 0.18)], "#FFFFFF", w * 1.2)), None
+
+
+def _gradcap(m, w):
+    return VGroup(blob(zoo.P._arc(0.0, 0.06, 0.15, 180, 360, 10) + [(0.15, 0.12), (-0.15, 0.12)], "#22201E", w),
+                  poly([(-0.3, 0.14), (0.0, 0.24), (0.3, 0.14), (0.0, 0.04)], "#22201E", w),
+                  stroke([(0.0, 0.14), (0.2, 0.14), (0.22, 0.0)], GOLD, w * 1.2), poly([(0.2, 0.02), (0.24, 0.02), (0.22, -0.04)], GOLD, w * 0.5)), None
+
+
+def _diploma(m, w):
+    return VGroup(rrect(-0.25, 0.0, 0.25, 0.1, 0.05, PAPER, w), circ(-0.25, 0.05, 0.05, "#EFE1BE", w),
+                  rect(-0.03, 0.0, 0.03, 0.1, RED, w * 0.5), poly([(-0.02, 0.0), (-0.05, -0.08), (0.0, -0.05), (0.05, -0.08), (0.02, 0.0)], RED, w * 0.5)), None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": "coins", "treasure": "chest",
@@ -1739,7 +2410,7 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "throne_chair": "throne", "cupboard": "bookshelf", "shelf": "bookshelf", "grain": "sack", "matka": "pot",
            "amphora": "jar", "lamp": "diya", "fire": "campfire", "plow": "plough",
            "spinningwheel": "charkha", "balance": "scales", "timer": "hourglass", "chalice": "goblet", "idea": "lightbulb",
-           "press": "printingpress", "door": "gate", "sign": "signpost",
+           "press": "printingpress", "sign": "signpost",
            "flag": "flagpole", "wagon": "cart", "bullockcart": "cart", "cottage": "hut", "home": "house",
            "moneybox": "piggybank", "creditcard": "card", "bill": "receipt", "vault": "safe", "marketstall": "stall",
            "pen": "pencil", "copy": "notebook", "file": "folder", "files": "folder", "mobile": "phone",
@@ -1755,7 +2426,19 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "store": "shop", "building": "skyscraper", "hill": "mountain", "peak": "mountain", "rose": "flower",
            "lock": "padlock", "present": "gift", "cricket": "cricketbat", "explosive": "bomb", "carpet": "rug",
            "flags": "bunting", "rifle": "musket", "tiranga": "flagindia", "indianflag": "flagindia", "cot": "charpai",
-           "top": "lattu", "dabba": "tiffin"}
+           "top": "lattu", "dabba": "tiffin",
+           "trebuchet": "catapult", "armour": "armor", "suitofarmor": "armor", "standard": "banner", "trumpet": "horn",
+           "bugle": "horn", "knife": "dagger", "cannonball": "cannonballs", "pyramid": "pyramids", "column": "pillar",
+           "handloom": "loom", "shankh": "conch", "bansuri": "flute", "palki": "palanquin", "stove": "chulha",
+           "pump": "handpump", "hay": "haystack", "masala": "spices", "globe": "deskglobe", "turbine": "windturbine",
+           "powerline": "pylon", "lamppost": "streetlight", "signal": "trafficlight", "board": "whiteboard",
+           "chalkboard": "blackboard", "petrolpump": "fuelpump", "gaspump": "fuelpump", "shippingcontainer": "container",
+           "trolley": "shoppingcart", "price": "pricetag", "till": "cashregister", "luggage": "suitcase",
+           "schoolbag": "backpack", "couch": "sofa", "desklamp": "tablelamp", "wok": "pan", "dish": "plate",
+           "pitcher": "jug", "postbox": "mailbox", "refrigerator": "fridge", "boot": "shoe", "clothes": "shirt",
+           "pine": "pinetree", "rain": "raincloud", "thunder": "lightning", "snow": "snowflake", "seedling": "sprout",
+           "seed": "sprout", "honey": "beehive", "eggs": "nest", "firewood": "logs", "fever": "thermometer",
+           "love": "heart", "graduation": "gradcap", "degree": "diploma", "certificate": "diploma"}
 NAMES = tuple(sorted(SHELF))
 
 

@@ -424,7 +424,9 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             if shot is None:
                 shot = Shot("main", 0.0, 0.0, 1.0, n)
                 sc.shots["main"] = shot
-            toks = toks[:3] + [_renamed(t, alias) for t in toks[3:]]
+            # (a prop's or an animal's kind, `prop crown`, is a word, never a renamed thing called crown)
+            keep = 4 if toks[2] in ("prop", "animal") else 3
+            toks = toks[:keep] + [_renamed(t, alias) for t in toks[keep:]]
             args, mods = parse_mods(toks[3:])
             if cast is not None:
                 args, mods = list(cast[1]) + args, {**cast[2], **mods}

@@ -57,7 +57,8 @@ USES = {**{n: "eat" for n in FOOD}, **{n: "drink" for n in CUPS}, **{n: "read" f
         "pencil": "write", "inkwell": "write", "desk": "write", "chest": "open", "box": "open", "safe": "count",
         "bicycle": "ride", "rickshaw": "ride", "cart": "ride", "tractor": "ride", "boat": "ride", "car": "ride",
         "bus": "ride", "truck": "ride", "train": "ride", "plane": "ride", "carriage": "ride", "autorickshaw": "ride",
-        "ship": "ride", "microphone": "talk", "megaphone": "phone"}
+        "ship": "ride", "microphone": "talk", "megaphone": "phone", "plough": "push", "wheel": "push",
+        "telescope": "read", "map": "read", "lantern": "holdup", "torch": "holdup", "goblet": "drink"}
 # Where a rider sits on a vehicle (its own frame), and those that swallow their riders (seen through no window)
 VEHICLE_SEATS = {"bicycle": (-0.06, 0.24), "rickshaw": (0.2, 0.3), "cart": (-0.05, 0.3), "tractor": (-0.15, 0.3),
                  "boat": (0.05, 0.12)}
@@ -221,7 +222,7 @@ class UseActs:
             v = verb_for(kind)
             if v == "sit" or v == "sleep":
                 on, xn, xm = xn, None, None
-            if v in ("ride", "talk", "kick", "open"):
+            if v in ("ride", "talk", "kick", "open", "push"):
                 from score import Act
                 sub = Act(act.t0, act.t1, v, act.target, [item], act.line, act.text) if v != "talk" else \
                     Act(act.t0, act.t1, "talk", act.target, [], act.line, act.text)
@@ -632,8 +633,12 @@ class UseActs:
         self.tweens.append(Call(t0, t1, start, step, stop or (lambda: None), rate_functions.linear))
 
     def _do(self, act):
-        """Plays another action now (`use` turned into the verb it means)."""
-        self._schedule(act)
+        """Plays another action now (`use` turned into the verb it means): it is this action, not one queued after."""
+        self._no_queue = True
+        try:
+            self._schedule(act)
+        finally:
+            self._no_queue = False
 
     def _open_by(self, pn, pm, xn, xm, verb, t0, t1) -> None:
         """`open P X`: walks to it, a hand to its lid, and it opens (or shuts)."""

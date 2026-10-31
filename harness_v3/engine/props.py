@@ -568,9 +568,19 @@ def _anvil(m, w):
 
 
 def _plough(m, w):
-    return VGroup(line((-0.4, 0.3), (0.1, 0.08), WOOD, w * 3.2), line((0.1, 0.08), (0.25, 0.02), WOOD, w * 3.2),
-                  poly([(0.2, 0.0), (0.32, 0.0), (0.26, 0.06)], IRON, w), line((-0.4, 0.3), (-0.45, 0.42), WOOD, w * 2.6),
-                  line((0.05, 0.1), (0.05, 0.0), WOOD_D, w * 2.6)), None
+    """A wooden plough: the long beam, two handles behind, the iron share in front cutting the earth, a small wheel."""
+    g = VGroup(tube([(-0.42, 0.42), (-0.15, 0.24), (0.15, 0.12), (0.32, 0.1)], [0.05, 0.05, 0.045, 0.04], WOOD, w),
+               tube([(-0.5, 0.5), (-0.28, 0.2), (-0.12, 0.06)], [0.035, 0.035, 0.03], WOOD_D, w),
+               tube([(-0.38, 0.52), (-0.18, 0.22), (-0.05, 0.07)], [0.035, 0.035, 0.03], WOOD, w),
+               line((-0.53, 0.5), (-0.47, 0.52), WOOD_D, w * 2.6), line((-0.41, 0.52), (-0.35, 0.54), WOOD_D, w * 2.6),
+               tube([(0.0, 0.16), (0.04, 0.06)], [0.04, 0.035], WOOD_D, w),
+               poly([(-0.06, 0.07), (0.12, 0.07), (0.2, 0.0), (-0.02, 0.0)], IRON, w),
+               stroke([(-0.03, 0.035), (0.14, 0.035)], "#C9D0D4", w * 0.8),
+               blob([(-0.2, 0.0), (0.3, 0.0), (0.25, 0.03), (-0.15, 0.03)], "#8C6E52", 0))  # turned earth
+    wh, _ = _wheel({"color": WOOD_D}, w)
+    wh.scale(0.45, about_point=np.array([0.0, 0.0, 0.0])).shift([0.3, 0.0, 0])
+    g.add(wh)
+    return g, None
 
 
 def _wheel(m, w):

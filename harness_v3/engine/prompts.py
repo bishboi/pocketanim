@@ -21,7 +21,9 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
          | prop NAME [open] [color C] [sign ₹] [label "WORDS"] [of fruit|bread|flowers|grain|fish] [size H]
            A THING READY DRAWN, in the people's hand and scale (it stands on its `at`: its bottom middle there; set
            it on the ground at y -2.9 beside people, or on a table's top). USE A PROP FIRST whenever the thing is on
-           this shelf (no picture is searched for or made); `size 6-9` to show one big, alone:
+           this shelf (no picture is searched for or made). With no size it is its own size beside people (a crown
+           small, a house taller than a person); `size S` makes its longest side S on the screen (a person is 2.6
+           tall; a crown shown alone: size 1.5-2.5; a bench: size 2-3; a house: size 3-4):
            money, trade: moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt abacus safe
            stall scales | writing, office: book books openbook ledger scroll letter document charter newspaper oldmap
            quill inkwell seal pencil notebook clipboard folder stamp typewriter briefcase ballotbox | modern: laptop

@@ -534,7 +534,9 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = zoo.animal(args[0] if args else "horse", mods, size or 2.6, c)
     elif kind == "prop":
         import props
-        m = props.prop(args[0] if args else "crate", mods if not c else {**mods, "color": c}, size or 2.6)
+        m = props.prop(args[0] if args else "crate", mods if not c else {**mods, "color": c}, 2.6)
+        if size:                                # `size S`: its longest side on the screen (a person stands 2.6)
+            m.scale(float(size) / max(m.height, m.width, 1e-3), about_point=m.get_bottom())
     elif kind in ("nation", "country"):
         import people
         m = people.nation(args[0] if args else "France", mods, size or 2.6, c)

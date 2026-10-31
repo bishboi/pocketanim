@@ -692,9 +692,10 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
                 except Exception:  # noqa: BLE001
                     p = None
         if p is None and fx is None and is_map:  # a part of the land with no name of its own: spread over the country
-            land = _land_spots(pic, len(names))
+            n0 = getattr(pic, "_label_n", 0)      # (other labels on this map took the first spots)
+            land = _land_spots(pic, n0 + len(names))
             if land:
-                p = land[i % len(land)]
+                p = land[(n0 + i) % len(land)]
         if p is None:
             if fx is None:
                 fx, fy = free[i % len(free)]
@@ -706,7 +707,10 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
     room_l = screen is None or ul[0] - widest >= screen[0]
     room_r = screen is None or dr[0] + widest <= screen[1]
     out = []
-    placed = []                                 # chips already set (their boxes), so none lands on another
+    # chips and names already set on this picture (by this line or another labels line on it): none lands on another
+    if not hasattr(pic, "_label_chips"):
+        pic._label_chips, pic._label_ys = [], {-1: [], 1: []}
+    placed = pic._label_chips
     for (nm, p, lit), t in zip(spots, words):
         side = -1 if p[0] < (ul[0] + dr[0]) / 2 else 1
         part = VGroup()
@@ -721,9 +725,16 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
             if not (room_l if side < 0 else room_r):
                 side = -side
             x = (ul[0] - 0.35 - t.width / 2) if side < 0 else (dr[0] + 0.35 + t.width / 2)
-            t.move_to([x, p[1], 0])
+            y = p[1]
+            for _ in range(20):                 # names on one side kept a line apart
+                near = [y_ for y_ in pic._label_ys[side] if abs(y_ - y) < t.height + 0.22]
+                if not near:
+                    break
+                y = min(near) - (t.height + 0.24) if y <= max(near) else max(near) + t.height + 0.24
+            pic._label_ys[side].append(y)
+            t.move_to([x, y, 0])
             chip = t
-            end = np.array([x + (t.width / 2 + 0.1) * (1 if side < 0 else -1), p[1], 0])
+            end = np.array([x + (t.width / 2 + 0.1) * (1 if side < 0 else -1), y, 0])
         else:                                   # a paper chip on the picture beside its part, clear of the others
             box = RoundedRectangle(width=t.width + 0.3, height=t.height + 0.24, corner_radius=0.08, fill_color=col("bg"),
                                    fill_opacity=0.96, stroke_color=col("ink"), stroke_width=1.6)
@@ -764,6 +775,7 @@ def labels(pic, names: list[str], mods: dict, c=None, screen: tuple[float, float
         ln = Line(p, end, stroke_color=col("ink"), stroke_width=STROKE * 0.35)
         part.add(ln, dot, chip)
         out.append(part)
+    pic._label_n = getattr(pic, "_label_n", 0) + len(names)
     return VGroup(*out)
 
 

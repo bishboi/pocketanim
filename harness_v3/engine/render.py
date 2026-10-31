@@ -671,6 +671,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             rel = self._relation(e)
             if rel:
                 self._beside(m, rel[0], rel[1], e)
+                if e.shot in self.SCORE.shots and e.kind not in MAP_KINDS:     # (set beside it, but on the screen)
+                    self._on_screen(m, self.SCORE.shots[e.shot])
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
         if e.kind in MAP_KINDS:
@@ -736,6 +738,7 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         """Put an entity on the screen (all its parts hidden but this one: each part comes on by its own tween)."""
         whole = self.E[name]
         if id(whole) not in self.up:
+            self._in_front_of_flat(name, whole)
             self.up.add(id(whole))
             if whole is not m:
                 for p in whole.submobjects:
@@ -743,6 +746,30 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             else:
                 self._alpha(whole).set(0.0)
             self.add(whole)
+
+    FIGS = ("person", "animal", "nation", "country")
+    FLAT = ("pic", "photo", "map", "card", "backdrop", "portrait", "polaroids", "clipping", "doc", "split", "who",
+            "globe", "layers", "inset")
+
+    def _in_front_of_flat(self, name: str, whole) -> None:
+        """A figure stands in front of the pictures, maps and cards on the screen (unless the score layers them)."""
+        e = self.SCORE.ents.get(name)
+        if e is None or e.mods.get("layer") is not None:
+            return
+
+        def z_of(m):
+            return max((x.z_index for x in m.get_family()), default=0)
+        up = [(n, self.E[n]) for n, x in self.SCORE.ents.items() if n in self.E and id(self.E[n]) in self.up
+              and x.mods.get("layer") is None]
+        if e.kind in self.FIGS:
+            top = max((z_of(m) for n, m in up if self._kind(n) in self.FLAT), default=None)
+            if top is not None and z_of(whole) <= top:
+                whole.set_z_index(top + 1)
+        elif e.kind in self.FLAT:
+            z = z_of(whole)
+            for n, m in up:
+                if self._kind(n) in self.FIGS and z_of(m) <= z:
+                    m.set_z_index(z + 1)
 
     # ------------------------------------------------------------ the clock --------------------------------------------
     DRIFT = 0.005           # the camera's slow push in while no camera move runs (a share of the view a second)
@@ -833,11 +860,35 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         run = max(0.3, (t1 - t0) - stagger * (n - 1))
         return [(it, t0 + i * stagger, t0 + i * stagger + run) for i, it in enumerate(items)]
 
+    # What a person does with their whole body, one thing at a time: an action that would start while another is
+    # still playing on the same person (a pickup and a holdup on one word) waits for it to end, so they never fight.
+    BODY = {"walk", "run", "ride", "dismount", "sit", "stand", "jump", "dance", "hug", "give", "throw", "push", "tug",
+            "kick", "carry", "bow", "faint", "shake", "move", "open", "shut", "graze", "rear", "fly"} | set(handle.USE_VERBS)
+
+    def _queued(self, act: S.Act, t0: float, t1: float) -> tuple[float, float]:
+        v = act.verb
+        if v not in self.BODY or v == "drive" or getattr(self, "_no_queue", False):
+            return t0, t1
+        actors = [act.target] + [x for x in act.args if x in self.SCORE.ents]
+        actors = [a for a in actors if self._kind(a) in ("person", "animal", "nation", "country")]
+        if not actors or (v in ("shake", "move", "open", "shut") and self._kind(act.target) not in ("person", "animal")):
+            return t0, t1
+        busy = getattr(self, "_busy", None)
+        if busy is None:
+            busy = self._busy = {}
+        wait = max([busy.get(a, -1e9) for a in actors] + [t0]) - t0
+        if wait > 0.05:
+            t0, t1 = t0 + wait, t1 + wait
+        for a in actors:
+            busy[a] = max(busy.get(a, -1e9), t1)
+        return t0, t1
+
     def _schedule(self, act: S.Act) -> None:
         v = act.verb
         if v == "cam":
             return self._cam(act)
         t0, t1 = self._span(act, lead=v not in ("float", "flow"))
+        t0, t1 = self._queued(act, t0, t1)
         how = act.args[0] if act.args and not re.match(r"^[\d\-.,]+$", act.args[0]) and act.args[0] not in ("to", "by", "stagger", "n", "arc") else None
         stagger = self._opt(act, "stagger")
         if v == "in" and self._kind(act.target) == "labels":   # labels: one after another, each popping on
@@ -922,6 +973,10 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             to = float(next((a for a in act.args if re.match(r"^[\d.]+$", a)), "1"))
             colour = look.col(next((a for a in act.args if a in look.L), "sky"))
             for (name, m) in self._targets(act.target):
+                if self._kind(name) in ("map", "pic", "photo", "card", "portrait", "backdrop", "prop", "person",
+                                        "animal", "doc", "tag", "title", "label", "text"):
+                    self._glow(name, m, colour, t0, t1)   # (a picture or a map is not a vessel to fill: it glows)
+                    continue
                 self._fill(name, m, min(1.0, to / 100 if to > 1 else to), colour, t0, t1)
         elif v == "connect":
             (na, ma), = self._targets(act.target)[:1]
@@ -1590,10 +1645,28 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 mk = VGroup(frame, t.move_to(frame)).rotate(-0.21).move_to(c0)
                 how = "stamp"
             elif kind == "callout":
-                d = {"left": LEFT, "right": RIGHT, "up": UP, "down": DOWN}.get(side or "", UP + RIGHT)
-                t = look.label(words or "", 0.15, "ink").set_stroke(look.col("bg"), width=6, background=True)
-                far = c0 + np.array([d[0] * (w / 2 + 0.9), d[1] * (h / 2 + 0.7), 0])
-                t.move_to(far + np.array([np.sign(d[0]) * t.width / 2, np.sign(d[1]) * 0.12, 0]))
+                d0 = {"left": LEFT, "right": RIGHT, "up": UP, "down": DOWN}.get(side or "", UP + RIGHT)
+                t = look.label(words or "", 0.17, "ink").set_stroke(look.col("bg"), width=6, background=True)
+                fr = self.camera.frame
+                fc, fw, fh = fr.get_center(), fr.width, fr.height
+                lo_x, hi_x = fc[0] - fw / 2 + 0.3, fc[0] + fw / 2 - 0.3
+                lo_y, hi_y = fc[1] - fh / 2 + 0.75, fc[1] + fh / 2 - 0.3      # (above the chapter bar)
+
+                def placed(d):
+                    far_ = c0 + np.array([d[0] * (w / 2 + 0.9), d[1] * (h / 2 + 0.7), 0])
+                    at_ = far_ + np.array([np.sign(d[0]) * t.width / 2, np.sign(d[1]) * 0.12, 0])
+                    out_ = max(0.0, lo_x - (at_[0] - t.width / 2)) + max(0.0, at_[0] + t.width / 2 - hi_x) + \
+                        max(0.0, lo_y - (at_[1] - t.height / 2)) + max(0.0, at_[1] + t.height / 2 - hi_y)
+                    return out_, far_, at_
+                # the side asked for, else the one that keeps it on the screen
+                tries = [d0, d0 * np.array([1, -1, 1]), d0 * np.array([-1, 1, 1]), -d0, RIGHT, LEFT, UP, DOWN]
+                best = min(((placed(d)[0] + (0 if i == 0 else 0.01 * i), i, d) for i, d in enumerate(tries)),
+                           key=lambda r_: r_[0])
+                d = best[2]
+                _, far, at_ = placed(d)
+                at_[0] = min(max(at_[0], lo_x + t.width / 2), hi_x - t.width / 2)
+                at_[1] = min(max(at_[1], lo_y + t.height / 2), hi_y - t.height / 2)
+                t.move_to(at_)
                 start_pt = c0 + np.array([d[0] * w / 2, d[1] * h / 2, 0]) * 0.85
                 mk = VGroup(Dot(start_pt, radius=0.06, color=c), Line(start_pt, far, stroke_color=c, stroke_width=look.STROKE * 0.4), t)
             elif kind == "bracket":
@@ -2436,6 +2509,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             w1 = S.SCREEN_W / s.zoom
             st["rel0"] = (m.get_center() - f.get_center()) / f.width
             dest = np.array([s.x, s.y, 0.0]) + (np.array([*(float(v) for v in xy.split(",")), 0.0]) if xy else st["rel0"] * w1)
+            if xy and (self._figure(self.SCORE.ents.get(name)) or self._kind(name) == "prop"):
+                dest = dest + (m.get_center() - m.feet())   # a figure stands on the point (its feet there), as `at`
             st["rel1"] = (dest - np.array([s.x, s.y, 0.0])) / w1
             st["fw"] = f.width
             self.still.add(name)                # no parallax while it rides on the screen

@@ -188,6 +188,64 @@ def _renamed(tok: str, alias: dict[str, str]) -> str:
     return ",".join(out)
 
 
+# Verbs only a figure does (a person, a nation, an animal): a cast name with these is always the cast figure.
+FIGURE_VERBS = {"walk", "run", "point", "wave", "talk", "carry", "sit", "stand", "turn", "cheer", "shrug", "think", "bow",
+                "jump", "nod", "emote", "dance", "clap", "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint",
+                "hug", "ride", "dismount", "graze", "rear", "fly", "react", "give", "throw", "push", "tug", "shake",
+                "argue", "whisper", "pickup", "put", "drop", "wear", "holdup", "read", "write", "eat", "drink", "phone",
+                "type", "hammer", "sweep", "count", "vote", "stir", "climb", "sleep", "use", "say"}
+CAST_XS = (-4.5, 4.5, -1.5, 1.5, -6.0, 6.0)      # where a cast figure stands when it comes on with no `ent` line
+
+
+def _clashed(tok: str, clash: dict, shot: str, figure: bool) -> str:
+    """A cast name that a thing was also given (`ent china region ...`): the thing, if this is no figure's verb and
+    is in the shot the thing was made in; else the cast figure."""
+    out = []
+    for part in tok.split(","):
+        m = REF.match(part)
+        if m and m.group(1) in clash and not figure and clash[m.group(1)][1] == shot:
+            part = clash[m.group(1)][0] + m.group(2)
+        out.append(part)
+    return ",".join(out)
+
+
+def _cast_called(sc, toks: list[str], n: int, t0: float, alias: dict, shot, line: str) -> list[str]:
+    """A cast figure acted on with no `ent` line for it yet: made, where `bring X to SHOT X,Y` puts it, else on the
+    ground of the shot these lines are in; it comes on (`in X rise`) as it is first called."""
+    names = []
+    for t in toks[2:]:
+        for part in t.split(","):
+            m = REF.match(part)
+            if m and m.group(1) in sc.cast and m.group(1) not in alias and m.group(1) not in names:
+                names.append(m.group(1))
+    if not names:
+        return toks
+    for name in names:
+        kind, cargs, cmods = sc.cast[name]
+        where = shot.name if shot else "main"
+        y = -2.6 if kind == "nation" else -2.9
+        xy = (CAST_XS[list(sc.cast).index(name) % len(CAST_XS)], y)
+        brought = toks[1] == "bring" and toks[2] == name
+        if brought:
+            rest = toks[3:]
+            to = rest[rest.index("to") + 1] if "to" in rest and rest.index("to") + 1 < len(rest) else (rest[0] if rest else "")
+            if to in sc.shots:
+                where = to
+            pt = next((a for a in rest if re.match(r"^-?[\d.]+,-?[\d.]+$", a)), None)
+            if pt:
+                xy = _xy(pt)
+        if where not in sc.shots:
+            sc.shots[where] = Shot(where, 0.0, 0.0, 1.0, n)
+        sc.ents[name] = Ent(name, kind, list(cargs), {**cmods, "at": xy}, where, n)
+        alias[name] = name
+        if not (toks[1] == "in" and name in toks[2].split(",")):
+            sc.acts.append(Act(t0, None, "in", name, ["rise"], n, f"in {name} rise (added)"))
+        sc.notes.append(f"line {n}: {name} (cast) had no `ent` line: it comes on in shot {where} at {xy[0]:g},{xy[1]:g}")
+        if brought:
+            return []                       # the bring was its coming on
+    return toks
+
+
 # Words a model writes for a verb the grammar has (`appear X` is `in X`).
 VERB_ALIAS = {"appear": "in", "show": "in", "enter": "in", "reveal": "in", "add": "in", "disappear": "out",
               "hide": "out", "exit": "out", "remove": "out", "vanish": "out", "camera": "cam", "zoom": "cam",
@@ -443,9 +501,15 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
                     mods[k] = mods.pop("at")
             name = toks[1]
             if name in sc.cast and cast is None and toks[2] != sc.cast[name][0]:
-                sc.notes.append(f"line {n}: {name!r} is a cast {sc.cast[name][0]}, and this makes it a {toks[2]}: from here "
-                                f"on {name} is the {toks[2]} (call it another name, {name}_{toks[2]}, to keep the cast one)")
-            name = toks[1]
+                # `cast china nation ...` then `ent china region "China" on map`: the region is called china_region; the
+                # name stays the cast figure's (the actions in this shot that suit a region find the region: _clashed)
+                new = f"{name}_{toks[2]}"
+                while new in sc.ents or new in alias:
+                    new += "_"
+                state.setdefault("clash", {})[name] = (new, shot.name)
+                sc.notes.append(f"line {n}: {name!r} is a cast {sc.cast[name][0]}; this {toks[2]} is called {new} (in shot "
+                                f"{shot.name} what is done to {name} that is not a figure's is done to it)")
+                name = new
             if name in alias and sc.ents[alias[name]].shot != shot.name:
                 new = f"{name}_{shot.name}"
                 while new in sc.ents:
@@ -458,6 +522,13 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             sc.ents[alias[name]] = Ent(alias[name], toks[2], args, mods, shot.name, n)
         else:
             t0, t1 = _when(head, words, seconds)
+            if state.get("clash") and len(toks) > 2:
+                fig = toks[1] in FIGURE_VERBS
+                toks = toks[:2] + [_clashed(t, state["clash"], shot.name if shot else "", fig) for t in toks[2:]]
+            if sc.cast and len(toks) > 2:
+                toks = _cast_called(sc, toks, n, t0, alias, shot, line)
+                if not toks:
+                    return
             toks = toks[:2] + [_renamed(t, alias) for t in toks[2:]]
             verb = toks[1]
             target = toks[2] if len(toks) > 2 else ""

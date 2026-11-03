@@ -16,7 +16,7 @@ import math
 import sys
 
 import numpy as np
-from manim import Circle, Dot, Ellipse, Line, RoundedRectangle, Text, VGroup
+from manim import Circle, Dot, Ellipse, Line, LineJointType, Polygon, RoundedRectangle, Square, Text, VGroup
 
 import zoo
 from look import col
@@ -6112,6 +6112,8 @@ def _waterlogging(m, w):
 
 
 # -- icons and words: stickers, badges and signs that carry a word (`label "WORDS"`), and simple picture-signs --------
+# One family: each is a die-cut paper sticker (a paper border round its shape, a printed shadow under it), coloured
+# from the look's own palette, its words in the look's headline face, every stroke the same pen.
 
 def word(txt, x, y, h, c="#22201E", maxw=None):
     """Words in the look's headline face, bold, fitted to a height (and a width)."""
@@ -6127,259 +6129,456 @@ def said_or(m, default):
     return str(m.get("label") or default)
 
 
+def hue(m, name, default=None):
+    """A colour of the look (`accent`, `coral`, `teal`, `navy`, `red`, `green`, `sky`, `card`, `ink`), or the
+    thing's own `color`."""
+    if m.get("color"):
+        return col(m["color"])
+    return col(default or name)
+
+
+def sticker(g, w, edge=6.0):
+    """A die-cut sticker of a drawing: a paper border round every part and a printed shadow under it."""
+    paper, shade = col("card"), tint(col("bg"), -0.2)
+    parts = [x for x in g.family_members_with_points() if not getattr(x, "flat", False)]
+
+    def cut(c, k):
+        out = VGroup()
+        for x in parts:
+            y = x.copy()
+            y.submobjects = []
+            filled = y.get_fill_opacity() > 0.05
+            y.set_fill(c, opacity=1 if filled else 0).set_stroke(c, width=max(y.get_stroke_width(), w) + w * k, opacity=1)
+            y.joint_type = LineJointType.ROUND
+            out.add(y)
+        out.flat = True
+        for y in out:
+            y.flat = True
+        return out
+    back = cut(shade, edge).shift(np.array([0.012, -0.02, 0]))
+    border = cut(paper, edge)
+    return VGroup(back, border, g)
+
+
+def disc(x, y, r, c, w):
+    """A round token: a rim a shade darker, the face, a shine at the upper left."""
+    return VGroup(circ(x, y, r, tint(c, -0.22), w), circ(x, y - r * 0.04, r * 0.84, c, 0),
+                  stroke(zoo.P._arc(x, y, r * 0.66, 110, 160, 6), tint(c, 0.45), w * 1.3))
+
+
+def token(m, w, c, glyph, k=1.0):
+    r = 0.22
+    g = VGroup(disc(0.0, r, r, c, w))
+    g.add(glyph if not isinstance(glyph, str) else word(glyph, 0.0, r * 0.97, 0.22 * k, col("card"), r * 1.3))
+    return sticker(g, w)
+
+
+def tile(w, x0=-0.32, y0=0.0, x1=0.32, y1=0.46):
+    """A paper card for a chart to stand on."""
+    return VGroup(rrect(x0, y0, x1, y1, 0.04, col("card"), w),
+                  *(line((x0 + 0.05, y), (x1 - 0.05, y), tint(col("card"), -0.12), w * 0.5) for y in np.linspace(y0 + 0.1, y1 - 0.08, 4)))
+
+
+def arrowhead(tip, d, s, c, w):
+    """A filled arrowhead at a tip, pointing along d."""
+    d = np.array(d, dtype=float) / (np.linalg.norm(d) or 1)
+    n = np.array([-d[1], d[0]])
+    t = np.array(tip, dtype=float)
+    return poly([tuple(t), tuple(t - d * s + n * s * 0.62), tuple(t - d * s - n * s * 0.62)], c, w)
+
+
 def _burst(m, w):
-    c = col(m["color"]) if m.get("color") else "#F2C14E"
+    c = hue(m, "accent")
     pts = []
-    for i in range(24):
-        a = math.radians(i * 15)
-        r = 0.42 if i % 2 == 0 else 0.3
-        r *= 1.0 + 0.08 * math.sin(i * 1.7)
-        pts.append((r * math.cos(a), 0.42 + r * 0.82 * math.sin(a)))
-    inner = [(0.85 * x, 0.42 + 0.85 * (y - 0.42)) for x, y in pts]
-    return VGroup(poly(pts, RED, w), poly(inner, c, 0), word(said_or(m, "WOW!"), 0.0, 0.42, 0.16, "#22201E", 0.5)), None
+    for i in range(28):
+        a = math.radians(i * 360 / 28 + 4)
+        r = (0.4 if i % 2 == 0 else 0.29) * (1.0 + 0.06 * math.sin(i * 2.3))
+        pts.append((r * 1.1 * math.cos(a), 0.4 + r * 0.86 * math.sin(a)))
+    inner = [(0.8 * x, 0.4 + 0.8 * (y - 0.4)) for x, y in pts]
+    g = VGroup(poly(pts, col("red"), w), poly(inner, c, 0), word(said_or(m, "WOW!"), 0.0, 0.4, 0.17, col("ink"), 0.52))
+    return sticker(g, w), None
 
 
 def _badge(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    g = VGroup()
-    pts = [(0.25 * (1 + 0.07 * (i % 2)) * math.cos(math.radians(i * 10)), 0.27 + 0.25 * (1 + 0.07 * (i % 2)) * math.sin(math.radians(i * 10))) for i in range(36)]
-    g.add(poly(pts, c, w), Circle(radius=0.2, stroke_color="#F7F5F0", stroke_width=w * 0.8).move_to([0.0, 0.27, 0]),
-          word(said_or(m, "NEW"), 0.0, 0.27, 0.11, "#F7F5F0", 0.3))
-    return g, None
+    c = hue(m, "red")
+    pts = [(0.27 * (1 + 0.08 * (i % 2)) * math.cos(math.radians(i * 7.5)), 0.29 + 0.27 * (1 + 0.08 * (i % 2)) * math.sin(math.radians(i * 7.5)))
+           for i in range(48)]
+    g = VGroup(poly(pts, c, w), Circle(radius=0.21, stroke_color=col("card"), stroke_width=w * 0.7).move_to([0.0, 0.29, 0]),
+               Circle(radius=0.19, stroke_color=col("card"), stroke_width=w * 0.35).move_to([0.0, 0.29, 0]),
+               word(said_or(m, "NEW"), 0.0, 0.29, 0.12, col("card"), 0.3))
+    return sticker(g, w), None
 
 
 def _ribbon(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    return VGroup(poly([(-0.55, 0.06), (-0.4, 0.06), (-0.4, 0.2), (-0.55, 0.2), (-0.5, 0.13)], tint(c, -0.25), w),
-                  poly([(0.55, 0.06), (0.4, 0.06), (0.4, 0.2), (0.55, 0.2), (0.5, 0.13)], tint(c, -0.25), w),
-                  poly([(-0.42, 0.1), (0.42, 0.1), (0.42, 0.28), (-0.42, 0.28)], c, w),
-                  poly([(-0.42, 0.1), (-0.4, 0.06), (-0.4, 0.1)], tint(c, -0.45), 0), poly([(0.42, 0.1), (0.4, 0.06), (0.4, 0.1)], tint(c, -0.45), 0),
-                  word(said_or(m, "BEST CHOICE"), 0.0, 0.19, 0.09, "#F7F5F0", 0.75)), None
+    c = hue(m, "red")
+    dark = tint(c, -0.3)
+    g = VGroup(poly([(-0.6, 0.02), (-0.36, 0.02), (-0.36, 0.2), (-0.6, 0.2), (-0.53, 0.11)], tint(c, -0.15), w),
+               poly([(0.6, 0.02), (0.36, 0.02), (0.36, 0.2), (0.6, 0.2), (0.53, 0.11)], tint(c, -0.15), w),
+               poly([(-0.44, 0.08), (-0.36, 0.02), (-0.36, 0.08)], dark, w * 0.6), poly([(0.44, 0.08), (0.36, 0.02), (0.36, 0.08)], dark, w * 0.6),
+               poly([(-0.44, 0.08), (0.44, 0.08), (0.44, 0.3), (-0.44, 0.3)], c, w),
+               line((-0.4, 0.27), (0.4, 0.27), tint(c, 0.35), w * 0.5), line((-0.4, 0.11), (0.4, 0.11), tint(c, -0.2), w * 0.5),
+               word(said_or(m, "BEST CHOICE"), 0.0, 0.19, 0.11, col("card"), 0.78))
+    return sticker(g, w), None
 
 
 def _stickynote(m, w):
-    c = col(m["color"]) if m.get("color") else "#F7E27A"
-    return VGroup(poly([(-0.22, 0.0), (0.22, 0.0), (0.22, 0.36), (-0.22, 0.4)], c, w),
-                  poly([(0.22, 0.0), (0.22, 0.08), (0.14, 0.0)], tint(c, -0.2), w * 0.5),
-                  rect(-0.06, 0.37, 0.06, 0.42, "#DDEEF6", 0).set_opacity(0.7),
-                  letters(said_or(m, "remember!"), 0.0, 0.2, 0.08, "#3A3631")), None
+    c = hue(m, "accent")
+    paper = tint(c, 0.45)
+    g = VGroup(poly([(-0.25, 0.0), (0.17, 0.0), (0.25, 0.08), (0.25, 0.48), (-0.25, 0.48)], paper, w),
+               poly([(0.17, 0.0), (0.25, 0.08), (0.17, 0.08)], tint(c, 0.1), w * 0.6),
+               rect(-0.09, 0.44, 0.09, 0.52, tint(col("sky"), 0.5), 0).set_opacity(0.75))
+    t = Text(said_or(m, "REMEMBER"), font=__import__("look").L.get("font") or "Oswald", weight="BOLD", color=col("ink"))
+    t.scale_to_fit_width(0.4)
+    if t.height > 0.1:
+        t.scale_to_fit_height(0.1)
+    g.add(t.move_to([0.0, 0.3, 0]), *(line((-0.18, y), (0.18 - 0.08 * (y < 0.12), y), tint(paper, -0.25), w * 0.5) for y in (0.18, 0.12)))
+    g.rotate(-0.05, about_point=np.array([0.0, 0.0, 0]))
+    return sticker(g, w), None
 
 
 def _stampmark(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    g = VGroup(RoundedRectangle(width=0.7, height=0.24, corner_radius=0.03, stroke_color=c, stroke_width=w * 2.2).move_to([0.0, 0.14, 0]),
-               RoundedRectangle(width=0.64, height=0.18, corner_radius=0.02, stroke_color=c, stroke_width=w * 0.8).move_to([0.0, 0.14, 0]),
-               word(said_or(m, "APPROVED"), 0.0, 0.14, 0.1, c, 0.58))
-    g.rotate(0.12, about_point=np.array([0.0, 0.14, 0]))
+    c = hue(m, "red")
+    t = word(said_or(m, "APPROVED"), 0.0, 0.16, 0.13, c, 0.62)
+    g = VGroup(RoundedRectangle(width=0.76, height=0.28, corner_radius=0.05, stroke_color=c, stroke_width=w * 2.4).move_to([0.0, 0.16, 0]),
+               RoundedRectangle(width=0.68, height=0.2, corner_radius=0.03, stroke_color=c, stroke_width=w * 0.7).move_to([0.0, 0.16, 0]), t)
+    worn = VGroup(*(Dot([x, y, 0], radius=0.008, color=col("bg")) for x, y in
+                    ((-0.3, 0.27), (-0.05, 0.05), (0.2, 0.29), (0.33, 0.1), (-0.2, 0.12), (0.06, 0.2), (0.15, 0.08))))
+    g.add(worn)
+    g.rotate(0.13, about_point=np.array([0.0, 0.16, 0]))
     return g, None
 
 
 def _speechbubble(m, w):
-    c = col(m["color"]) if m.get("color") else "#FBF8F1"
-    return VGroup(blob([(-0.42, 0.22), (-0.38, 0.4), (0.0, 0.46), (0.38, 0.4), (0.42, 0.22), (0.3, 0.1), (-0.1, 0.08), (-0.25, 0.0), (-0.22, 0.09), (-0.38, 0.12)], c, w),
-                  word(said_or(m, "HELLO!"), 0.0, 0.27, 0.11, "#22201E", 0.6)), None
+    c = hue(m, "card")
+    from manim.mobject.geometry.boolean_ops import Union
+    body = RoundedRectangle(width=0.84, height=0.38, corner_radius=0.16).move_to([0.0, 0.3, 0])
+    tail = poly([(-0.22, 0.14), (-0.3, 0.0), (-0.06, 0.13)], c, 0)
+    shape = Union(body, tail).set_fill(c, 1).set_stroke(col("ink"), w)
+    g = VGroup(shape, word(said_or(m, "HELLO!"), 0.0, 0.3, 0.13, readable(c), 0.66))
+    return sticker(g, w), None
 
 
 def _thoughtbubble(m, w):
-    c = col(m["color"]) if m.get("color") else "#FBF8F1"
-    g = VGroup(*(circ(x, y, r, c, w) for x, y, r in ((-0.3, 0.02, 0.025), (-0.24, 0.08, 0.04))))
-    pts = []
-    for i in range(14):
-        a = math.radians(i * 360 / 14)
-        pts += zoo.P._arc(0.38 * math.cos(a) * 1.0, 0.32 + 0.18 * math.sin(a), 0.07, math.degrees(a) - 70, math.degrees(a) + 70, 4)
-    g.add(blob(pts, c, w), word(said_or(m, "HMM..."), 0.0, 0.32, 0.1, "#22201E", 0.55))
-    return g, None
+    c = hue(m, "card")
+    from manim.mobject.geometry.boolean_ops import Union
+    lobes = [Circle(radius=r).move_to([x, y, 0]) for x, y, r in
+             ((-0.26, 0.32, 0.12), (-0.12, 0.42, 0.13), (0.06, 0.44, 0.14), (0.24, 0.38, 0.12), (0.28, 0.24, 0.11),
+              (0.12, 0.17, 0.12), (-0.08, 0.17, 0.12), (-0.26, 0.2, 0.1), (0.0, 0.3, 0.2))]
+    shape = Union(*lobes).set_fill(c, 1).set_stroke(col("ink"), w)
+    g = VGroup(circ(-0.34, 0.02, 0.025, c, w), circ(-0.28, 0.08, 0.04, c, w), shape,
+               word(said_or(m, "HMM..."), 0.0, 0.3, 0.12, readable(c), 0.5))
+    return sticker(g, w), None
+
+
+def readable(c):
+    h = str(c).lstrip("#")
+    if len(h) != 6:
+        return col("ink")
+    r, g_, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return col("ink") if 0.299 * r + 0.587 * g_ + 0.114 * b > 150 else col("card")
 
 
 def _rosette(m, w):
-    c = col(m["color"]) if m.get("color") else "#2E5E9E"
-    g = VGroup(poly([(-0.1, 0.25), (-0.18, -0.08), (-0.1, -0.02), (-0.04, -0.1), (0.0, 0.2)], RED, w),
-               poly([(0.1, 0.25), (0.18, -0.08), (0.1, -0.02), (0.04, -0.1), (0.0, 0.2)], RED, w))
-    pts = [((0.2 if i % 2 else 0.17) * math.cos(math.radians(i * 12)), 0.3 + (0.2 if i % 2 else 0.17) * math.sin(math.radians(i * 12))) for i in range(30)]
-    g.add(poly(pts, c, w), circ(0.0, 0.3, 0.12, GOLD, w * 0.8), word(said_or(m, "1st"), 0.0, 0.3, 0.08, "#22201E", 0.18))
-    return g, None
+    c = hue(m, "navy")
+    tails = hue({}, "red")
+    g = VGroup(poly([(-0.05, 0.26), (-0.17, -0.06), (-0.1, -0.02), (-0.06, -0.09), (0.04, 0.2)], tails, w),
+               poly([(0.05, 0.26), (0.17, -0.06), (0.1, -0.02), (0.06, -0.09), (-0.04, 0.2)], tint(tails, -0.15), w))
+    pts = [((0.22 if i % 2 else 0.19) * math.cos(math.radians(i * 10)), 0.32 + (0.22 if i % 2 else 0.19) * math.sin(math.radians(i * 10))) for i in range(36)]
+    g.add(poly(pts, c, w), disc(0.0, 0.32, 0.14, col("accent"), w * 0.8), word(said_or(m, "1st"), 0.0, 0.31, 0.1, col("ink"), 0.2))
+    return sticker(g, w), None
 
 
 def _numberbadge(m, w):
-    c = col(m["color"]) if m.get("color") else "#2E7D74"
-    return VGroup(circ(0.0, 0.18, 0.18, c, w), circ(0.0, 0.18, 0.15, tint(c, 0.15), 0), word(said_or(m, "1"), 0.0, 0.18, 0.16, "#F7F5F0", 0.24)), None
+    return token(m, w, hue(m, "teal"), said_or(m, "1"), 1.0), None
 
 
 def _vsbadge(m, w):
-    pts = [(0.0, 0.5), (0.1, 0.32), (0.3, 0.38), (0.18, 0.2), (0.32, 0.02), (0.06, 0.1), (-0.08, -0.02), (-0.1, 0.16), (-0.3, 0.2), (-0.14, 0.32), (-0.24, 0.48), (-0.04, 0.38)]
-    return VGroup(poly(pts, "#F2C14E", w), word(said_or(m, "VS"), -0.02, 0.24, 0.15, RED, 0.3)), None
+    from manim.mobject.geometry.boolean_ops import Intersection
+    left, right = col("coral"), col("navy")
+    face = Circle(radius=0.24).move_to([0.0, 0.26, 0])
+    a = Intersection(face, Polygon(*[np.array([x, y, 0]) for x, y in ((-0.4, -0.1), (0.08, -0.1), (-0.08, 0.62), (-0.4, 0.62))]))
+    b = Intersection(face, Polygon(*[np.array([x, y, 0]) for x, y in ((0.4, -0.1), (0.08, -0.1), (-0.08, 0.62), (0.4, 0.62))]))
+    g = VGroup(a.set_fill(left, 1).set_stroke(width=0), b.set_fill(right, 1).set_stroke(width=0),
+               circ(0.0, 0.26, 0.24, left, w).set_fill(opacity=0),
+               word(said_or(m, "VS"), 0.0, 0.26, 0.17, col("card"), 0.34))
+    return sticker(g, w), None
 
 
 def _tickmark(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, "#4F9A6A", w), stroke([(-0.1, 0.2), (-0.02, 0.11), (0.12, 0.3)], "#F7F5F0", w * 4)), None
+    c = hue(m, "green")
+    mark = stroke([(-0.1, 0.22), (-0.03, 0.14), (0.11, 0.32)], col("card"), w * 4.5)
+    mark.set_cap_style(__import__("manim").CapStyleType.ROUND)
+    return token(m, w, c, mark), None
 
 
 def _crossmark(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, RED, w), line((-0.08, 0.12), (0.08, 0.28), "#F7F5F0", w * 4), line((-0.08, 0.28), (0.08, 0.12), "#F7F5F0", w * 4)), None
+    c = hue(m, "red")
+    import manim
+    g = VGroup(line((-0.08, 0.14), (0.08, 0.3), col("card"), w * 4.5), line((-0.08, 0.3), (0.08, 0.14), col("card"), w * 4.5))
+    for x in g:
+        x.set_cap_style(manim.CapStyleType.ROUND)
+    return token(m, w, c, g), None
 
 
 def _questionmark(m, w):
-    c = col(m["color"]) if m.get("color") else "#E07B39"
-    return VGroup(circ(0.0, 0.22, 0.22, c, w), word("?", 0.0, 0.22, 0.28, "#F7F5F0")), None
+    return token(m, w, hue(m, "coral"), "?", 1.15), None
 
 
 def _exclamation(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    return VGroup(circ(0.0, 0.22, 0.22, c, w), word("!", 0.0, 0.22, 0.28, "#F7F5F0")), None
+    return token(m, w, hue(m, "red"), "!", 1.15), None
 
 
 def _warning(m, w):
-    return VGroup(poly([(-0.26, 0.0), (0.26, 0.0), (0.0, 0.44)], "#F2C14E", w), poly([(-0.2, 0.03), (0.2, 0.03), (0.0, 0.38)], "#F2C14E", w * 0.6),
-                  word("!", 0.0, 0.16, 0.2, "#22201E")), None
+    import manim
+    c = hue(m, "accent")
+    tri = poly([(-0.28, 0.02), (0.28, 0.02), (0.0, 0.5)], c, w * 1.2)
+    tri.set_joint_type(manim.LineJointType.ROUND)
+    inner = poly([(-0.21, 0.06), (0.21, 0.06), (0.0, 0.43)], c, 0).set_stroke(tint(c, -0.3), w * 0.6)
+    g = VGroup(tri, inner, word("!", 0.0, 0.19, 0.2, col("ink")))
+    return sticker(g, w), None
 
 
 def _infosign(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, "#3E7CB1", w), word("i", 0.0, 0.2, 0.22, "#F7F5F0")), None
+    return token(m, w, hue(m, "navy"), "i", 1.1), None
 
 
 def _percent(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    return VGroup(circ(0.0, 0.22, 0.22, c, w), word(said_or(m, "%"), 0.0, 0.22, 0.2, "#F7F5F0", 0.3)), None
+    return token(m, w, hue(m, "coral"), said_or(m, "%"), 0.95), None
 
 
 def _rupee(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, GOLD, w), circ(0.0, 0.2, 0.16, GOLD_D, w * 0.5), word("₹", 0.0, 0.2, 0.2, "#6B4A2F")), None
+    c = hue(m, "accent")
+    g = VGroup(disc(0.0, 0.22, 0.22, c, w), Circle(radius=0.165, stroke_color=tint(c, -0.3), stroke_width=w * 0.6).move_to([0.0, 0.22, 0]),
+               word("₹", 0.0, 0.22, 0.2, tint(c, -0.55)))
+    return sticker(g, w), None
 
 
 def _dollar(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, "#7FB05A", w), circ(0.0, 0.2, 0.16, "#5E8A3E", w * 0.5), word("$", 0.0, 0.2, 0.22, "#F7F5F0")), None
+    c = hue(m, "green")
+    g = VGroup(disc(0.0, 0.22, 0.22, c, w), Circle(radius=0.165, stroke_color=tint(c, 0.3), stroke_width=w * 0.6).move_to([0.0, 0.22, 0]),
+               word("$", 0.0, 0.22, 0.22, col("card")))
+    return sticker(g, w), None
+
+
+def trend(w, pts, c):
+    import manim
+    g = VGroup(tile(w, -0.36, 0.0, 0.36, 0.48))
+    s = stroke(pts[:-1] + [tuple(np.array(pts[-1]) - (np.array(pts[-1]) - np.array(pts[-2])) * 0.35)], c, w * 3.6)
+    s.set_cap_style(manim.CapStyleType.ROUND)
+    g.add(s, arrowhead(pts[-1], np.array(pts[-1]) - np.array(pts[-2]), 0.1, c, w * 0.6))
+    return g
 
 
 def _trendup(m, w):
-    return VGroup(stroke([(-0.35, 0.05), (-0.15, 0.15), (0.0, 0.1), (0.3, 0.38)], "#4F9A6A", w * 4),
-                  poly([(0.24, 0.42), (0.38, 0.46), (0.36, 0.3)], "#4F9A6A", w * 0.5)), None
+    return sticker(trend(w, [(-0.28, 0.1), (-0.12, 0.2), (0.02, 0.15), (0.26, 0.4)], hue(m, "green")), w), None
 
 
 def _trenddown(m, w):
-    return VGroup(stroke([(-0.35, 0.42), (-0.15, 0.3), (0.0, 0.34), (0.3, 0.06)], RED, w * 4),
-                  poly([(0.36, 0.14), (0.38, 0.0), (0.24, 0.02)], RED, w * 0.5)), None
+    return sticker(trend(w, [(-0.28, 0.4), (-0.12, 0.28), (0.02, 0.32), (0.26, 0.08)], hue(m, "red")), w), None
 
 
 def _barchart(m, w):
-    g = VGroup(line((-0.35, 0.0), (0.38, 0.0), "#3A3631", w * 1.2), line((-0.35, 0.0), (-0.35, 0.5), "#3A3631", w * 1.2))
-    for i, (h, c) in enumerate(((0.15, "#3E7CB1"), (0.26, "#4F9A6A"), (0.2, "#F2C14E"), (0.4, RED))):
-        x = -0.25 + i * 0.16
-        g.add(rect(x - 0.05, 0.0, x + 0.05, h, c, w))
-    return g, None
+    g = VGroup(tile(w, -0.36, 0.0, 0.36, 0.5))
+    for i, (h, c) in enumerate(((0.14, "navy"), (0.24, "teal"), (0.19, "accent"), (0.36, "coral"))):
+        x = -0.2 + i * 0.135
+        g.add(rect(x - 0.045, 0.06, x + 0.045, 0.06 + h, col(c), w * 0.8))
+    g.add(line((-0.29, 0.06), (0.29, 0.06), col("ink"), w * 1.1))
+    return sticker(g, w), None
 
 
 def _piechart(m, w):
     g = VGroup()
-    for a0, a1, c in ((0, 140, "#3E7CB1"), (140, 250, "#F2C14E"), (250, 320, "#4F9A6A"), (320, 360, RED)):
-        g.add(poly([(0.0, 0.25), *zoo.P._arc(0.0, 0.25, 0.25, a0, a1, 12)], c, w))
-    return g, None
+    for a0, a1, c in ((90, 230, "navy"), (230, 320, "accent"), (320, 390, "teal")):
+        g.add(poly([(0.0, 0.26), *zoo.P._arc(0.0, 0.26, 0.26, a0, a1, 14)], col(c), w))
+    g.add(poly([(0.035, 0.29), *zoo.P._arc(0.035, 0.29, 0.26, 30, 90, 8)], col("coral"), w))
+    return sticker(g, w), None
 
 
 def _linechart(m, w):
-    g = VGroup(rect(-0.38, 0.0, 0.38, 0.5, "#FBF8F1", w), *(line((-0.36, y), (0.36, y), "#E0DCD2", w * 0.4) for y in (0.12, 0.24, 0.36)))
-    pts = [(-0.32, 0.08), (-0.18, 0.2), (-0.05, 0.15), (0.1, 0.3), (0.22, 0.26), (0.33, 0.42)]
-    g.add(stroke(pts, "#3E7CB1", w * 1.8), *(circ(x, y, 0.018, "#3E7CB1", w * 0.4) for x, y in pts))
-    return g, None
+    g = VGroup(tile(w, -0.38, 0.0, 0.38, 0.5))
+    pts = [(-0.3, 0.1), (-0.17, 0.22), (-0.05, 0.16), (0.08, 0.3), (0.19, 0.26), (0.3, 0.4)]
+    area = fill_only([*pts, (0.3, 0.06), (-0.3, 0.06)], tint(col("sky"), 0.3), 0.8, smooth=False)
+    g.add(area, stroke(pts, col("navy"), w * 2.2), *(circ(x, y, 0.022, col("card"), w * 0.8) for x, y in pts),
+          line((-0.3, 0.06), (0.32, 0.06), col("ink"), w))
+    return sticker(g, w), None
+
+
+def hand(w, skin, cuff):
+    """A fist with its thumb up, its cuff to the left."""
+    g = VGroup(rrect(-0.27, 0.02, -0.15, 0.3, 0.03, cuff, w),
+               rrect(-0.16, 0.04, 0.06, 0.28, 0.06, skin, w),
+               blob([(-0.1, 0.27), (-0.07, 0.36), (-0.04, 0.46), (0.02, 0.5), (0.06, 0.46), (0.05, 0.36), (0.04, 0.28)], skin, w))
+    for i in range(4):
+        y = 0.075 + i * 0.055
+        g.add(rrect(0.0, y - 0.03, 0.17 - 0.012 * i, y + 0.03, 0.03, skin, w))
+    g.add(line((-0.12, 0.2), (-0.05, 0.22), tint(skin, -0.25), w * 0.6))
+    return g
 
 
 def _thumbsup(m, w):
-    c = col(m["color"]) if m.get("color") else "#C08A5E"
-    return VGroup(rrect(-0.24, 0.0, -0.12, 0.24, 0.02, "#3E7CB1", w),
-                  blob([(-0.12, 0.02), (-0.12, 0.22), (-0.04, 0.28), (0.0, 0.42), (0.06, 0.42), (0.06, 0.26), (0.18, 0.26), (0.2, 0.2), (0.18, 0.02)], c, w),
-                  *(line((0.04, y), (0.19, y), tint(c, -0.25), w * 0.6) for y in (0.08, 0.14, 0.2))), None
+    skin = col(m["color"]) if m.get("color") else "#C9925F"
+    return sticker(hand(w, skin, hue({}, "navy")), w), None
 
 
 def _thumbsdown(m, w):
-    g, _ = _thumbsup(m, w)
-    g.rotate(math.pi, about_point=np.array([0.0, 0.21, 0])).stretch(-1, 0)
-    return g, None
+    skin = col(m["color"]) if m.get("color") else "#C9925F"
+    g = hand(w, skin, hue({}, "coral"))
+    g.rotate(math.pi, about_point=np.array([0.0, 0.26, 0]))
+    return sticker(g, w), None
 
 
 def _target(m, w):
-    g = VGroup(*(circ(0.0, 0.25, r, c, w * 0.8) for r, c in ((0.25, RED), (0.19, "#F7F5F0"), (0.13, RED), (0.07, "#F7F5F0"), (0.025, RED))))
-    g.add(line((0.0, 0.25), (0.32, 0.5), WOOD_D, w * 1.4), poly([(0.3, 0.52), (0.36, 0.56), (0.36, 0.48)], "#4F9A6A", w * 0.4),
-          poly([(0.27, 0.5), (0.31, 0.56), (0.33, 0.49)], "#4F9A6A", w * 0.4))
-    return g, None
+    c = hue(m, "red")
+    g = VGroup(*(circ(0.0, 0.26, r, cc, w * 0.8) for r, cc in ((0.26, c), (0.2, col("card")), (0.14, c), (0.08, col("card")), (0.03, c))))
+    g.add(line((0.0, 0.26), (0.28, 0.48), tint(WOOD, -0.2), w * 1.6),
+          poly([(0.25, 0.47), (0.33, 0.56), (0.35, 0.47), (0.28, 0.44)], col("teal"), w * 0.5),
+          poly([(0.27, 0.49), (0.27, 0.58), (0.33, 0.56)], tint(col("teal"), 0.2), w * 0.5))
+    return sticker(g, w), None
 
 
 def _puzzle(m, w):
-    c = col(m["color"]) if m.get("color") else "#3E7CB1"
-    pts = [(-0.16, 0.0), (-0.05, 0.0), *zoo.P._arc(0.0, 0.0, 0.05, 180, 360, 6)[::-1], (0.05, 0.0), (0.16, 0.0), (0.16, 0.1),
-           *zoo.P._arc(0.16, 0.15, 0.05, 270, 450, 6), (0.16, 0.2), (0.16, 0.32), (0.05, 0.32), *zoo.P._arc(0.0, 0.32, 0.05, 0, 180, 6), (-0.05, 0.32),
-           (-0.16, 0.32), (-0.16, 0.2), *zoo.P._arc(-0.16, 0.15, 0.05, 90, -90, 6), (-0.16, 0.1)]
-    return VGroup(poly(pts, c, w), stroke([(-0.1, 0.26), (-0.05, 0.28)], tint(c, 0.4), w)), None
+    c = hue(m, "teal")
+    from manim.mobject.geometry.boolean_ops import Difference, Union
+    sq = Square(side_length=0.34).move_to([0.0, 0.2, 0])
+    shape = Union(sq, Circle(radius=0.07).move_to([0.0, 0.42, 0]), Circle(radius=0.07).move_to([0.2, 0.2, 0]))
+    shape = Difference(shape, Circle(radius=0.07).move_to([-0.15, 0.2, 0]))
+    shape.set_fill(c, 1).set_stroke(col("ink"), w)
+    g = VGroup(shape, stroke(zoo.P._arc(-0.02, 0.2, 0.12, 100, 150, 5), tint(c, 0.4), w * 1.2))
+    return sticker(g, w), None
 
 
 def _mappin(m, w):
-    c = col(m["color"]) if m.get("color") else RED
-    return VGroup(ell(0.0, 0.0, 0.16, 0.04, "#3A3631", 0), blob([(0.0, 0.0), (-0.1, 0.18), (-0.14, 0.3), (-0.08, 0.4), (0.0, 0.43), (0.08, 0.4), (0.14, 0.3), (0.1, 0.18)], c, w),
-                  circ(0.0, 0.3, 0.05, "#F7F5F0", w * 0.6)), None
+    c = hue(m, "red")
+    r, cy = 0.15, 0.36
+    a = math.asin(r / cy)
+    tx, ty = r * math.cos(a), cy - r * math.sin(a)
+    from manim.mobject.geometry.boolean_ops import Union
+    shape = Union(Circle(radius=r).move_to([0.0, cy, 0]), Polygon([0, 0, 0], [tx, ty, 0], [-tx, ty, 0]))
+    shape.set_fill(c, 1).set_stroke(col("ink"), w)
+    g = VGroup(ell(0.0, 0.0, 0.18, 0.045, tint(col("bg"), -0.25), 0), shape, circ(0.0, cy, 0.06, col("card"), w * 0.8),
+               stroke(zoo.P._arc(0.0, cy, 0.11, 110, 160, 5), tint(c, 0.4), w * 1.2))
+    return sticker(g, w), None
 
 
 def _stopwatch(m, w):
-    return VGroup(circ(0.0, 0.2, 0.2, "#F7F5F0", w), circ(0.0, 0.2, 0.17, "#FBF8F1", w * 0.4), rect(-0.03, 0.4, 0.03, 0.46, "#6E747A", w * 0.6),
-                  rect(-0.06, 0.46, 0.06, 0.49, "#6E747A", w * 0.6), line((0.13, 0.36), (0.17, 0.4), "#6E747A", w * 1.6),
-                  *(line((0.15 * math.cos(a), 0.2 + 0.15 * math.sin(a)), (0.17 * math.cos(a), 0.2 + 0.17 * math.sin(a)), "#3A3631", w * 0.6) for a in np.linspace(0, 2 * math.pi, 13)[:-1]),
-                  live(line((0.0, 0.2), (0.0, 0.34), RED, w * 1.2), "tick", (0.0, 0.2)), circ(0.0, 0.2, 0.015, "#3A3631", 0)), None
+    c = hue(m, "accent")
+    g = VGroup(rrect(-0.04, 0.42, 0.04, 0.48, 0.015, tint(c, -0.2), w * 0.8), rrect(-0.08, 0.47, 0.08, 0.51, 0.015, tint(c, -0.2), w * 0.8),
+               line((0.15, 0.36), (0.19, 0.4), col("ink"), w * 2.2),
+               circ(0.0, 0.22, 0.22, c, w), circ(0.0, 0.22, 0.17, col("card"), w * 0.7))
+    for i in range(12):
+        a = i * math.pi / 6
+        r0 = 0.13 if i % 3 else 0.115
+        g.add(line((r0 * math.cos(a), 0.22 + r0 * math.sin(a)), (0.155 * math.cos(a), 0.22 + 0.155 * math.sin(a)), col("ink"), w * (0.9 if i % 3 else 1.4)))
+    g.add(fill_only([(0.0, 0.22), *zoo.P._arc(0.0, 0.22, 0.15, 90, 30, 6)], tint(col("coral"), 0.3), 0.7, smooth=False),
+          live(line((0.0, 0.22), (0.0, 0.35), col("red"), w * 1.4), "tick", (0.0, 0.22)), circ(0.0, 0.22, 0.02, col("ink"), 0))
+    return sticker(g, w), None
 
 
 def _binoculars(m, w):
-    return VGroup(*(VGroup(rrect(x - 0.09, 0.0, x + 0.09, 0.26, 0.04, "#3A3631", w), circ(x, 0.06, 0.07, "#6FA8DC", w * 0.6), circ(x - 0.02, 0.08, 0.02, "#DDEEF6", 0))
-                    for x in (-0.12, 0.12)), rect(-0.04, 0.12, 0.04, 0.2, "#6E747A", w * 0.6)), None
+    body = hue(m, "navy")
+    g = VGroup()
+    for x in (-0.13, 0.13):
+        g.add(rrect(x - 0.06, 0.28, x + 0.06, 0.4, 0.03, tint(body, -0.15), w),
+              rrect(x - 0.11, 0.04, x + 0.11, 0.32, 0.06, body, w),
+              circ(x, 0.1, 0.085, tint(col("sky"), -0.1), w * 0.8), circ(x - 0.025, 0.125, 0.025, tint(col("sky"), 0.6), 0))
+    g.add(rrect(-0.05, 0.2, 0.05, 0.3, 0.02, tint(body, 0.25), w * 0.8), circ(0.0, 0.34, 0.03, tint(body, 0.25), w * 0.6))
+    return sticker(g, w), None
 
 
 def _handshake(m, w):
-    return VGroup(rect(-0.5, 0.12, -0.28, 0.24, "#3E7CB1", w), rect(0.28, 0.12, 0.5, 0.24, "#2F3B4C", w),
-                  blob([(-0.28, 0.12), (-0.1, 0.1), (0.08, 0.16), (0.14, 0.22), (0.05, 0.26), (-0.15, 0.26), (-0.28, 0.24)], "#C08A5E", w),
-                  blob([(0.28, 0.12), (0.12, 0.1), (-0.06, 0.14), (-0.12, 0.2), (-0.04, 0.24), (0.1, 0.26), (0.28, 0.24)], "#EFC9A6", w),
-                  *(line((x, 0.14), (x + 0.02, 0.22), "#C9A07A", w * 0.5) for x in (-0.02, 0.03, 0.08))), None
+    dark, light = "#8D5B3A", "#E3B48C"
+    left, right = hue({}, "navy"), hue({}, "coral")
+    g = VGroup(poly([(-0.62, 0.0), (-0.36, 0.12), (-0.44, 0.3), (-0.66, 0.2)], left, w),
+               poly([(0.62, 0.0), (0.36, 0.12), (0.44, 0.3), (0.66, 0.2)], right, w),
+               poly([(-0.4, 0.12), (-0.36, 0.13), (-0.44, 0.31), (-0.48, 0.29)], col("card"), w * 0.7),
+               poly([(0.4, 0.12), (0.36, 0.13), (0.44, 0.31), (0.48, 0.29)], col("card"), w * 0.7),
+               # the left hand, palm turned in, its thumb over the other's
+               blob([(-0.38, 0.13), (-0.2, 0.1), (0.02, 0.12), (0.12, 0.2), (0.04, 0.27), (-0.18, 0.3), (-0.4, 0.3)], dark, w),
+               # the right hand over it, its fingers wrapped round
+               blob([(0.38, 0.13), (0.24, 0.12), (0.06, 0.16), (-0.12, 0.2), (-0.16, 0.27), (-0.06, 0.33), (0.14, 0.33), (0.4, 0.3)], light, w))
+    for i in range(4):
+        x = -0.12 + i * 0.065
+        g.add(rrect(x - 0.034, 0.12 - 0.012 * i, x + 0.034, 0.27, 0.03, light, w * 0.9))
+    g.add(blob([(-0.3, 0.3), (-0.2, 0.34), (-0.06, 0.37), (0.0, 0.35), (-0.06, 0.31), (-0.2, 0.28)], dark, w))
+    return sticker(g, w), None
+
+
+def star4(x, y, r, c, w):
+    pts = []
+    for k in range(4):
+        a = math.pi / 2 * k + math.pi / 2
+        pts.append((x + r * math.cos(a), y + r * math.sin(a)))
+        b = a + math.pi / 4
+        pts.append((x + r * 0.28 * math.cos(b), y + r * 0.28 * math.sin(b)))
+    return blob(pts, c, w)
 
 
 def _sparkles(m, w):
-    c = col(m["color"]) if m.get("color") else GOLD
-    return VGroup(*(live(VGroup(poly([(x, y + r), (x + r * 0.25, y + r * 0.25), (x + r, y), (x + r * 0.25, y - r * 0.25), (x, y - r), (x - r * 0.25, y - r * 0.25),
-                                      (x - r, y), (x - r * 0.25, y + r * 0.25)], c, w * 0.5)), "puff")
-                    for x, y, r in ((0.0, 0.25, 0.14), (0.2, 0.42, 0.07), (-0.18, 0.08, 0.06), (0.2, 0.08, 0.05)))), None
+    c = hue(m, "accent")
+    g = VGroup(*(live(VGroup(star4(x, y, r, c, w * 0.8)), "puff") for x, y, r in ((0.0, 0.26, 0.2), (0.22, 0.46, 0.09), (-0.2, 0.08, 0.08), (0.22, 0.08, 0.06))))
+    return sticker(g, w), None
 
 
 def _network(m, w):
-    nodes = [(0.0, 0.25), (-0.3, 0.42), (0.3, 0.44), (-0.32, 0.06), (0.3, 0.05), (0.0, 0.5)]
-    g = VGroup(*(line(nodes[0], n, "#6E747A", w) for n in nodes[1:]), line(nodes[1], nodes[5], "#6E747A", w * 0.8), line(nodes[3], nodes[4], "#6E747A", w * 0.8))
-    g.add(*(circ(x, y, 0.06 if i else 0.08, ("#3E7CB1", RED, "#4F9A6A", GOLD, "#7A4C8C", "#E07B39")[i], w * 0.7) for i, (x, y) in enumerate(nodes)))
-    return g, None
+    nodes = [(0.0, 0.26), (-0.28, 0.44), (0.28, 0.46), (-0.3, 0.06), (0.3, 0.06), (0.02, 0.52)]
+    g = VGroup(*(line(nodes[0], n, col("ink"), w * 1.2) for n in nodes[1:]), line(nodes[1], nodes[5], col("soft"), w), line(nodes[3], nodes[4], col("soft"), w))
+    colours = ("accent", "coral", "teal", "navy", "red", "green")
+    g.add(*(disc(x, y, 0.09 if i == 0 else 0.06, col(colours[i]), w * 0.8) for i, (x, y) in enumerate(nodes)))
+    return sticker(g, w), None
 
 
 def _exchange(m, w):
-    return VGroup(stroke(zoo.P._arc(0.0, 0.25, 0.22, 20, 160, 12), "#3E7CB1", w * 3), poly([(-0.27, 0.27), (-0.13, 0.27), (-0.2, 0.17)], "#3E7CB1", w * 0.4),
-                  stroke(zoo.P._arc(0.0, 0.25, 0.22, 200, 340, 12), "#E07B39", w * 3), poly([(0.27, 0.23), (0.13, 0.23), (0.2, 0.33)], "#E07B39", w * 0.4)), None
+    import manim
+    top, bot = hue(m, "teal"), col("coral")
+    g = VGroup(rrect(-0.34, 0.0, 0.34, 0.5, 0.08, col("card"), w))
+    s1 = stroke([(-0.22, 0.34), (0.14, 0.34)], top, w * 4)
+    s2 = stroke([(0.22, 0.16), (-0.14, 0.16)], bot, w * 4)
+    for s in (s1, s2):
+        s.set_cap_style(manim.CapStyleType.ROUND)
+    g.add(s1, arrowhead((0.25, 0.34), (1, 0), 0.12, top, w * 0.6), s2, arrowhead((-0.25, 0.16), (-1, 0), 0.12, bot, w * 0.6))
+    return sticker(g, w), None
 
 
 def _cyclearrows(m, w):
+    import manim
     g = VGroup()
-    for k, c in enumerate(("#3E7CB1", "#4F9A6A", "#E07B39", RED)):
-        a0 = k * 90 + 10
-        g.add(stroke(zoo.P._arc(0.0, 0.25, 0.22, a0, a0 + 65, 10), c, w * 3))
-        r = math.radians(a0 + 72)
-        t = np.array([-math.sin(r), math.cos(r)])
-        cc = np.array([0.22 * math.cos(r), 0.25 + 0.22 * math.sin(r)])
-        nrm = np.array([math.cos(r), math.sin(r)])
-        g.add(poly([tuple(cc + t * 0.06), tuple(cc + nrm * 0.05), tuple(cc - nrm * 0.05)], c, w * 0.4))
-    return g, None
+    cx, cy, r = 0.0, 0.26, 0.2
+    for k, c in enumerate(("teal", "accent", "coral")):
+        a0 = 90 + k * 120 + 10
+        a1 = a0 + 78
+        s = stroke(zoo.P._arc(cx, cy, r, a0, a1, 12), col(c), w * 4)
+        s.set_cap_style(manim.CapStyleType.ROUND)
+        e = math.radians(a1 + 22)
+        m_ = math.radians(a1 + 11)
+        tip = (cx + r * math.cos(e), cy + r * math.sin(e))
+        g.add(s, arrowhead(tip, (-math.sin(m_), math.cos(m_)), 0.09, col(c), w * 0.6))
+    return sticker(g, w), None
 
 
 def _quotemarks(m, w):
-    c = col(m["color"]) if m.get("color") else "#3E7CB1"
-    return VGroup(*(VGroup(circ(x, 0.2, 0.07, c, 0), tube([(x + 0.05, 0.22), (x + 0.02, 0.32), (x - 0.06, 0.38)], [0.06, 0.04, 0.015], c, 0)) for x in (-0.1, 0.1))), None
+    c = hue(m, "navy")
+    g = VGroup()
+    for x in (-0.12, 0.12):
+        g.add(circ(x, 0.17, 0.09, c, w),
+              blob([(x - 0.09, 0.18), (x - 0.08, 0.3), (x - 0.02, 0.4), (x + 0.06, 0.45), (x + 0.07, 0.42), (x + 0.0, 0.33), (x + 0.0, 0.25)], c, w))
+    return sticker(g, w), None
 
 
 def _hashtag(m, w):
-    c = col(m["color"]) if m.get("color") else "#3E7CB1"
-    return VGroup(*(line((x, 0.0), (x + 0.06, 0.42), c, w * 3) for x in (-0.12, 0.06)), *(line((-0.2, y), (0.22, y), c, w * 3) for y in (0.13, 0.29))), None
+    c = hue(m, "navy")
+    g = word("#", 0.0, 0.25, 0.46, c)
+    return sticker(VGroup(g), w), None
 
 
 def _calendarpage(m, w):
-    return VGroup(rect(-0.2, 0.0, 0.2, 0.42, "#FBF8F1", w), rect(-0.2, 0.32, 0.2, 0.42, RED, w), *(circ(x, 0.42, 0.02, "#3A3631", 0) for x in (-0.1, 0.1)),
-                  word(said_or(m, "15"), 0.0, 0.15, 0.18, "#22201E", 0.3), word(str(m.get("sub") or "AUG"), 0.0, 0.37, 0.05, "#F7F5F0", 0.3)), None
+    head = hue(m, "red")
+    g = VGroup(rrect(-0.24, 0.0, 0.24, 0.5, 0.04, col("card"), w), rrect(-0.24, 0.36, 0.24, 0.5, 0.04, head, w),
+               rect(-0.24, 0.36, 0.24, 0.4, head, 0))
+    for x in (-0.12, 0.12):
+        g.add(circ(x, 0.48, 0.022, col("ink"), 0), rrect(x - 0.015, 0.45, x + 0.015, 0.56, 0.01, tint(col("soft"), -0.2), w * 0.6))
+    g.add(word(said_or(m, "15"), 0.0, 0.18, 0.22, col("ink"), 0.36), word(str(m.get("sub") or "AUG"), 0.0, 0.42, 0.06, col("card"), 0.3),
+          line((-0.18, 0.05), (0.18, 0.05), tint(col("card"), -0.15), w * 0.5))
+    return sticker(g, w), None
 
 
 # -- the town, the farm's machines, health, energy, film, festivals, sport ----------------------------------------
@@ -6659,6 +6858,65 @@ def known(name: str) -> str | None:
     return n if n in SHELF else None
 
 
+
+def finish(g, light: bool = True):
+    """Every painted part shaded as cut paper under a light from the upper left: a darker crescent along its lower
+    right edge and a thin lighter one along its upper left (the part's own colour, a shade either way). Words,
+    lines and the smallest bits are left as drawn. Each crescent is the part's own child, so it moves, opens and
+    turns with it."""
+    import os
+    if os.environ.get("V3_SHADE", "1") == "0":
+        return g
+    from manim import Text, MarkupText
+    from manim.mobject.geometry.boolean_ops import Difference
+    from manim.utils.color import ManimColor
+
+    def hue(m):
+        try:
+            return ManimColor(m.get_fill_color()).to_hex()[:7] if len(m.points) and m.get_fill_opacity() >= 0.9 else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def touch(a, b):
+        return not (a.get_right()[0] < b.get_left()[0] or b.get_right()[0] < a.get_left()[0]
+                    or a.get_top()[1] < b.get_bottom()[1] or b.get_top()[1] < a.get_bottom()[1])
+
+    def walk(m, merged=False):
+        if isinstance(m, (Text, MarkupText)) or getattr(m, "flat", False):
+            return
+        kids = list(m.submobjects)
+        for k in kids:
+            # a shape built of overlapping blobs of one colour (a cloud, a canopy, a bush) reads as one: unshaded
+            same = hue(k) is not None and any(o is not k and hue(o) == hue(k) and touch(o, k) for o in kids)
+            walk(k, same)
+        if merged or len(m.points) < 6 or m.get_fill_opacity() < 0.9:
+            return
+        wd, ht = m.width, m.height
+        least = min(wd, ht)
+        if least < 0.05 or wd * ht < 0.004:
+            return
+        try:
+            fill = ManimColor(m.get_fill_color()).to_hex()[:7]
+        except Exception:  # noqa: BLE001
+            return
+        d = min(0.04, 0.1 * least)
+        try:
+            base = m.copy()
+            base.submobjects = []
+            dark = Difference(base, base.copy().shift(np.array([-d, d, 0])))
+            dark.set_fill(tint(fill, -0.24), opacity=1).set_stroke(width=0)
+            m.add(dark)
+            if light and least > 0.09:
+                hi = Difference(base, base.copy().shift(np.array([d * 0.6, -d * 0.6, 0])))
+                hi.set_fill(tint(fill, 0.28), opacity=0.9).set_stroke(width=0)
+                m.add(hi)
+            if m.get_stroke_width() > 0 and m.get_stroke_opacity() > 0:      # the outline over its shading again
+                m.add(base.copy().set_fill(opacity=0))
+        except Exception:  # noqa: BLE001 -- an open or odd outline: left flat
+            return
+    walk(g)
+    return g
+
 class Prop(VGroup):
     """A drawn thing; one with a lid opens and shuts (set_open), its lid turned or folded about its hinge."""
 
@@ -6669,6 +6927,7 @@ class Prop(VGroup):
         w = 2.0 * k
         self.name = known(name) or "crate"
         g, lid = SHELF[self.name](dict(mods), w)
+        finish(g)
         self.add(g)
         self.lid = None
         self.open_k = 0.0

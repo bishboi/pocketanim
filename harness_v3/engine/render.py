@@ -409,7 +409,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         for shot in sc.shots.values():
             ents = [e for e in sc.ents.values() if e.shot == shot.name and e.kind in self.SPREAD
                     and not e.mods.get("on") and not isinstance(e.mods.get("at"), str)
-                    and not any(isinstance(e.mods.get(k), str) for k in REL)]
+                    and not any(isinstance(e.mods.get(k), str) for k in REL)
+                    and not (e.kind == "prop" and self._flat(e.name))]       # (the land is under everything)
             def holds(big, small) -> bool:
                 # A shape holds things (a box, a disc, a map), and a thing holds what is set wholly on it and is much
                 # smaller (letters in their tray): a long title's box holds nothing.
@@ -768,6 +769,19 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
     FLAT = ("pic", "photo", "map", "card", "backdrop", "portrait", "polaroids", "clipping", "doc", "split", "who",
             "globe", "layers", "inset")
 
+    def _flat(self, name: str) -> bool:
+        """A picture, map or card; or the land drawn from the shelf (a river, hills, a forest): people stand in
+        front of it, and are not moved off it."""
+        e = self.SCORE.ents.get(name)
+        if e is None:
+            return False
+        if e.kind in self.FLAT:
+            return True
+        if e.kind == "prop" and e.args:
+            import shelf
+            return shelf.known(e.args[0]) in shelf.SCENERY
+        return False
+
     def _in_front_of_flat(self, name: str, whole) -> None:
         """A figure stands in front of the pictures, maps and cards on the screen (unless the score layers them)."""
         e = self.SCORE.ents.get(name)
@@ -779,10 +793,10 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         up = [(n, self.E[n]) for n, x in self.SCORE.ents.items() if n in self.E and id(self.E[n]) in self.up
               and x.mods.get("layer") is None]
         if e.kind in self.FIGS:
-            top = max((z_of(m) for n, m in up if self._kind(n) in self.FLAT), default=None)
+            top = max((z_of(m) for n, m in up if self._flat(n)), default=None)
             if top is not None and z_of(whole) <= top:
                 whole.set_z_index(top + 1)
-        elif e.kind in self.FLAT:
+        elif self._flat(name):
             z = z_of(whole)
             for n, m in up:
                 if self._kind(n) in self.FIGS and z_of(m) <= z:

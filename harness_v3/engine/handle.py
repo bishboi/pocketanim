@@ -42,8 +42,8 @@ FOOD = ("bread", "apple", "mango", "banana", "coconut", "fish", "bowl", "thali",
 CUPS = ("teacup", "kulhad", "goblet", "jar", "bucket", "milkcan")
 READ = ("book", "books", "openbook", "ledger", "newspaper", "scroll", "document", "charter", "letter", "oldmap",
         "notebook", "clipboard", "folder", "receipt")
-SEATS = {"chair": 0.24, "stool": 0.2, "bench": 0.22, "throne": 0.3, "charpai": 0.23, "bed": 0.28, "sofa": 0.26}
-BEDS = {"bed": 0.3, "charpai": 0.23}
+SEATS = {"chair": 0.24, "stool": 0.2, "bench": 0.22, "throne": 0.3, "charpai": 0.23, "bed": 0.28, "sofa": 0.26, "hospitalbed": 0.27, "mat": 0.05}
+BEDS = {"bed": 0.3, "charpai": 0.23, "hospitalbed": 0.3, "mat": 0.06}
 BUILDINGS = ("house", "hut", "tent", "castle", "palace", "temple", "mosque", "church", "school", "hospital", "bank",
              "shop", "tower", "gate", "skyscraper", "factory", "lighthouse", "parliament", "court", "prison", "barn",
              "warehouse", "igloo", "pagoda", "door")
@@ -73,7 +73,10 @@ USES = {**{n: "eat" for n in FOOD}, **{n: "drink" for n in CUPS}, **{n: "read" f
         "quern": "stir", "handaxe": "hammer", "polishedaxe": "hammer", "flintknife": "holdup", "seashell": "holdup",
         "lapis": "holdup", "obsidian": "holdup", "ingot": "holdup", "cylinderseal": "holdup", "kernel": "holdup",
         "oillamp": "holdup", "spindle": "holdup", "storagejar": "pickup", "barge": "ride",
-        "mudhouse": "enter", "ziggurat": "enter", "leanto": "enter", "citywall": "enter"}
+        "mudhouse": "enter", "ziggurat": "enter", "leanto": "enter", "citywall": "enter",
+        "jalebi": "eat", "dosa": "eat", "idli": "eat", "noodles": "eat", "burger": "eat", "orange": "eat", "corn": "eat",
+        "coffee": "drink", "slate": "write", "constitution": "read", "placard": "holdup", "crayons": "write",
+        "iron": "sweep", "tap": "drink", "cave": "enter", "station": "enter", "mine": "enter", "busstop": "enter"}
 # Where a rider sits on a vehicle (its own frame), and those that swallow their riders (seen through no window)
 VEHICLE_SEATS = {"bicycle": (-0.06, 0.24), "rickshaw": (0.2, 0.3), "cart": (-0.05, 0.3), "tractor": (-0.15, 0.3),
                  "boat": (0.05, 0.12), "motorcycle": (-0.2, 0.41), "scooter": (-0.26, 0.41), "canoe": (0.0, 0.04),

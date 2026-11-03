@@ -251,6 +251,11 @@ def wants(score_text: str) -> list[tuple[str, str, str]]:
                 found.append(("pic" if toks[2] in ("card", "isotype") else "photo", toks[i + 1]))
         if toks[2] in ("portrait", "who") and "img" not in toks:   # a person with no picture named: one made of them
             found.append(("photo", toks[3] if toks[2] == "portrait" else f"a portrait of {toks[3]}"))
+        if toks[2] == "prop" and len(toks) > 3:     # a thing not on the shelf: a picture made of it instead
+            import shelf
+            if shelf.known(toks[3]) is None:
+                of = toks[toks.index("of") + 1] if "of" in toks[4:-1] else None
+                found.append(("pic", shelf.stand_in(toks[3], of)))
         if toks[2] == "icon" and os.environ.get("V3_ICONS", "0").strip() != "1":
             import look as kit_look                # what was an icon is a small hand-drawn picture
             found.append(("pic", kit_look.icon_words(toks[3])))

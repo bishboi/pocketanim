@@ -520,6 +520,11 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             else:
                 alias.setdefault(name, name)
             sc.ents[alias[name]] = Ent(alias[name], toks[2], args, mods, shot.name, n)
+            if toks[2] == "prop" and args:
+                import shelf
+                if shelf.known(args[0]) is None:
+                    sc.notes.append(f"line {n}: no {args[0]!r} on the shelf: a picture of it is made instead "
+                                    f"({shelf.stand_in(args[0], mods.get('of'))!r})")
         else:
             t0, t1 = _when(head, words, seconds)
             if state.get("clash") and len(toks) > 2:

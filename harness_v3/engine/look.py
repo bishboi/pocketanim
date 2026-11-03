@@ -532,6 +532,12 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     elif kind == "animal":
         import zoo
         m = zoo.animal(args[0] if args else "horse", mods, size or 2.6, c)
+    elif kind == "prop" and args and not props_known(args[0]):
+        # not on the shelf: a picture of it (the asset step made one from the same words), its longest side `size`
+        import shelf
+        m = picture("pic", shelf.stand_in(args[0], mods.get("of")), 1.4, mods)
+        if size:
+            m.scale(float(size) / max(m.height, m.width, 1e-3), about_point=m.get_bottom())
     elif kind == "prop":
         import props
         m = props.prop(args[0] if args else "crate", mods if not c else {**mods, "color": c}, 2.6)
@@ -719,6 +725,11 @@ def image(path, size: float, box: tuple[float, float] | None = None):
     k = (min(box[0] / sw, box[1] / sh) if box else size / max(sw, sh))
     m.scale(k)
     return m
+
+
+def props_known(name: str) -> bool:
+    import shelf
+    return shelf.known(name) is not None
 
 
 def picture(kind: str, prompt: str, width: float, mods: dict):

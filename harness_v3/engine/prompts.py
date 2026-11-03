@@ -12,6 +12,7 @@ from a few plain pieces and the actions, not from a catalogue.
 from __future__ import annotations
 
 import re
+import textwrap
 
 GRAMMAR = """SCORE GRAMMAR (one item per line; # starts a comment)
 shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `ent` lines follow.
@@ -24,46 +25,10 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            this shelf (no picture is searched for or made). With no size it is its own size beside people (a crown
            small, a house taller than a person); `size S` makes its longest side S on the screen (a person is 2.6
            tall; a crown shown alone: size 1.5-2.5; a bench: size 2-3; a house: size 3-4):
-           money, trade: moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt
-           abacus safe stall scales shoppingcart pricetag cashregister atm suitcase backpack scepter orb
-           ring necklace | writing, office: book books openbook ledger scroll letter document charter
-           newspaper oldmap quill inkwell seal pencil notebook clipboard folder stamp typewriter briefcase
-           ballotbox calendar ticket passport idcard cheque parcel | modern: laptop computer phone oldphone
-           radio tv camera microphone megaphone clock lightbulb battery robot drone calculator streetlight
-           trafficlight printer router satellitedish cctv chip tablet mobiletower plug | science, industry:
-           flask testtube microscope magnet gear telescope rocket satellite solarpanel windmill factory
-           oilwell printingpress dna deskglobe compass windturbine pylon oilbarrel fuelpump container crane
-           atom molecule virus cell brain skull bone tooth prism planet earth comet bunsen sundial |
-           furniture, home: table desk chair stool throne bench bookshelf lectern bed charpai rug vase broom
-           umbrella ladder rope chain padlock key bell gift balloon kite ball trophy medal goblet hourglass
-           magnifier cricketbat sofa tablelamp mirror door window stairs kettle pan plate bottle jug mailbox
-           fan fridge shoe shirt whiteboard blackboard spectacles fireextinguisher | containers: barrel
-           crate box sack basket pot jar bucket milkcan tiffin | food: bread apple mango banana coconut
-           wheat bowl (of rice|dal|soup) thali teacup kulhad fish cake pizza egg carrot tomato onion chili
-           grapes watermelon icecream samosa laddoo sugarcane teapot roti pressurecooker mortar gascylinder
-           | care: medkit pills syringe mask thermometer heart gradcap diploma stethoscope bandage
-           wheelchair | light: candle diya lantern campfire | arms: sword shield spear bow axe musket cannon
-           bomb helmet dagger mace armor arrow quiver catapult cannonballs chariot tank banner drum horn
-           crossbow torch | work: anvil plough wheel charkha | getting about: cart carriage bicycle rickshaw
-           autorickshaw car bus truck tractor train plane boat ship motorcycle scooter helicopter
-           hotairballoon submarine sailboat canoe ambulance firetruck policecar jeep bulldozer jet tram |
-           places: house hut tent well tower castle palace temple mosque church school hospital bank shop
-           skyscraper lighthouse bridge gate fence signpost flagpole flagindia bunting pyramids obelisk
-           pillar arch statue fountain stupa parliament court prison dam barn silo warehouse igloo pagoda
-           tajmahal indiagate eiffeltower colosseum greatwall powerplant | nature: tree palm bush rock
-           mountain cloud sun moon flower lotus cactus mushroom pinetree wave raincloud lightning snowflake
-           star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado | tools:
-           hammer saw wrench screwdriver shovel pickaxe sickle hoe pitchfork wateringcan wheelbarrow toolbox
-           scissors paintbrush easel | music, play, sport: guitar piano harmonium dhol violin headphones
-           speaker dice chessboard playingcards gamecontroller racket dumbbell hockeystick | law: gavel
-           handcuffs evm stopsign | first farmers, first cities: kernel handaxe flintknife polishedaxe
-           cavepainting leanto quern barley millet riceplant lentils peapod cotton flax yarn spindle
-           clothbolt storagejar copperore ingot obsidian seashell lapis claytablet stylus claylump ziggurat
-           mudbricks citywall stele cylinderseal claycones potterswheel lyre dates barge shaduf canal cheese
-           hide oillamp sealing beacon tabletshelf eclipse mudhouse field yoke fishingnet | India: diya
-           charkha charpai thali kulhad tiffin lattu rangoli autorickshaw rickshaw flagindia loom kalash
-           conch sitar tabla flute palanquin chulha handpump spices samosa laddoo roti sugarcane harmonium
-           dhol gascylinder tajmahal indiagate evm.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
+           @@SHELF@@
+           (THE SHELF HOLDS MORE than is listed here: a plain everyday name not listed may still be drawn, so
+           write `prop NAME` with the thing's plain name; a thing not on the shelf at all is made into a picture
+           of itself.)  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
            wave, windmills, turbines, fans and propellers turn, smoke and steam drift by themselves.
            PEOPLE USE THEM (they walk up to it first): `use P X` does what the thing is for (eat bread, drink tea,
            read a book, sit on a chair, enter a house, wear a crown, ride a bicycle, count coins, vote, ring a bell,
@@ -522,6 +487,15 @@ def thing_names(plan: str) -> list[tuple[str, str]]:
     return out
 
 
+def grammar(text: str | None) -> str:
+    """The grammar with the shelf's part a shot needs (by its plan and words), or, for the director, its sections."""
+    import shelf
+    part = shelf.shelf_for(text) if text is not None else (
+        "THE SHELF'S SECTIONS (" + str(len(shelf.NAMES)) + " things; each shot's writer is shown the ones it needs): "
+        + shelf.headings())
+    return GRAMMAR.replace("@@SHELF@@", "\n           ".join(textwrap.wrap(part, 104)))
+
+
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "",
                  cast: list[str] | None = None, language: str | None = None, before_plan: str = "") -> tuple[str, str]:
     said_ = said(words, timed=True)
@@ -539,7 +513,7 @@ def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], bef
             + "Write the shot's lines.")
     kit = kit_for(plan, cast)
     cards = ("\nKIT (these bigger pieces too; ent NAME PIECE ...):\n" + "\n".join(KIT[k] for k in kit)) if kit else ""
-    return with_language(SCORE + "\n\n" + GRAMMAR + cards, language), user
+    return with_language(SCORE + "\n\n" + grammar(plan + " " + said_) + cards, language), user
 
 
 DIRECTOR = """You are the director of an animated explainer. Its shots were written one at a time, each without
@@ -577,7 +551,7 @@ def director_prompt(shots_text: str, before: str, words: list[dict], cast: list[
     user = ((f"THE SHOT BEFORE (as it is; do not write it):\n{before}\n\n" if before else "")
             + (_cast_card(cast) + "\n" if cast else "")
             + f"WORDS: {said(words, timed=True)}\n\nSHOTS:\n{shots_text}\n\nWrite these shots' lines.")
-    return with_language(DIRECTOR + "\n\n" + GRAMMAR + cards, language), user
+    return with_language(DIRECTOR + "\n\n" + grammar(None) + cards, language), user
 
 
 def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: list[dict],
@@ -589,7 +563,7 @@ def repair_prompt(shot_text: str, problems: list[str], sizes: list[str], words: 
             + "\n\nREAL SIZES (each thing as built, in the shot's own frame):\n" + "\n".join(f"- {x}" for x in sizes)
             + (f"\n\nWORDS: {said_}" if said_ else "") + ("\n\n" + _cast_card(cast) if cast else "")
             + f"\n\nTHE SHOT NOW:\n{shot_text}\n\nWrite the fixed shot's lines.")
-    return with_language(REPAIR + "\n\n" + GRAMMAR + cards, language), user
+    return with_language(REPAIR + "\n\n" + grammar(shot_text + " " + said_) + cards, language), user
 
 
 CRITIC = """You judge frames of an animated explainer, each with its time and the words being said. Point out only

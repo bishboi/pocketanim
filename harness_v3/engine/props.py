@@ -5812,6 +5812,305 @@ def _waterwheel(m, w):
     return g, None
 
 
+# -- soil and rock: the soil types as cut blocks, a profile, texture, erosion, the layers of rock and of the Earth ----
+
+def soil_block(c, w, top="#7FA85A", depth=0.45, wide=0.7):
+    """A cut block of soil seen from a little above: its front face, its top, its side (what lies on it is added)."""
+    x0, x1, y0, y1, d = -wide / 2, wide / 2, 0.0, depth, 0.12
+    return VGroup(poly([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], c, w),
+                  poly([(x1, y0), (x1 + d, y0 + d * 0.6), (x1 + d, y1 + d * 0.6), (x1, y1)], tint(c, -0.25), w),
+                  poly([(x0, y1), (x1, y1), (x1 + d, y1 + d * 0.6), (x0 + d, y1 + d * 0.6)], top, w))
+
+
+def soil_label(text, w, y=-0.07):
+    return letters(text, 0.06, y, 0.045, "#3A3631")
+
+
+def specks(x0, x1, y0, y1, n, c, r, seed=3):
+    import random
+    rnd = random.Random(seed)
+    return VGroup(*(circ(rnd.uniform(x0, x1), rnd.uniform(y0, y1), r * rnd.uniform(0.6, 1.3), c, 0) for _ in range(n)))
+
+
+def _alluvialsoil(m, w):
+    c = "#B59A72"
+    g = VGroup(soil_block(c, w))
+    for i, y in enumerate(np.linspace(0.05, 0.4, 8)):
+        g.add(stroke([(-0.35, y), (-0.1, y + 0.008 * (-1) ** i), (0.15, y), (0.35, y + 0.006)], tint(c, -0.12 if i % 2 else 0.12), w * 1.4))
+    g.add(specks(-0.33, 0.33, 0.02, 0.43, 30, tint(c, 0.3), 0.006),
+          *(stroke([(x, 0.45 + 0.04), (x + 0.01, 0.55)], "#5E8A3E", w * 0.6) for x in np.linspace(-0.25, 0.35, 8)),
+          *(ell(x, 0.6, 0.02, 0.04, "#E2C066", w * 0.2) for x in np.linspace(-0.25, 0.35, 8)),
+          stroke([(0.42, 0.5), (0.5, 0.48), (0.6, 0.5)], WATER, w * 3), soil_label("ALLUVIAL", w))
+    return g, None
+
+
+def _blacksoil(m, w):
+    c = "#3A3330"
+    g = VGroup(soil_block(c, w, top="#4A423C"))
+    for pts in (((-0.3, 0.45), (-0.25, 0.3), (-0.28, 0.15)), ((0.0, 0.45), (0.05, 0.3), (0.0, 0.2), (0.04, 0.05)), ((0.25, 0.45), (0.22, 0.32)),
+                ((-0.25, 0.3), (-0.1, 0.28)), ((0.05, 0.3), (0.18, 0.26))):
+        g.add(*(line(pts[i], pts[i + 1], "#1E1A18", w * 1.2) for i in range(len(pts) - 1)))
+    for pts in (((-0.3, 0.47), (-0.1, 0.5), (0.05, 0.47)), ((0.05, 0.47), (0.2, 0.52), (0.4, 0.5)), ((-0.1, 0.5), (-0.05, 0.55))):
+        g.add(*(line(pts[i], pts[i + 1], "#1E1A18", w * 0.8) for i in range(len(pts) - 1)))
+    g.add(specks(-0.33, 0.33, 0.02, 0.43, 18, "#5A524C", 0.008),
+          *(VGroup(stroke([(x, 0.52), (x, 0.66)], "#5E8A3E", w * 0.7), *(circ(x + d, 0.66 + abs(d) * 0.5, 0.02, "#FBF8F1", w * 0.3) for d in (-0.02, 0.02)))
+            for x in (-0.2, 0.05, 0.3)), soil_label("BLACK (REGUR)", w))
+    return g, None
+
+
+def _redsoil(m, w):
+    c = "#B5502E"
+    g = VGroup(soil_block(c, w, top="#C9703E"))
+    g.add(specks(-0.33, 0.33, 0.02, 0.43, 40, "#8E3A1E", 0.008, 5), specks(-0.33, 0.33, 0.02, 0.43, 16, "#E08A5A", 0.007, 9),
+          *(ell(x, y, 0.06, 0.035, "#9A948A", w * 0.3) for x, y in ((-0.2, 0.12), (0.18, 0.28))),
+          *(VGroup(stroke([(x, 0.52), (x + 0.01, 0.64)], "#5E8A3E", w * 0.6), circ(x + 0.01, 0.66, 0.02, "#C9A06A", w * 0.3)) for x in (-0.22, 0.0, 0.22)),
+          soil_label("RED", w))
+    return g, None
+
+
+def _lateritesoil(m, w):
+    c = "#A8442A"
+    g = VGroup(soil_block(c, w, top="#8E5A3A"))
+    import random
+    rnd = random.Random(11)
+    for _ in range(26):
+        x, y = rnd.uniform(-0.32, 0.32), rnd.uniform(0.03, 0.42)
+        g.add(ell(x, y, rnd.uniform(0.02, 0.05), rnd.uniform(0.015, 0.035), "#6E2A1A", 0))
+    g.add(*(line((-0.35, y), (0.35, y), "#7A2E1C", w * 0.6) for y in (0.15, 0.3)),
+          VGroup(rect(0.45, 0.0, 0.62, 0.08, "#B5502E", w * 0.6), rect(0.47, 0.08, 0.64, 0.16, "#A8442A", w * 0.6)),
+          VGroup(stroke([(-0.2, 0.5), (-0.18, 0.72)], WOOD, w * 1.4), circ(-0.18, 0.76, 0.06, "#4F7F3A", w * 0.4)),
+          soil_label("LATERITE", w))
+    return g, None
+
+
+def _desertsoil(m, w):
+    c = "#E2C68A"
+    g = VGroup(soil_block(c, w, top="#EED8A6"))
+    g.add(specks(-0.33, 0.33, 0.02, 0.43, 70, "#C9A86A", 0.005, 7), *(stroke([(-0.33, y), (0.0, y + 0.01), (0.33, y)], "#D4B47A", w * 0.5) for y in (0.12, 0.25)),
+          VGroup(rrect(0.05, 0.5, 0.1, 0.72, 0.02, "#5E8A3E", w * 0.6), rrect(0.1, 0.58, 0.16, 0.62, 0.015, "#5E8A3E", w * 0.5), rrect(0.13, 0.58, 0.16, 0.68, 0.015, "#5E8A3E", w * 0.5)),
+          *(stroke([(x, 0.5), (x + 0.08, 0.53), (x + 0.16, 0.5)], "#C9A86A", w * 0.6) for x in (-0.3, -0.15)), soil_label("DESERT (ARID)", w))
+    return g, None
+
+
+def _mountainsoil(m, w):
+    c = "#7A6248"
+    g = VGroup(soil_block(c, w, top="#3E5A2E"), poly([(-0.35, 0.36), (0.35, 0.36), (0.35, 0.45), (-0.35, 0.45)], "#3A2A1E", w * 0.5))
+    g.add(*(VGroup(ell(x, y, 0.07, 0.045, "#9A948A", w * 0.4), stroke([(x - 0.02, y + 0.01), (x + 0.02, y + 0.015)], "#C9C2B2", w * 0.4))
+            for x, y in ((-0.22, 0.1), (0.05, 0.2), (0.22, 0.08), (-0.05, 0.05), (0.2, 0.28))),
+          *(stroke([(x, 0.37), (x + 0.02, 0.43)], "#5E4A32", w * 0.5) for x in np.linspace(-0.3, 0.3, 8)),
+          *(VGroup(rect(x - 0.012, 0.5, x + 0.012, 0.56, WOOD_D, w * 0.4), poly([(x - 0.06, 0.55), (x, 0.72), (x + 0.06, 0.55)], "#3E6E2E", w * 0.5)) for x in (-0.15, 0.1, 0.32)),
+          soil_label("MOUNTAIN (FOREST)", w))
+    return g, None
+
+
+def _peatsoil(m, w):
+    c = "#2E2620"
+    g = VGroup(soil_block(c, w, top="#4A5E3A"))
+    import random
+    rnd = random.Random(4)
+    for _ in range(22):
+        x, y = rnd.uniform(-0.32, 0.3), rnd.uniform(0.04, 0.42)
+        g.add(stroke([(x, y), (x + rnd.uniform(-0.05, 0.05), y + 0.03), (x + 0.04, y + 0.02)], "#5A4A36", w * 0.6))
+    g.add(rect(-0.35, 0.3, 0.35, 0.34, "#3E5A6A", 0).set_opacity(0.7), ell(0.0, 0.5, 0.3, 0.05, "#4A6E7E", w * 0.4),
+          *(VGroup(stroke([(x, 0.5), (x + 0.01, 0.66)], "#6B5A3A", w), rrect(x - 0.008, 0.6, x + 0.018, 0.68, 0.01, "#6B4A2F", w * 0.3)) for x in (-0.25, -0.2, 0.3)),
+          soil_label("PEATY (MARSHY)", w))
+    return g, None
+
+
+def _salinesoil(m, w):
+    c = "#9A8A72"
+    g = VGroup(soil_block(c, w, top="#F2F0EA"), specks(-0.33, 0.33, 0.02, 0.43, 30, "#E8E4DA", 0.007, 13))
+    g.add(*(poly([(x, 0.46), (x + 0.03, 0.5), (x + 0.06, 0.46)], "#FFFFFF", w * 0.3) for x in np.linspace(-0.3, 0.3, 9)),
+          *(line((-0.35, y), (0.35, y), "#E8E4DA", w * 0.8) for y in (0.36, 0.4)),
+          VGroup(stroke([(0.2, 0.5), (0.22, 0.62), (0.15, 0.68)], "#A89A5A", w), stroke([(0.22, 0.6), (0.3, 0.66)], "#A89A5A", w * 0.8)),
+          soil_label("SALINE", w))
+    return g, None
+
+
+def _soilprofile(m, w):
+    layers = (("O", "HUMUS", "#3A2A1E", 0.1), ("A", "TOPSOIL", "#6B4E2E", 0.2), ("B", "SUBSOIL", "#A07A52", 0.2), ("C", "WEATHERED ROCK", "#B5A58A", 0.18),
+              ("R", "BEDROCK", "#8A8478", 0.16))
+    g = VGroup()
+    top = 0.84
+    for k, (letter_, name, c, h) in enumerate(layers):
+        y0 = top - h
+        g.add(rect(-0.4, y0, 0.4, top, c, w * 0.7), letters(letter_, -0.47, (y0 + top) / 2, 0.05, "#3A3631"), letters(name, 0.62, (y0 + top) / 2, 0.035, "#3A3631"),
+              line((0.41, (y0 + top) / 2), (0.48, (y0 + top) / 2), "#6E6458", w * 0.5))
+        if k == 0:
+            g.add(*(stroke([(x, top - 0.03), (x + 0.04, top - 0.05)], "#6B5A3A", w * 0.6) for x in np.linspace(-0.35, 0.3, 8)))
+        if k == 1:
+            g.add(*(stroke([(x, top - 0.02), (x + 0.02, y0 + 0.05)], "#F3E1C8", w * 0.6) for x in (-0.25, 0.1)),
+                  stroke([(-0.05, y0 + 0.08), (0.0, y0 + 0.1), (0.05, y0 + 0.08)], "#D88A9A", w * 1.4))
+        if k == 2:
+            g.add(*(ell(x, (y0 + top) / 2, 0.05, 0.03, "#8A7A5E", w * 0.3) for x in (-0.25, 0.05, 0.28)))
+        if k == 3:
+            g.add(*(poly([(x - 0.05, y0 + 0.04), (x + 0.04, y0 + 0.05), (x + 0.06, y0 + 0.12), (x - 0.03, y0 + 0.13)], "#9A948A", w * 0.4) for x in (-0.25, 0.0, 0.25)))
+        if k == 4:
+            g.add(*(line((x, y0 + 0.02), (x + 0.08, top - 0.02), "#6E685E", w * 0.6) for x in (-0.3, 0.05)))
+        top = y0
+    g.add(tufts(np.linspace(-0.35, 0.35, 8), 0.84, w), VGroup(stroke([(0.2, 0.84), (0.2, 1.0)], "#5E8A3E", w), circ(0.2, 1.02, 0.03, "#F2C14E", w * 0.3)))
+    return g, None
+
+
+def _soiltexture(m, w):
+    g = VGroup()
+    for x, c, name, r, n in ((-0.55, "#E2C68A", "SAND", 0.025, 14), (0.0, "#B59A72", "SILT", 0.014, 30), (0.55, "#9A6E52", "CLAY", 0.008, 60)):
+        g.add(blob([(x - 0.24, 0.0), (x - 0.12, 0.12), (x, 0.2), (x + 0.12, 0.12), (x + 0.24, 0.0)], c, w),
+              specks(x - 0.16, x + 0.16, 0.02, 0.14, n, tint(c, -0.25), r, int(x * 10) + 5),
+              Circle(radius=0.11, stroke_color="#3A3631", stroke_width=w * 0.8).move_to([x, 0.42, 0]),
+              specks(x - 0.07, x + 0.07, 0.35, 0.49, max(4, n // 3), tint(c, -0.1), r * 2.4, int(x * 10) + 7),
+              line((x, 0.2), (x, 0.31), "#6E6458", w * 0.5), letters(name, x, -0.06, 0.04, "#3A3631"))
+    return g, None
+
+
+def _permeability(m, w):
+    g = VGroup(line((-0.85, 0.85), (0.85, 0.85), WOOD, w * 1.6))
+    for x, c, name, fill in ((-0.55, "#E2C68A", "SAND", 0.28), (0.0, "#7A5A3A", "LOAM", 0.16), (0.55, "#9A6E52", "CLAY", 0.04)):
+        g.add(poly([(x - 0.17, 0.82), (x + 0.17, 0.82), (x + 0.03, 0.6), (x - 0.03, 0.6)], "#EEF4F8", w, op=0.6),
+              poly([(x - 0.13, 0.76), (x + 0.13, 0.76), (x + 0.05, 0.64), (x - 0.05, 0.64)], c, 0),
+              rect(x - 0.015, 0.48, x + 0.015, 0.6, "#EEF4F8", w * 0.6),
+              rect(x - 0.1, 0.0, x + 0.1, 0.36, "#EEF4F8", w, ).set_fill(opacity=0.5), rect(x - 0.095, 0.005, x + 0.095, 0.005 + fill, WATER, 0),
+              live(VGroup(*(ell(x, y, 0.016, 0.03, WATER, w * 0.2) for y in ((0.44, 0.4) if fill > 0.1 else (0.44,)))), "steam"),
+              letters(name, x, -0.06, 0.04, "#3A3631"))
+    return g, None
+
+
+def _soilerosion(m, w):
+    g = VGroup(sky_band(-1.0, 1.0, 0.55, 1.0, w, "#C8D2DA"), *(blob([(x - 0.25, 0.92), (x - 0.1, 1.0), (x + 0.15, 1.0), (x + 0.28, 0.93)], "#8E98A2", w * 0.5) for x in (-0.4, 0.4)),
+               *(live(line((x, 0.88), (x - 0.04, 0.72), "#7FA8C9", w * 0.7), "steam") for x in np.linspace(-0.8, 0.8, 12)),
+               poly([(-1.0, 0.0), (-1.0, 0.6), (-0.3, 0.55), (0.3, 0.3), (1.0, 0.15), (1.0, 0.0)], "#A8805A", w))
+    g.add(poly([(-1.0, 0.6), (-0.6, 0.6), (-0.6, 0.65), (-1.0, 0.65)], "#7FA85A", 0), tufts(np.linspace(-0.95, -0.65, 4), 0.6, w),
+          *(VGroup(poly([(x, y), (x + 0.08, y - 0.03), (x + 0.1, y - 0.25), (x + 0.04, y - 0.3), (x - 0.02, y - 0.2)], "#6B4E2E", w * 0.6)) for x, y in ((-0.35, 0.56), (0.05, 0.42))),
+          live(stroke([(-0.4, 0.55), (-0.1, 0.42), (0.3, 0.25), (0.7, 0.14), (1.0, 0.1)], "#8C6A42", w * 3), "steam"),
+          VGroup(stroke([(0.5, 0.2), (0.52, 0.42), (0.45, 0.52)], "#6B4A2F", w * 1.6), *(stroke([(0.5, 0.18), (0.5 + d, 0.08)], "#F3E1C8", w * 0.6) for d in (-0.08, 0.0, 0.08))),
+          ell(0.85, 0.03, 0.35, 0.06, "#8C6A42", w * 0.4))
+    return g, None
+
+
+def _contourfarming(m, w):
+    g = VGroup(blob([(-1.0, 0.0), (-0.95, 0.35), (-0.5, 0.75), (0.0, 0.85), (0.5, 0.75), (0.95, 0.35), (1.0, 0.0)], "#8DBB6A", w))
+    for i in range(6):
+        y = 0.08 + i * 0.12
+        hw = 0.95 - abs(i - 2.5) * 0.08 - i * 0.07
+        pts = [(x, y + 0.06 * (1 - (x / max(hw, 0.1)) ** 2)) for x in np.linspace(-hw, hw, 12)]
+        g.add(stroke(pts, ("#B5875E", "#5E8A3E")[i % 2], w * (2.4 if i % 2 else 3)))
+    g.add(*(round_tree(x, y, 0.3, w) for x, y in ((-0.85, 0.3), (0.85, 0.3))), letters("CONTOUR PLOUGHING", 0.0, -0.06, 0.04, "#3A3631"))
+    return g, None
+
+
+def _shelterbelt(m, w):
+    g = VGroup(sky_band(-1.0, 1.0, 0.3, 0.9, w), poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.32), (-1.0, 0.32)], "#D9B45A", w * 0.5),
+               *(stroke([(x, 0.02), (x + 0.008, 0.12)], "#B5913A", w * 0.5) for x in np.linspace(0.0, 0.95, 18)))
+    for x in np.linspace(-0.9, -0.3, 5):
+        g.add(round_tree(x, 0.12, 0.65 + 0.1 * math.sin(x * 9), w, "#3E6E2E"))
+    g.add(*(VGroup(stroke([(-1.0, y), (-0.95, y + 0.02)], "#9AA3A9", w * 0.8)) for y in (0.5, 0.65)),
+          *(live(stroke([(x, y), (x + 0.15, y + 0.02), (x + 0.25, y)], "#9AA3A9", w * 0.8), "steam") for x, y in ((-0.25, 0.65), (0.1, 0.62), (-0.25, 0.48))),
+          letters("SHELTER BELT", -0.6, -0.06, 0.04, "#3A3631"))
+    return g, None
+
+
+def _strata(m, w):
+    cols = ("#C9A86A", "#9A7A52", "#D9C29A", "#8A7A66", "#B5875E", "#A8A098", "#7A6248")
+    g = VGroup()
+    y = 0.0
+    for i, c in enumerate(cols):
+        h = 0.1 + 0.03 * ((i * 5) % 3)
+        tilt = 0.06
+        g.add(poly([(-0.8, y), (0.8, y + tilt), (0.8, y + tilt + h), (-0.8, y + h)], c, w * 0.6))
+        if i in (1, 4):
+            g.add(*(ell(x, y + h / 2 + tilt * (x + 0.8) / 1.6, 0.05, 0.02, tint(c, -0.2), w * 0.3) for x in (-0.4, 0.3)))
+        y += h
+    g.add(VGroup(stroke([(-0.1 + 0.008 * t * math.cos(t), 0.38 + 0.008 * t * math.sin(t)) for t in np.linspace(0, 9, 30)], "#5A4A36", w)),
+          VGroup(*(line((0.35 + 0.03 * k, 0.17), (0.37 + 0.03 * k, 0.2), "#F3EADA", w * 0.8) for k in range(4)), line((0.3, 0.185), (0.48, 0.185), "#F3EADA", w * 0.8)),
+          poly([(-0.8, y), (0.8, y + 0.06), (0.8, y + 0.12), (-0.8, y + 0.08)], "#7FA85A", w * 0.5),
+          stroke([(-0.95, 0.05), (-0.95, y + 0.04)], "#3A3631", w * 0.8), poly([(-0.98, y + 0.02), (-0.95, y + 0.08), (-0.92, y + 0.02)], "#3A3631", 0),
+          letters("YOUNGER", -0.88, y + 0.14, 0.03, "#3A3631"), letters("OLDER", -0.88, -0.05, 0.03, "#3A3631"))
+    return g, None
+
+
+def _earthlayers(m, w):
+    o = (0.0, 0.5)
+    g = VGroup()
+    for r, c, name in ((0.5, "#8DBB6A", "CRUST"), (0.46, "#E07B39", "MANTLE"), (0.26, "#F2A93B", "OUTER CORE"), (0.13, "#F7D06A", "INNER CORE")):
+        g.add(circ(o[0], o[1], r, c, w))
+    wedge = VGroup()
+    for r, c in ((0.5, "#6B4E2E"), (0.47, "#C9562B"), (0.26, "#E8822E"), (0.13, "#F7D06A")):
+        wedge.add(poly([(0.0, 0.5), *zoo.P._arc(0.0, 0.5, r, 90, 0, 14)], c, w * 0.6))
+    g.add(blob([(-0.35, 0.65), (-0.2, 0.85), (-0.05, 0.8), (-0.1, 0.62)], "#5E8A3E", 0), blob([(-0.4, 0.3), (-0.2, 0.25), (-0.25, 0.42)], "#5E8A3E", 0),
+          wedge, *(VGroup(line((x, y), (0.62, y), "#6E6458", w * 0.5), letters(t, 0.82, y, 0.03, "#3A3631"))
+                   for x, y, t in ((0.15, 0.98, "CRUST"), (0.3, 0.8, "MANTLE"), (0.15, 0.62, "OUTER CORE"), (0.05, 0.53, "INNER CORE"))))
+    return g, None
+
+
+def _rocktypes(m, w):
+    g = VGroup()
+    g.add(blob([(-0.8, 0.0), (-0.82, 0.12), (-0.72, 0.22), (-0.55, 0.24), (-0.42, 0.14), (-0.45, 0.0)], "#6E6A72", w),
+          specks(-0.75, -0.48, 0.03, 0.18, 22, "#F3EADA", 0.01, 21), specks(-0.75, -0.48, 0.03, 0.18, 14, "#2B2826", 0.01, 22),
+          letters("IGNEOUS", -0.62, -0.06, 0.035, "#3A3631"))
+    layers = VGroup(*(poly([(-0.18, 0.04 * k), (0.2, 0.04 * k + 0.01), (0.2, 0.04 * k + 0.05), (-0.18, 0.04 * k + 0.04)], c, w * 0.4)
+                      for k, c in enumerate(("#C9A86A", "#B5875E", "#D9C29A", "#A07A52", "#C9A86A"))))
+    g.add(layers, stroke([(0.0 + 0.004 * t * math.cos(t), 0.1 + 0.004 * t * math.sin(t)) for t in np.linspace(0, 8, 20)], "#5A4A36", w * 0.7),
+          letters("SEDIMENTARY", 0.01, -0.06, 0.035, "#3A3631"))
+    g.add(blob([(0.42, 0.0), (0.4, 0.14), (0.52, 0.23), (0.72, 0.22), (0.82, 0.1), (0.78, 0.0)], "#8A8E9A", w),
+          *(stroke([(0.45, y), (0.55, y + 0.03), (0.65, y - 0.02), (0.77, y + 0.02)], c, w * 1.2) for y, c in ((0.05, "#D6D2CA"), (0.1, "#5E6270"), (0.15, "#D6D2CA"))),
+          letters("METAMORPHIC", 0.6, -0.06, 0.035, "#3A3631"))
+    return g, None
+
+
+def _weathering(m, w):
+    return VGroup(blob([(-0.55, 0.0), (-0.6, 0.3), (-0.4, 0.55), (0.0, 0.62), (0.4, 0.52), (0.6, 0.25), (0.55, 0.0)], "#9A948A", w),
+                  line((0.0, 0.62), (-0.05, 0.3), "#3A3631", w * 1.2), line((-0.05, 0.3), (0.05, 0.0), "#3A3631", w * 1.2), line((-0.05, 0.3), (-0.3, 0.2), "#3A3631", w),
+                  VGroup(stroke([(-0.02, 0.62), (0.0, 0.8)], "#5E8A3E", w), tube([(0.0, 0.72), (0.08, 0.78)], [0.03, 0.004], LEAF, w * 0.3),
+                         stroke([(-0.03, 0.6), (-0.04, 0.45), (-0.06, 0.35)], "#F3E1C8", w)),
+                  poly([(0.25, 0.4), (0.3, 0.46), (0.35, 0.4), (0.3, 0.36)], "#DDEEF6", w * 0.4),
+                  *(poly([(x - 0.04, 0.0), (x + 0.04, 0.0), (x + 0.03, 0.05), (x - 0.02, 0.06)], "#8A8478", w * 0.4) for x in (0.65, 0.75, -0.7)),
+                  circ(0.6, 0.85, 0.08, "#F2C14E", w * 0.4), *(live(line((x, 0.95), (x - 0.03, 0.82), "#7FA8C9", w * 0.6), "steam") for x in (-0.4, -0.3, -0.2))), None
+
+
+def _landslide(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (-1.0, 0.9), (-0.6, 0.95), (0.0, 0.5), (0.6, 0.2), (1.0, 0.1), (1.0, 0.0)], "#8DBB6A", w),
+               blob([(-0.55, 0.9), (-0.2, 0.62), (0.3, 0.3), (0.75, 0.1), (0.95, 0.06), (0.6, 0.02), (0.1, 0.18), (-0.3, 0.5), (-0.6, 0.8)], "#8C6A42", w))
+    g.add(*(VGroup(ell(x, y, 0.08, 0.05, "#9A948A", w * 0.4)) for x, y in ((0.1, 0.25), (0.45, 0.14), (0.7, 0.08), (-0.2, 0.5))),
+          *(VGroup(stroke([(x, y), (x + 0.08, y + 0.08)], WOOD_D, w * 1.2), circ(x + 0.1, y + 0.1, 0.04, "#5E8A3E", w * 0.3)) for x, y in ((0.25, 0.22), (-0.05, 0.38))),
+          *(round_tree(x, y, 0.3, w) for x, y in ((-0.85, 0.9), (-0.75, 0.88))),
+          *(live(stroke([(x, y), (x + 0.1, y - 0.08)], "#6B4E2E", w * 0.8), "steam") for x, y in ((-0.3, 0.65), (0.2, 0.35), (0.55, 0.18))),
+          VGroup(rect(0.82, 0.1, 0.98, 0.22, "#F3E1C8", w * 0.5), poly([(0.8, 0.22), (0.9, 0.3), (1.0, 0.22)], "#B5643C", w * 0.5)))
+    return g, None
+
+
+def _compostpit(m, w):
+    g = VGroup(poly([(-0.6, 0.3), (0.6, 0.3), (0.5, 0.0), (-0.5, 0.0)], "#6B4E2E", w),
+               poly([(-0.55, 0.28), (0.55, 0.28), (0.5, 0.18), (-0.5, 0.18)], "#4A3A28", 0))
+    g.add(*(blob([(x - 0.06, y), (x, y + 0.04), (x + 0.06, y)], c, w * 0.3) for x, y, c in ((-0.3, 0.26, "#7FA85A"), (-0.1, 0.27, "#E2C066"), (0.15, 0.26, "#B5643C"),
+                                                                                          (0.35, 0.26, "#6E9A4A"), (0.0, 0.29, "#E8822E"))),
+          stroke([(-0.2, 0.1), (-0.15, 0.12), (-0.1, 0.1), (-0.05, 0.12)], "#D88A9A", w * 1.6), stroke([(0.2, 0.08), (0.25, 0.1), (0.3, 0.08)], "#D88A9A", w * 1.4),
+          live(VGroup(*(stroke([(x, 0.32), (x + 0.02, 0.4), (x - 0.01, 0.48)], "#C9C2B2", w * 0.6) for x in (-0.2, 0.1))), "steam"),
+          VGroup(line((0.62, 0.0), (0.72, 0.5), WOOD, w * 1.4), poly([(0.58, 0.0), (0.66, -0.06), (0.7, 0.02)], "#8E969C", w * 0.4)),
+          letters("COMPOST", 0.0, -0.08, 0.04, "#3A3631"))
+    return g, None
+
+
+def _earthworms(m, w):
+    g = VGroup(rect(-0.7, 0.0, 0.7, 0.55, "#6B4E2E", w * 0.6), rect(-0.7, 0.55, 0.7, 0.6, "#7FA85A", 0), tufts(np.linspace(-0.65, 0.65, 10), 0.58, w))
+    for pts in (((-0.5, 0.55), (-0.45, 0.4), (-0.3, 0.3), (-0.2, 0.1)), ((0.2, 0.55), (0.25, 0.35), (0.45, 0.25), (0.5, 0.05))):
+        g.add(stroke(list(pts), "#4A3A28", w * 6), stroke(list(pts), "#5A4632", w * 4))
+    g.add(*(stroke([(x + 0.03 * math.sin(t), y + 0.02 * t) for t in np.linspace(0, 4, 10)], "#D88A9A", w * 2.6)
+            for x, y in ((-0.3, 0.22), (0.38, 0.15))),
+          *(line((x - 0.015, y), (x + 0.015, y), "#B5606A", w * 0.5) for x, y in ((-0.3, 0.27), (0.38, 0.2))),
+          specks(-0.65, 0.65, 0.03, 0.5, 30, "#8C6A42", 0.008, 31), *(ell(x, 0.6, 0.05, 0.02, "#E2C066", w * 0.2) for x in (-0.1, 0.05)))
+    return g, None
+
+
+def _waterlogging(m, w):
+    g = VGroup(sky_band(-1.0, 1.0, 0.3, 0.8, w, "#C8D2DA"), poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.3), (-1.0, 0.3)], "#6B4E2E", w * 0.5),
+               poly([(-1.0, 0.18), (1.0, 0.18), (1.0, 0.3), (-1.0, 0.3)], "#7FA8C9", w * 0.5).set_opacity(0.9),
+               *(live(stroke([(x, 0.25), (x + 0.06, 0.26), (x + 0.12, 0.25)], "#DDEEF6", w * 0.6), "steam") for x in np.linspace(-0.9, 0.7, 6)))
+    g.add(*(VGroup(stroke([(x, 0.18), (x + 0.02, 0.4)], "#A89A5A", w * 0.8), stroke([(x + 0.02, 0.35), (x + 0.06, 0.32)], "#A89A5A", w * 0.6),
+                   tube([(x + 0.02, 0.4), (x - 0.03, 0.36)], [0.02, 0.003], "#B5A24E", w * 0.3)) for x in np.linspace(-0.85, 0.85, 9)),
+          letters("WATERLOGGED", 0.0, -0.06, 0.04, "#3A3631"))
+    return g, None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 import shelf as _index  # noqa: E402

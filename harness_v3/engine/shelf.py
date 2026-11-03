@@ -96,6 +96,10 @@ SECTIONS = {
     "Farms and fields": (
         "farm farmland farmhouse wheatfield cornfield paddyfield orchard vegetablegarden pasture irrigatedfields "
         "teagarden henhouse seedbed growthstages roots savanna hillvillage"),
+    "Soil and rocks": (
+        "alluvialsoil blacksoil redsoil lateritesoil desertsoil mountainsoil peatsoil salinesoil soilprofile "
+        "soiltexture permeability soilerosion contourfarming shelterbelt strata earthlayers rocktypes weathering "
+        "landslide compostpit earthworms waterlogging"),
 }
 
 # The words in a shot's plan or narration that call a section up.
@@ -167,6 +171,11 @@ KEYWORDS = {
         "plant plants planted planting grow growing grew soil seed seeds irrigation irrigate orchard cattle "
         "grazing village villages rural agriculture agricultural wheat rice barley maize paddy food tea estate "
         "garden roots"),
+    "Soil and rocks": (
+        "soil soils alluvial black regur red laterite lateritic desert arid peat peaty marshy saline salty "
+        "fertile fertility humus clay sand sandy silt loam loamy rock rocks layer layers sediment sediments "
+        "sedimentary igneous metamorphic crust mantle core weathering erosion eroded landslide compost earthworm "
+        "earthworms texture permeable permeability profile horizon conservation contour shelter fossil fossils"),
 }
 
 # A few everyday things every shot is shown (a table, a book, a house, a tree...).
@@ -294,12 +303,23 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "rootsystem": "roots", "hilltown": "hillvillage", "maizefield": "cornfield", "garden": "vegetablegarden",
            "kitchengarden": "vegetablegarden", "fields": "farmland", "farms": "farm", "wheatfields": "wheatfield",
            "grainfield": "wheatfield", "paddies": "paddyfield", "fruittrees": "orchard", "pastures": "pasture",
-           "grazing": "pasture", "irrigated": "irrigatedfields"}
+           "grazing": "pasture", "irrigated": "irrigatedfields",
+           "alluvial": "alluvialsoil", "regur": "blacksoil", "cottonsoil": "blacksoil", "blackcottonsoil": "blacksoil",
+           "laterite": "lateritesoil", "lateritic": "lateritesoil", "aridsoil": "desertsoil", "sandysoil": "desertsoil",
+           "forestsoil": "mountainsoil", "peat": "peatsoil", "marshysoil": "peatsoil", "alkalinesoil": "salinesoil",
+           "soilhorizons": "soilprofile", "horizons": "soilprofile", "humus": "soilprofile", "loam": "soiltexture",
+           "sandsiltclay": "soiltexture", "infiltration": "permeability", "erosion": "soilerosion", "gully": "soilerosion",
+           "contour": "contourfarming", "contourploughing": "contourfarming", "windbreak": "shelterbelt",
+           "rocklayers": "strata", "sedimentary": "strata", "layers": "strata", "earthstructure": "earthlayers",
+           "crust": "earthlayers", "mantle": "earthlayers", "core": "earthlayers", "rocks": "rocktypes",
+           "igneous": "rocktypes", "metamorphic": "rocktypes", "weathered": "weathering", "mudslide": "landslide",
+           "vermicompost": "compostpit", "earthworm": "earthworms", "worms": "earthworms", "waterlogged": "waterlogging"}
 
 NAMES = tuple(sorted({n for v in SECTIONS.values() for n in v.split()}))
 # The land, drawn to stand behind people (a river, hills, a forest): never moved off what stands on it, always behind.
 SCENERY = (frozenset(SECTIONS["Land and water"].split()) | frozenset(SECTIONS["Farms and fields"].split())
-           | {"mountain", "volcano", "island", "field", "canal", "terraces"}) - {"waterdrop", "growthstages", "roots", "seedbed", "puddle"}
+           | {"mountain", "volcano", "island", "field", "canal", "terraces", "soilerosion", "contourfarming", "shelterbelt", "landslide",
+              "waterlogging"}) - {"waterdrop", "growthstages", "roots", "seedbed", "puddle"}
 SECTION_OF = {n: k for k, v in SECTIONS.items() for n in v.split()}
 
 

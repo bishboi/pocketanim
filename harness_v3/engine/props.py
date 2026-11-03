@@ -5203,6 +5203,352 @@ def _anthill(m, w):
                   *(stroke([(x, 0.06), (x + 0.03, 0.1)], "#9A6E48", w * 0.5) for x in (-0.12, 0.05))), None
 
 
+# -- farms and fields; water in all its places (scenes, drawn wide, to stand behind people or alone) -----------------
+WHEAT_C, SOIL, SOIL_D, LEAF = "#E2C066", "#8C6A42", "#6B4E2E", "#6E9A4A"
+
+
+def field_strips(x0, x1, y0, y1, n, colours, w):
+    """Fields seen across: strips going back, alternating colours, narrowing to the horizon."""
+    g = VGroup()
+    for i in range(n):
+        a, b = y0 + (y1 - y0) * i / n, y0 + (y1 - y0) * (i + 1) / n
+        k0, k1 = 1 - 0.25 * (a - y0) / (y1 - y0), 1 - 0.25 * (b - y0) / (y1 - y0)
+        g.add(poly([(x0 * k0, a), (x1 * k0, a), (x1 * k1, b), (x0 * k1, b)], colours[i % len(colours)], w * 0.5))
+    return g
+
+
+def _farmland(m, w):
+    g = VGroup(field_strips(-1.0, 1.0, 0.0, 0.6, 6, ("#8DBB6A", WHEAT_C, "#B5875E", "#A6C97A", "#D9B45A", "#7FA85A"), w))
+    for i, (y, c) in enumerate(((0.05, "#5E8A3E"), (0.25, "#B5803A"), (0.45, "#5E8A3E"))):
+        g.add(*(stroke([(x, y), (x, y + 0.04)], c, w * 0.6) for x in np.linspace(-0.85 + i * 0.1, 0.85 - i * 0.1, 10)))
+    g.add(*(VGroup(line((x, 0.6), (x, 0.66), WOOD_D, w * 0.8), circ(x, 0.7, 0.05, "#5E8A3E", w * 0.5)) for x in (-0.6, 0.1, 0.55)))
+    return g, None
+
+
+def _farm(m, w):
+    g, _ = _farmland(m, w)
+    g.add(rect(-0.75, 0.6, -0.35, 0.86, "#A8382B", w), poly([(-0.8, 0.86), (-0.55, 1.02), (-0.3, 0.86)], "#7A2A20", w),
+          rect(-0.62, 0.6, -0.48, 0.76, "#5A2A20", w * 0.6),
+          rect(-0.2, 0.6, 0.1, 0.8, "#F3EEE4", w), poly([(-0.24, 0.8), (-0.05, 0.94), (0.14, 0.8)], "#6B4A2F", w),
+          rect(-0.1, 0.6, -0.02, 0.72, "#6B4A2F", w * 0.6), rect(0.0, 0.7, 0.06, 0.76, "#9FC5DA", w * 0.5),
+          rect(0.3, 0.6, 0.42, 1.02, "#C9CED2", w), blob(zoo.P._arc(0.36, 1.02, 0.06, 0, 180, 8), "#9AA3A9", w),
+          *(line((x, 0.6), (x, 0.68), WOOD, w) for x in np.linspace(0.5, 0.95, 5)), line((0.5, 0.65), (0.95, 0.65), WOOD, w))
+    return g, None
+
+
+def _farmhouse(m, w):
+    return VGroup(rect(-0.45, 0.0, 0.45, 0.45, "#F3E1C8", w), poly([(-0.52, 0.45), (0.0, 0.75), (0.52, 0.45)], "#B5643C", w),
+                  rect(-0.08, 0.0, 0.08, 0.26, "#6B4A2F", w * 0.8), *(rect(x - 0.08, 0.22, x + 0.08, 0.34, "#9FC5DA", w * 0.6) for x in (-0.28, 0.28)),
+                  rect(0.24, 0.6, 0.32, 0.75, "#8C6A42", w * 0.6), live(stroke([(0.28, 0.76), (0.25, 0.84), (0.3, 0.92)], "#C9C2B2", w * 0.8), "steam"),
+                  poly([(-0.6, 0.0), (-0.45, 0.0), (-0.45, 0.2), (-0.6, 0.15)], "#7FA85A", 0)), None
+
+
+def _wheatfield(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.35), (-1.0, 0.35)], "#D9B45A", w * 0.5))
+    for r in range(4):
+        y = 0.05 + r * 0.08
+        for x in np.linspace(-0.95 + 0.05 * (r % 2), 0.95, 16 - r):
+            g.add(stroke([(x, y), (x + 0.01, y + 0.12)], "#B5913A", w * 0.6), ell(x + 0.012, y + 0.14, 0.025, 0.05, WHEAT_C, w * 0.3))
+    return g, None
+
+
+def _cornfield(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.08), (-1.0, 0.08)], SOIL, 0))
+    for x in np.linspace(-0.9, 0.9, 10):
+        g.add(stroke([(x, 0.02), (x, 0.55)], "#5E8A3E", w * 1.4), tube([(x, 0.25), (x + 0.12, 0.35)], [0.04, 0.005], LEAF, w * 0.4),
+              tube([(x, 0.38), (x - 0.12, 0.46)], [0.04, 0.005], LEAF, w * 0.4), ell(x + 0.03, 0.36, 0.04, 0.1, "#F2C14E", w * 0.4),
+              stroke([(x, 0.55), (x - 0.03, 0.62)], "#C9A44E", w * 0.6))
+    return g, None
+
+
+def _paddyfield(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.4), (-1.0, 0.4)], "#7FA8C9", w * 0.5),
+               *(line((-1.0, y), (1.0, y), "#8C7A52", w * 1.6) for y in (0.13, 0.27)))
+    for r, y in enumerate((0.03, 0.17, 0.31)):
+        for x in np.linspace(-0.9 + 0.04 * r, 0.9, 12):
+            g.add(*(stroke([(x, y), (x + d, y + 0.08)], "#6E9A4A", w * 0.6) for d in (-0.02, 0.0, 0.02)))
+    return g, None
+
+
+def _orchard(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.2), (-1.0, 0.2)], "#8DBB6A", 0))
+    for r, (y, s) in enumerate(((0.12, 0.8), (0.0, 1.0))):
+        for x in np.linspace(-0.8 + 0.15 * r, 0.8, 5 - r):
+            g.add(rect(x - 0.025 * s, y, x + 0.025 * s, y + 0.18 * s, WOOD_D, w * 0.6), circ(x, y + 0.3 * s, 0.15 * s, "#5E8A3E", w * 0.7),
+                  *(circ(x + dx * s, y + 0.3 * s + dy * s, 0.022 * s, RED, w * 0.3) for dx, dy in ((-0.06, 0.02), (0.05, 0.05), (0.0, -0.06), (0.07, -0.03))))
+    return g, None
+
+
+def _vegetablegarden(m, w):
+    g = VGroup()
+    for i, (y, crop) in enumerate(((0.0, "cabbage"), (0.15, "carrot"), (0.3, "tomato"))):
+        g.add(rect(-0.8, y, 0.8, y + 0.1, SOIL, w * 0.6), rect(-0.82, y + 0.1, 0.82, y + 0.12, WOOD, w * 0.4))
+        for x in np.linspace(-0.7, 0.7, 8):
+            if crop == "cabbage":
+                g.add(circ(x, y + 0.13, 0.05, "#8DC06A", w * 0.4), circ(x, y + 0.13, 0.025, "#B5D88A", 0))
+            elif crop == "carrot":
+                g.add(*(tube([(x, y + 0.1), (x + d, y + 0.2)], [0.02, 0.003], LEAF, w * 0.3) for d in (-0.02, 0.0, 0.02)))
+            else:
+                g.add(stroke([(x, y + 0.1), (x, y + 0.24)], "#5E8A3E", w * 0.6), circ(x + 0.02, y + 0.17, 0.02, RED, w * 0.3))
+    return g, None
+
+
+def _pasture(m, w):
+    g = VGroup(blob([(-1.0, 0.0), (-1.0, 0.3), (0.0, 0.38), (1.0, 0.3), (1.0, 0.0)], "#8DBB6A", w))
+    g.add(*(line((x, 0.1), (x, 0.3), WOOD, w * 1.2) for x in np.linspace(-0.9, 0.9, 10)),
+          line((-0.9, 0.24), (0.9, 0.24), WOOD, w), line((-0.9, 0.16), (0.9, 0.16), WOOD, w),
+          *(stroke([(x, 0.02), (x - 0.01, 0.07)], "#5E8A3E", w * 0.6) for x in np.linspace(-0.85, 0.85, 14)))
+    return g, None
+
+
+def _irrigatedfields(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.6), (-1.0, 0.6)], "#8DBB6A", w * 0.5))
+    for x0, x1, y0, y1, c in ((-0.95, -0.15, 0.05, 0.27, WHEAT_C), (0.15, 0.95, 0.05, 0.27, "#A6C97A"),
+                              (-0.95, -0.15, 0.33, 0.55, "#A6C97A"), (0.15, 0.95, 0.33, 0.55, WHEAT_C)):
+        g.add(rect(x0, y0, x1, y1, c, w * 0.5))
+    g.add(rect(-0.07, 0.0, 0.07, 0.6, WATER, w * 0.6), rect(-1.0, 0.27, 1.0, 0.33, WATER, w * 0.6),
+          *(rect(x, y, x + 0.03, y + 0.06, WATER, 0) for x, y in ((-0.55, 0.21), (0.5, 0.21), (-0.55, 0.33), (0.5, 0.33))),
+          live(VGroup(*ripple_marks((-0.04,), 0.45, w)), "steam"))
+    return g, None
+
+
+def _teagarden(m, w):
+    g = VGroup(blob([(-1.0, 0.0), (-1.0, 0.45), (-0.3, 0.7), (0.4, 0.62), (1.0, 0.4), (1.0, 0.0)], "#7FA85A", w))
+    for r in range(5):
+        y = 0.06 + r * 0.12
+        hw = 0.95 - r * 0.12
+        g.add(*(ell(x, y, 0.16, 0.08, "#4F7F3A" if (r % 2) else "#5E8A3E", w * 0.4) for x in np.linspace(-hw, hw, int(hw * 6))))
+    g.add(*(VGroup(rect(x - 0.02, 0.5, x + 0.02, 0.7, WOOD_D, w * 0.6), circ(x, 0.78, 0.1, "#3E6E2E", w * 0.5)) for x in (-0.55, 0.3)))
+    return g, None
+
+
+def _henhouse(m, w):
+    return VGroup(*(line((x, 0.0), (x, 0.15), WOOD_D, w * 1.4) for x in (-0.25, 0.25)), rect(-0.3, 0.15, 0.3, 0.45, "#C9A27A", w),
+                  poly([(-0.36, 0.45), (0.0, 0.62), (0.36, 0.45)], "#8C3A2B", w), blob(zoo.P._arc(0.0, 0.18, 0.08, 0, 180, 8) + [(0.08, 0.18)], "#3A2A1E", w * 0.6),
+                  poly([(0.08, 0.15), (0.45, 0.0), (0.52, 0.0), (0.12, 0.17)], WOOD, w * 0.6),
+                  *(line((-0.28, y), (0.28, y), "#A8805A", w * 0.4) for y in (0.25, 0.35))), None
+
+
+def _seedbed(m, w):
+    g = VGroup(poly([(-0.8, 0.0), (0.8, 0.0), (0.7, 0.2), (-0.7, 0.2)], SOIL, w))
+    for k in range(4):
+        y = 0.03 + k * 0.045
+        g.add(stroke([(-0.75 + k * 0.025, y), (0.75 - k * 0.025, y)], SOIL_D, w * 0.6),
+              *(ell(x, y + 0.012, 0.025, 0.015, "#E2C066", w * 0.2) for x in np.linspace(-0.6 + k * 0.03, 0.6 - k * 0.03, 8)))
+    return g, None
+
+
+def _growthstages(m, w):
+    g = VGroup(rect(-0.9, 0.0, 0.9, 0.08, SOIL, w * 0.6))
+    xs = (-0.7, -0.25, 0.2, 0.65)
+    g.add(ell(xs[0], 0.05, 0.06, 0.04, "#D9A84E", w * 0.5),
+          stroke([(xs[1], 0.06), (xs[1], 0.18)], "#5E8A3E", w), *(tube([(xs[1], 0.18), (xs[1] + d, 0.24)], [0.04, 0.006], LEAF, w * 0.4) for d in (-0.06, 0.06)),
+          stroke([(xs[2], 0.06), (xs[2], 0.4)], "#5E8A3E", w * 1.2),
+          *(tube([(xs[2], y), (xs[2] + d, y + 0.08)], [0.05, 0.008], LEAF, w * 0.4) for y, d in ((0.15, 0.12), (0.25, -0.12), (0.34, 0.1))),
+          stroke([(xs[3], 0.06), (xs[3], 0.55)], "#5E8A3E", w * 1.4),
+          *(tube([(xs[3], y), (xs[3] + d, y + 0.08)], [0.05, 0.008], LEAF, w * 0.4) for y, d in ((0.15, 0.12), (0.27, -0.12), (0.38, 0.12))),
+          *(circ(xs[3] + 0.04 * math.cos(a), 0.58 + 0.04 * math.sin(a), 0.03, "#F2C14E", w * 0.3) for a in np.linspace(0, 2 * math.pi, 6)[:-1]),
+          circ(xs[3], 0.58, 0.02, "#B5643C", 0),
+          *(poly([(x + 0.14, 0.3), (x + 0.22, 0.3), (x + 0.22, 0.28), (x + 0.25, 0.31), (x + 0.22, 0.34), (x + 0.22, 0.32), (x + 0.14, 0.32)],
+                 "#9A948A", 0) for x in xs[:3]))
+    return g, None
+
+
+def _roots(m, w):
+    g = VGroup(rect(-0.6, -0.5, 0.6, 0.0, SOIL, w * 0.6), rect(-0.6, 0.0, 0.6, 0.03, "#7FA85A", 0),
+               stroke([(0.0, 0.0), (0.0, 0.45)], "#5E8A3E", w * 1.6),
+               *(tube([(0.0, y), (d * 0.2, y + 0.1)], [0.06, 0.01], LEAF, w * 0.5) for y, d in ((0.15, 1), (0.25, -1), (0.35, 1))))
+    for a, l in ((-1.2, 0.3), (-0.6, 0.38), (0.0, 0.42), (0.6, 0.36), (1.2, 0.28)):
+        end = (l * math.sin(a), -l * math.cos(a) * 0.9 - 0.02)
+        g.add(stroke([(0.0, 0.0), (end[0] * 0.5, end[1] * 0.6), end], "#F3E1C8", w * 1.2),
+              stroke([(end[0] * 0.5, end[1] * 0.6), (end[0] * 0.5 + 0.06, end[1] * 0.6 - 0.08)], "#F3E1C8", w * 0.6))
+    g.add(*(ell(x, y, 0.06, 0.03, "#9AA3A9", w * 0.3) for x, y in ((-0.45, -0.3), (0.4, -0.15), (0.3, -0.42))))
+    return g, None
+
+
+def _savanna(m, w):
+    g = VGroup(blob([(-1.0, 0.0), (-1.0, 0.25), (0.0, 0.3), (1.0, 0.25), (1.0, 0.0)], "#D9C27A", w))
+    for x, s in ((-0.55, 1.0), (0.5, 0.8)):
+        g.add(stroke([(x, 0.15), (x + 0.02, 0.15 + 0.3 * s), (x - 0.1 * s, 0.15 + 0.5 * s)], WOOD_D, w * 2.4),
+              stroke([(x + 0.02, 0.15 + 0.3 * s), (x + 0.16 * s, 0.15 + 0.5 * s)], WOOD_D, w * 1.6),
+              blob([(x - 0.45 * s, 0.15 + 0.5 * s), (x - 0.2 * s, 0.15 + 0.62 * s), (x + 0.25 * s, 0.15 + 0.62 * s), (x + 0.45 * s, 0.15 + 0.54 * s),
+                    (x + 0.1 * s, 0.15 + 0.47 * s)], "#6E8F3A", w))
+    g.add(*(stroke([(x, 0.05), (x + 0.02, 0.12)], "#B5A24E", w * 0.6) for x in np.linspace(-0.9, 0.9, 16)), circ(0.1, 0.8, 0.1, "#F2A93B", w * 0.5))
+    return g, None
+
+
+def _hillvillage(m, w):
+    g = VGroup(blob([(-1.0, 0.0), (-1.0, 0.4), (-0.4, 0.75), (0.2, 0.6), (0.6, 0.72), (1.0, 0.45), (1.0, 0.0)], "#8DBB6A", w))
+    for x, y in ((-0.6, 0.45), (-0.35, 0.58), (-0.1, 0.48), (0.15, 0.42), (0.45, 0.55), (0.7, 0.4), (-0.25, 0.28), (0.4, 0.25)):
+        g.add(rect(x - 0.07, y, x + 0.07, y + 0.1, "#F3E1C8", w * 0.6), poly([(x - 0.09, y + 0.1), (x, y + 0.16), (x + 0.09, y + 0.1)], "#B5643C", w * 0.6))
+    g.add(stroke([(-0.9, 0.05), (-0.5, 0.2), (0.0, 0.18), (0.5, 0.35), (0.9, 0.3)], "#C9A86A", w * 2.4))
+    return g, None
+
+
+# -- water -------------------------------------------------------------------------------------------------------
+
+def _waterdrop(m, w):
+    c = col(m["color"]) if m.get("color") else WATER
+    return VGroup(blob([(0.0, 0.42), (0.05, 0.3), (0.12, 0.18), (0.12, 0.08), (0.06, 0.0), (-0.06, 0.0), (-0.12, 0.08), (-0.12, 0.18), (-0.05, 0.3)], c, w),
+                  stroke([(-0.06, 0.08), (-0.07, 0.15), (-0.04, 0.22)], "#DDEEF6", w * 1.6), circ(-0.03, 0.27, 0.012, "#DDEEF6", 0)), None
+
+
+def _puddle(m, w):
+    return VGroup(blob([(-0.4, 0.03), (-0.3, 0.08), (0.0, 0.07), (0.3, 0.09), (0.42, 0.04), (0.2, 0.0), (-0.2, 0.0)], WATER, w),
+                  *(Ellipse(width=r * 2, height=r * 0.5, stroke_color="#DDEEF6", stroke_width=w * 0.6).move_to([0.05, 0.045, 0]) for r in (0.06, 0.12)),
+                  live(VGroup(*(ell(x, 0.2 + k * 0.1, 0.02, 0.05, WATER, w * 0.3) for k, x in enumerate((-0.2, 0.15, 0.3)))), "steam")), None
+
+
+def _pond(m, w):
+    return VGroup(ell(0.0, 0.1, 1.2, 0.24, "#7FA85A", w * 0.5), ell(0.0, 0.1, 0.95, 0.17, WATER, w),
+                  *(VGroup(ell(x, 0.11, 0.1, 0.04, "#6E9A4A", w * 0.4), circ(x + 0.02, 0.13, 0.02, "#F2B8C6", w * 0.3)) for x in (-0.25, 0.15)),
+                  *(VGroup(stroke([(x, 0.15), (x + 0.01, 0.36)], "#6B5A3A", w), rrect(x - 0.012, 0.3, x + 0.022, 0.4, 0.015, "#6B4A2F", w * 0.4)) for x in (0.42, 0.47, -0.45))), None
+
+
+def _stream(m, w):
+    g = VGroup(fill_only([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.45), (-1.0, 0.45)], "#8DBB6A", 1.0, smooth=False),
+               stroke([(-1.0, 0.4), (-0.5, 0.33), (-0.1, 0.22), (0.3, 0.15), (0.7, 0.05), (1.0, 0.0)], WATER, w * 9),
+               *(live(stroke([(x, y), (x + 0.06, y - 0.01)], "#DDEEF6", w), "steam") for x, y in ((-0.6, 0.34), (-0.1, 0.22), (0.4, 0.12))))
+    g.add(*(ell(x, y, 0.08, 0.05, "#9A948A", w * 0.5) for x, y in ((-0.3, 0.3), (0.15, 0.22), (0.6, 0.12))))
+    return g, None
+
+
+def _spring(m, w):
+    return VGroup(blob([(-0.6, 0.0), (-0.5, 0.35), (-0.2, 0.5), (0.2, 0.48), (0.55, 0.3), (0.6, 0.0)], "#9A948A", w),
+                  blob([(-0.1, 0.18), (-0.06, 0.26), (0.06, 0.26), (0.1, 0.18)], "#3A3631", w * 0.6),
+                  live(stroke([(0.0, 0.2), (0.05, 0.12), (0.02, 0.05), (0.08, 0.0)], WATER, w * 3), "steam"),
+                  ell(0.12, 0.0, 0.5, 0.08, WATER, w * 0.6), *(stroke([(x, 0.4), (x + 0.02, 0.5)], "#5E8A3E", w) for x in (-0.3, -0.25, 0.3))), None
+
+
+def _riverbend(m, w):
+    """A river seen from above, winding through fields."""
+    g = VGroup(rect(-1.0, 0.0, 1.0, 0.8, "#8DBB6A", w * 0.5))
+    path = [(-1.0, 0.65), (-0.6, 0.7), (-0.35, 0.5), (-0.5, 0.25), (-0.2, 0.08), (0.2, 0.2), (0.35, 0.5), (0.65, 0.6), (1.0, 0.45)]
+    g.add(stroke(path, WATER_D, w * 10), stroke(path, WATER, w * 7))
+    g.add(*(VGroup(circ(x, y, 0.05, "#5E8A3E", w * 0.4)) for x, y in ((-0.8, 0.35), (-0.1, 0.45), (0.6, 0.2), (0.0, 0.7))),
+          *(rect(x, y, x + 0.18, y + 0.1, WHEAT_C, w * 0.3) for x, y in ((-0.85, 0.05), (0.55, 0.65))))
+    return g, None
+
+
+def _riverbank(m, w):
+    return VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.18), (-1.0, 0.18)], WATER, w * 0.5),
+                  *ripple_marks((-0.7, -0.2, 0.3, 0.75), 0.08, w),
+                  blob([(-1.0, 0.16), (-0.4, 0.2), (0.2, 0.17), (1.0, 0.2), (1.0, 0.4), (-1.0, 0.4)], "#B5875E", w * 0.6),
+                  poly([(-1.0, 0.38), (1.0, 0.38), (1.0, 0.45), (-1.0, 0.45)], "#8DBB6A", 0),
+                  *(VGroup(stroke([(x, 0.18), (x + 0.02, 0.42)], "#6B5A3A", w), rrect(x + 0.005, 0.36, x + 0.035, 0.45, 0.012, "#6B4A2F", w * 0.4))
+                    for x in (-0.8, -0.74, 0.6, 0.66, 0.72)),
+                  *(stroke([(x, 0.18), (x - 0.04, 0.3)], "#6E9A4A", w * 0.8) for x in np.linspace(-0.6, 0.5, 8))), None
+
+
+def _tworivers(m, w):
+    """Two rivers running down to meet (the land between them: Mesopotamia, a doab)."""
+    g = VGroup(rect(-1.0, 0.0, 1.0, 0.9, "#D9C27A", w * 0.5), blob([(-0.55, 0.85), (0.45, 0.85), (0.1, 0.25), (-0.1, 0.25)], "#8DBB6A", 0))
+    a = [(-0.75, 0.9), (-0.55, 0.65), (-0.35, 0.45), (-0.15, 0.3), (0.0, 0.18), (0.05, 0.0)]
+    b = [(0.7, 0.9), (0.5, 0.7), (0.35, 0.5), (0.15, 0.3), (0.0, 0.18)]
+    g.add(stroke(a, WATER_D, w * 6), stroke(b, WATER_D, w * 5), stroke(a, WATER, w * 4), stroke(b, WATER, w * 3))
+    g.add(*(VGroup(rect(x - 0.04, y, x + 0.04, y + 0.05, "#C9A27A", w * 0.4)) for x, y in ((-0.15, 0.6), (0.1, 0.55), (-0.02, 0.42))))
+    return g, None
+
+
+def _floodplain(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.5), (-1.0, 0.5)], "#D9C27A", w * 0.5),
+               poly([(-1.0, 0.1), (1.0, 0.1), (1.0, 0.38), (-1.0, 0.38)], "#5E4A32", 0, op=0.55),
+               poly([(-1.0, 0.18), (1.0, 0.18), (1.0, 0.3), (-1.0, 0.3)], WATER, w * 0.6))
+    g.add(*(stroke([(x, 0.32), (x, 0.4)], "#5E8A3E", w * 0.8) for x in np.linspace(-0.9, 0.9, 16)),
+          *(stroke([(x, 0.08), (x, 0.16)], "#5E8A3E", w * 0.8) for x in np.linspace(-0.85, 0.85, 14)),
+          *ripple_marks((-0.6, 0.0, 0.5), 0.22, w))
+    return g, None
+
+
+def _flood(m, w):
+    g = VGroup()
+    for x, h in ((-0.55, 0.45), (0.0, 0.55), (0.5, 0.4)):
+        g.add(rect(x - 0.18, 0.0, x + 0.18, h, "#F3E1C8", w), poly([(x - 0.22, h), (x, h + 0.2), (x + 0.22, h)], "#B5643C", w),
+              rect(x - 0.06, h - 0.18, x + 0.06, h - 0.08, "#9FC5DA", w * 0.5))
+    g.add(rect(-1.0, 0.0, 1.0, 0.28, "#6E8AA8", w * 0.6, ).set_opacity(0.92),
+          *(live(stroke([(x, 0.26), (x + 0.07, 0.29), (x + 0.14, 0.26)], "#DDEEF6", w), "steam") for x in np.linspace(-0.9, 0.75, 7)),
+          VGroup(rect(0.68, 0.24, 0.9, 0.3, WOOD, w * 0.6)),
+          *(live(line((x, 1.0), (x - 0.03, 0.88), "#7FA8C9", w * 0.8), "steam") for x in np.linspace(-0.8, 0.8, 8)))
+    return g, None
+
+
+def _drought(m, w):
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (1.0, 0.3), (-1.0, 0.3)], "#C9A06A", w * 0.6))
+    for pts in (((-0.8, 0.05), (-0.6, 0.15), (-0.65, 0.25)), ((-0.6, 0.15), (-0.35, 0.12), (-0.2, 0.22)), ((-0.35, 0.12), (-0.3, 0.02)),
+                ((0.0, 0.03), (0.1, 0.15), (0.3, 0.12), (0.5, 0.25)), ((0.1, 0.15), (0.05, 0.27)), ((0.3, 0.12), (0.45, 0.04), (0.7, 0.1), (0.85, 0.22))):
+        g.add(*(line(pts[i], pts[i + 1], "#8C6A42", w * 0.9) for i in range(len(pts) - 1)))
+    g.add(stroke([(0.6, 0.3), (0.62, 0.6), (0.5, 0.75)], "#6B4A2F", w * 2.4), stroke([(0.62, 0.55), (0.78, 0.7)], "#6B4A2F", w * 1.6),
+          stroke([(0.56, 0.68), (0.45, 0.66)], "#6B4A2F", w), circ(-0.6, 0.85, 0.13, "#F2A93B", w * 0.6),
+          *(line((-0.6 + 0.16 * math.cos(a), 0.85 + 0.16 * math.sin(a)), (-0.6 + 0.22 * math.cos(a), 0.85 + 0.22 * math.sin(a)), "#F2A93B", w)
+            for a in np.linspace(0, 2 * math.pi, 9)[:-1]))
+    return g, None
+
+
+def _lagoon(m, w):
+    return VGroup(rect(-1.0, 0.0, 1.0, 0.25, WATER_D, w * 0.5), ell(0.0, 0.2, 1.4, 0.3, SAND, w), ell(0.0, 0.2, 1.0, 0.18, "#7FD1C9", w * 0.6),
+                  *(VGroup(stroke([(x, 0.25), (x + 0.04, 0.45)], WOOD, w * 1.8),
+                           *(tube([(x + 0.04, 0.45), (x + 0.04 + 0.14 * math.cos(a), 0.45 + 0.07 * math.sin(a))], [0.04, 0.005], "#5E8A3E", w * 0.4)
+                             for a in (0.3, 1.4, 2.6, 3.5))) for x in (-0.6, 0.55))), None
+
+
+def _watercycle(m, w):
+    g = VGroup(rect(-1.0, 0.0, 0.0, 0.12, WATER, w * 0.5), poly([(0.0, 0.0), (0.3, 0.45), (0.6, 0.2), (0.8, 0.5), (1.0, 0.0)], "#8E8FA0", w),
+               circ(-0.75, 0.8, 0.1, "#F2C14E", w * 0.6))
+    g.add(*(blob([(x - 0.2, 0.75), (x - 0.12, 0.85), (x, 0.88), (x + 0.12, 0.85), (x + 0.2, 0.75)], "#F4F7FA", w) for x in (-0.15, 0.45)),
+          *(live(line((x, 0.7), (x - 0.03, 0.55), WATER, w), "steam") for x in np.linspace(0.3, 0.6, 4)),
+          *(live(stroke([(x, 0.15), (x + 0.02, 0.3), (x - 0.01, 0.45)], "#9FC5DA", w * 0.8), "steam") for x in (-0.7, -0.5, -0.3)),
+          stroke([(0.8, 0.45), (0.6, 0.3), (0.3, 0.1), (0.0, 0.06)], WATER_D, w * 1.6),
+          stroke([(-0.4, 0.5), (-0.3, 0.7), (-0.2, 0.75)], "#3A3631", w * 0.8), poly([(-0.22, 0.78), (-0.17, 0.74), (-0.24, 0.71)], "#3A3631", 0),
+          stroke([(0.15, 0.85), (0.25, 0.9), (0.3, 0.88)], "#3A3631", w * 0.8), poly([(0.28, 0.91), (0.33, 0.87), (0.27, 0.85)], "#3A3631", 0))
+    return g, None
+
+
+def _soillayers(m, w):
+    g = VGroup()
+    for i, (h, c, lab) in enumerate(((0.08, "#5E8A3E", ""), (0.18, "#6B4E2E", "TOPSOIL"), (0.18, "#9A7A52", "SUBSOIL"), (0.2, "#B5AD9C", "ROCK"))):
+        y1 = -sum(x[0] for x in ((0.08,), (0.18,), (0.18,), (0.2,))[:i]) + 0.64
+        y0 = y1 - h
+        g.add(rect(-0.6, y0, 0.6, y1, c, w * 0.6))
+        if lab:
+            g.add(letters(lab, 0.35, (y0 + y1) / 2, 0.04, "#F7F5F0"))
+    g.add(*(ell(x, y, 0.07, 0.04, "#8A8478", w * 0.4) for x, y in ((-0.3, 0.2), (0.0, 0.25), (-0.4, 0.1))),
+          *(stroke([(x, 0.56), (x + 0.02, 0.48), (x - 0.01, 0.42)], "#F3E1C8", w * 0.6) for x in (-0.4, -0.1)),
+          *(stroke([(x, 0.64), (x, 0.7)], "#5E8A3E", w) for x in np.linspace(-0.55, 0.55, 10)))
+    return g, None
+
+
+def _groundwater(m, w):
+    g, _ = _soillayers(m, w)
+    g.add(rect(-0.6, 0.06, 0.6, 0.2, WATER, 0).set_opacity(0.75), stroke([(-0.6, 0.2), (0.6, 0.2)], WATER_D, w * 1.2),
+          letters("WATER TABLE", -0.3, 0.13, 0.035, "#F7F5F0"),
+          rect(0.0, 0.2, 0.04, 0.72, "#9AA3A9", w * 0.6), VGroup(rect(-0.03, 0.72, 0.07, 0.85, "#3E7CB1", w * 0.6), line((0.07, 0.8), (0.16, 0.8), "#3E7CB1", w)))
+    return g, None
+
+
+def _ghats(m, w):
+    g = VGroup(rect(-1.0, 0.0, 1.0, 0.16, WATER, w * 0.5), *ripple_marks((-0.7, 0.0, 0.6), 0.06, w))
+    for i in range(5):
+        y = 0.16 + i * 0.06
+        g.add(rect(-1.0, y, 1.0, y + 0.06, tint("#D9B98A", 0.05 * (i % 2)), w * 0.5))
+    for x, h in ((-0.7, 0.4), (-0.25, 0.55), (0.3, 0.45), (0.75, 0.35)):
+        g.add(rect(x - 0.15, 0.46, x + 0.15, 0.46 + h, "#E8C9A0", w), *(blob(zoo.P._arc(x + d, 0.46 + h * 0.4, 0.04, 0, 180, 6) + [(x + d + 0.04, 0.46 + h * 0.2)],
+                                                                          "#6B4A2F", w * 0.4) for d in (-0.07, 0.07)),
+              poly([(x - 0.17, 0.46 + h), (x, 0.56 + h), (x + 0.17, 0.46 + h)], "#C2552B", w * 0.7))
+    g.add(*(VGroup(line((x, 0.28), (x, 0.4), WOOD_D, w), blob([(x - 0.12, 0.4), (x, 0.47), (x + 0.12, 0.4)], "#E07B39", w * 0.6)) for x in (-0.5, 0.45)))
+    return g, None
+
+
+def _waterwheel(m, w):
+    g = VGroup(rect(-0.8, 0.0, 0.8, 0.14, WATER, w * 0.5), rect(-0.55, 0.0, -0.45, 0.75, WOOD_D, w), rect(0.45, 0.0, 0.55, 0.75, WOOD_D, w))
+    wheel = VGroup(Circle(radius=0.4, stroke_color=WOOD, stroke_width=w * 3).move_to([0.0, 0.45, 0]),
+                   *(line((0.0, 0.45), (0.4 * math.cos(a), 0.45 + 0.4 * math.sin(a)), WOOD, w) for a in np.linspace(0, 2 * math.pi, 9)[:-1]),
+                   *(rect(0.4 * math.cos(a) - 0.04, 0.45 + 0.4 * math.sin(a) - 0.04, 0.4 * math.cos(a) + 0.04, 0.45 + 0.4 * math.sin(a) + 0.04, CLAY, w * 0.5)
+                     for a in np.linspace(0, 2 * math.pi, 9)[:-1]))
+    g.add(live(wheel, "spin", (0.0, 0.45)), circ(0.0, 0.45, 0.05, "#3A3631", w * 0.6), line((-0.5, 0.75), (0.5, 0.75), WOOD_D, w * 1.6),
+          live(stroke([(0.38, 0.6), (0.6, 0.62), (0.9, 0.62)], WATER, w * 3), "steam"))
+    return g, None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 import shelf as _index  # noqa: E402

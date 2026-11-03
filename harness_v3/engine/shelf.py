@@ -73,7 +73,9 @@ SECTIONS = {
     "Land and water": (
         "river lake waterfall hills mountainrange snowpeak valley desert dune oasis forest jungle swamp glacier "
         "iceberg canyon cliff cave beach ocean coast delta plateau meadow acacia bamboo banyan terraces mangrove "
-        "reef geyser crater road trail village skyline port mine quarry sunset nightsky"),
+        "reef geyser crater road trail village skyline port mine quarry sunset nightsky waterdrop puddle pond "
+        "stream spring riverbend riverbank tworivers floodplain flood drought lagoon watercycle soillayers "
+        "groundwater ghats waterwheel"),
     "Nature": (
         "tree palm bush rock mountain cloud sun moon flower lotus cactus mushroom pinetree wave raincloud "
         "lightning snowflake star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado "
@@ -91,6 +93,9 @@ SECTIONS = {
     "Ancient and medieval worlds": (
         "papyrus hieroglyphs sphinx sarcophagus aqueduct longship astrolabe guillotine yurt torii dhow junkship "
         "porcelainvase"),
+    "Farms and fields": (
+        "farm farmland farmhouse wheatfield cornfield paddyfield orchard vegetablegarden pasture irrigatedfields "
+        "teagarden henhouse seedbed growthstages roots savanna hillvillage"),
 }
 
 # The words in a shot's plan or narration that call a section up.
@@ -141,7 +146,7 @@ KEYWORDS = {
     "Land and water": (
         "river rivers lake sea ocean coast coastal beach island mountain mountains hill hills valley desert "
         "forest jungle land landscape geography climate rain monsoon flood floods delta plain plains plateau "
-        "north south east west region terrain water"),
+        "north south east west region terrain water drop droplet droplets rain rainfall flood floods drought dry thirst well wells spring pond stream canal irrigation groundwater"),
     "Nature": (
         "nature tree trees forest plant plants flower flowers animal animals weather rain sun sunny cloud storm "
         "snow season seasons volcano earthquake"),
@@ -157,6 +162,11 @@ KEYWORDS = {
         "ancient egypt egyptian pharaoh pyramid rome roman greek greece viking vikings medieval middle ages china "
         "chinese dynasty japan japanese mongol mongols arab arabs ocean voyage voyages navigation sailor explorer "
         "revolution france french silk route empire emperor history historian"),
+    "Farms and fields": (
+        "farm farms farmer farmers farming field fields crop crops harvest harvested sow sowing plough ploughed "
+        "plant plants planted planting grow growing grew soil seed seeds irrigation irrigate orchard cattle "
+        "grazing village villages rural agriculture agricultural wheat rice barley maize paddy food tea estate "
+        "garden roots"),
 }
 
 # A few everyday things every shot is shown (a table, a book, a house, a tree...).
@@ -236,14 +246,14 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "conemosaic": "claycones", "wheel2": "potterswheel", "harp": "lyre", "datefruit": "dates",
            "riverboat": "barge", "irrigation": "shaduf", "channel": "canal", "leather": "hide",
            "lamp2": "oillamp", "package2": "sealing", "signalfire": "beacon", "library": "tabletshelf",
-           "archive": "tabletshelf", "farmland": "field", "furrows": "field", "net": "fishingnet",
-           "stream": "river", "brook": "river", "pond": "lake", "falls": "waterfall", "hillside": "hills",
+           "archive": "tabletshelf", "furrows": "field", "net": "fishingnet",
+           "brook": "stream", "falls": "waterfall", "hillside": "hills",
            "mountains": "mountainrange", "range": "mountainrange", "himalaya": "mountainrange", "himalayas": "mountainrange",
            "alps": "mountainrange", "everest": "snowpeak", "summit": "snowpeak", "gorge": "canyon", "sand": "dune",
            "sahara": "desert", "thar": "desert", "woods": "forest", "woodland": "forest", "rainforest": "jungle",
            "marsh": "swamp", "wetland": "swamp", "ice": "glacier", "seashore": "beach", "shore": "beach", "sea": "ocean",
-           "coastline": "coast", "grassland": "meadow", "savanna": "acacia", "savannah": "acacia", "steppe": "meadow",
-           "paddy": "terraces", "ricefields": "terraces", "coral": "reef", "hotspring": "geyser", "highway": "road",
+           "coastline": "coast", "grassland": "meadow", "savannah": "savanna", "steppe": "meadow",
+           "paddy": "paddyfield", "ricefields": "paddyfield", "coral": "reef", "hotspring": "geyser", "highway": "road",
            "street": "road", "path": "trail", "footpath": "trail", "town": "village", "city": "skyline", "harbour": "port",
            "harbor": "port", "dock": "port", "mineshaft": "mine", "dusk": "sunset", "sunrise": "sunset", "night": "nightsky",
            "stars": "nightsky", "laundry": "clothesline", "baby": "cradle", "chatai": "mat", "bin": "dustbin",
@@ -272,11 +282,24 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "baoli": "stepwell", "vav": "stepwell", "shrinegate": "torii", "arabship": "dhow", "chineseship": "junkship",
            "porcelain": "porcelainvase", "chinavase": "porcelainvase", "teastall": "chaistall", "chaiwala": "chaistall",
            "pankha": "handfan", "fan2": "handfan", "chudi": "bangles", "bangle": "bangles", "stones": "pebbles",
-           "spider": "spiderweb", "web": "spiderweb", "ants": "anthill", "pine_cone": "pinecone"}
+           "spider": "spiderweb", "web": "spiderweb", "ants": "anthill", "pine_cone": "pinecone",
+           "waterdroplet": "waterdrop", "droplet": "waterdrop", "drop": "waterdrop", "raindrop": "waterdrop", "water": "waterdrop",
+           "meander": "riverbend", "riverside": "riverbank", "bank2": "riverbank", "confluence": "tworivers",
+           "mesopotamia": "tworivers", "tigris": "tworivers", "euphrates": "tworivers", "doab": "tworivers", "nile": "floodplain",
+           "creek": "stream", "watersource": "spring", "hydrologicalcycle": "watercycle", "evaporation": "watercycle",
+           "watertable": "groundwater", "aquifer": "groundwater", "soil": "soillayers", "flooding": "flood", "floods": "flood",
+           "famine": "drought", "dryland": "drought", "teaestate": "teagarden", "plantation": "teagarden", "varanasi": "ghats",
+           "noria": "waterwheel", "persianwheel": "waterwheel", "farmstead": "farmhouse", "chickencoop": "henhouse",
+           "coop": "henhouse", "sowing": "seedbed", "seeds": "seedbed", "lifecycle": "growthstages", "plantgrowth": "growthstages",
+           "rootsystem": "roots", "hilltown": "hillvillage", "maizefield": "cornfield", "garden": "vegetablegarden",
+           "kitchengarden": "vegetablegarden", "fields": "farmland", "farms": "farm", "wheatfields": "wheatfield",
+           "grainfield": "wheatfield", "paddies": "paddyfield", "fruittrees": "orchard", "pastures": "pasture",
+           "grazing": "pasture", "irrigated": "irrigatedfields"}
 
 NAMES = tuple(sorted({n for v in SECTIONS.values() for n in v.split()}))
 # The land, drawn to stand behind people (a river, hills, a forest): never moved off what stands on it, always behind.
-SCENERY = frozenset(SECTIONS["Land and water"].split()) | {"mountain", "volcano", "island", "field", "canal", "terraces"}
+SCENERY = (frozenset(SECTIONS["Land and water"].split()) | frozenset(SECTIONS["Farms and fields"].split())
+           | {"mountain", "volcano", "island", "field", "canal", "terraces"}) - {"waterdrop", "growthstages", "roots", "seedbed", "puddle"}
 SECTION_OF = {n: k for k, v in SECTIONS.items() for n in v.split()}
 
 

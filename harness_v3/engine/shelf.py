@@ -17,26 +17,29 @@ import re
 SECTIONS = {
     "Money, trade": (
         "moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt abacus safe stall scales "
-        "shoppingcart pricetag cashregister atm suitcase backpack scepter orb ring necklace"),
+        "shoppingcart pricetag cashregister atm suitcase backpack scepter orb ring necklace billboard "
+        "vendingmachine coinjar"),
     "Writing, office": (
         "book books openbook ledger scroll letter document charter newspaper oldmap quill inkwell seal pencil "
         "notebook clipboard folder stamp typewriter briefcase ballotbox calendar ticket passport idcard cheque "
-        "parcel"),
+        "parcel stapler paperclip"),
     "Modern": (
         "laptop computer phone oldphone radio tv camera microphone megaphone clock lightbulb battery robot drone "
         "calculator streetlight trafficlight printer router satellitedish cctv chip tablet mobiletower plug "
-        "qrcode conveyor robotarm"),
+        "qrcode conveyor robotarm smartwatch usb server computermouse projector"),
     "Science, industry": (
         "flask testtube microscope magnet gear telescope rocket satellite solarpanel windmill factory oilwell "
         "printingpress dna deskglobe compass windturbine pylon oilbarrel fuelpump container crane atom molecule "
         "virus cell brain skull bone tooth prism planet earth comet bunsen sundial magnifier rover spacestation "
-        "galaxy circuit oilrig coal furnace steamengine telegraph"),
+        "galaxy circuit oilrig coal furnace steamengine telegraph pendulum pulley weathervane anemometer "
+        "seismograph fossil solarsystem"),
     "Home": (
         "table desk chair stool throne bench bookshelf lectern bed charpai rug vase broom umbrella ladder rope "
         "chain padlock key bell goblet hourglass gift balloon kite ball cricketbat trophy medal lattu rangoli "
         "sofa tablelamp mirror door window stairs kettle pan plate bottle jug mailbox fan fridge shoe shirt "
         "whiteboard blackboard spectacles fireextinguisher clothesline cradle mat pillow iron sewingmachine "
-        "washingmachine dustbin candle diya lantern campfire"),
+        "washingmachine dustbin candle diya lantern campfire glass matchbox toothbrush soap comb towel photoframe "
+        "flowerpot aquarium birdcage flashlight almirah trunk sieve rollingpin tawa"),
     "Containers": (
         "barrel crate box sack basket pot jar bucket milkcan tiffin"),
     "Food": (
@@ -45,7 +48,7 @@ SECTIONS = {
         "jalebi dosa idli noodles burger coffee orange lemon potato corn salt"),
     "Care, learning": (
         "medkit pills syringe mask thermometer heart gradcap diploma stethoscope bandage wheelchair crayons ruler "
-        "slate ecg hospitalbed xray"),
+        "slate ecg hospitalbed xray eye lungs crutch"),
     "Arms": (
         "sword shield spear bow axe musket cannon bomb helmet dagger mace armor arrow quiver catapult cannonballs "
         "chariot tank banner drum horn crossbow torch trench barbedwire mushroomcloud"),
@@ -54,13 +57,14 @@ SECTIONS = {
         "wheelbarrow toolbox scissors paintbrush easel"),
     "Music, play, sport": (
         "guitar piano harmonium dhol violin headphones speaker dice chessboard playingcards gamecontroller racket "
-        "dumbbell hockeystick"),
+        "dumbbell hockeystick wicket goalpost basketballhoop swing slide seesaw marbles yoyo teddybear"),
     "Law": (
         "gavel handcuffs evm stopsign podium placard inkedfinger constitution"),
     "Getting about": (
         "cart carriage bicycle rickshaw autorickshaw car bus truck tractor train plane boat ship motorcycle "
         "scooter helicopter hotairballoon submarine sailboat canoe ambulance firetruck policecar jeep bulldozer "
-        "jet tram trafficcone railtrack station busstop milestone"),
+        "jet tram trafficcone railtrack station busstop milestone skateboard parachute anchor lifebuoy "
+        "steeringwheel tyre fuelcan"),
     "Places": (
         "house hut tent well tower castle palace temple mosque church school hospital bank shop skyscraper "
         "lighthouse bridge gate fence signpost flagpole flagindia bunting pyramids obelisk pillar arch statue "
@@ -72,16 +76,21 @@ SECTIONS = {
         "reef geyser crater road trail village skyline port mine quarry sunset nightsky"),
     "Nature": (
         "tree palm bush rock mountain cloud sun moon flower lotus cactus mushroom pinetree wave raincloud "
-        "lightning snowflake star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado"),
+        "lightning snowflake star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado "
+        "pebbles feather acorn pinecone spiderweb anthill"),
     "Environment, water, power": (
         "recycle watertank tap pipe garbage smog chargingstation"),
     "India": (
-        "loom kalash conch sitar tabla flute palanquin chulha handpump spices puppet jalebi dosa idli"),
+        "loom kalash conch sitar tabla flute palanquin chulha handpump spices puppet jalebi dosa idli chaistall "
+        "toran handfan bangles stepwell"),
     "First farmers, first cities": (
         "kernel handaxe flintknife polishedaxe cavepainting leanto quern barley millet riceplant lentils peapod "
         "cotton flax yarn spindle clothbolt storagejar copperore ingot obsidian seashell lapis claytablet stylus "
         "claylump ziggurat mudbricks citywall stele cylinderseal claycones potterswheel lyre dates barge shaduf "
         "canal cheese hide oillamp sealing beacon tabletshelf eclipse mudhouse field yoke fishingnet"),
+    "Ancient and medieval worlds": (
+        "papyrus hieroglyphs sphinx sarcophagus aqueduct longship astrolabe guillotine yurt torii dhow junkship "
+        "porcelainvase"),
 }
 
 # The words in a shot's plan or narration that call a section up.
@@ -144,6 +153,10 @@ KEYWORDS = {
         "ancient prehistoric prehistory stone hunter hunters gatherer gatherers farming farmers first settle "
         "settled settlement neolithic city cities mesopotamia sumer sumerian uruk ur babylon clay tablet writing "
         "cuneiform temple ziggurat bronze copper trade irrigation canal river harvest grain barley"),
+    "Ancient and medieval worlds": (
+        "ancient egypt egyptian pharaoh pyramid rome roman greek greece viking vikings medieval middle ages china "
+        "chinese dynasty japan japanese mongol mongols arab arabs ocean voyage voyages navigation sailor explorer "
+        "revolution france french silk route empire emperor history historian"),
 }
 
 # A few everyday things every shot is shown (a table, a book, a house, a tree...).
@@ -243,7 +256,23 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "kathputli": "puppet", "marsrover": "rover", "iss": "spacestation", "milkyway": "galaxy",
            "electriccircuit": "circuit", "mug": "coffee", "maize": "corn", "atombomb": "mushroomcloud",
            "explosion": "mushroomcloud", "rig": "oilrig", "blastfurnace": "furnace", "steelmill": "furnace",
-           "morse": "telegraph", "engine": "steamengine"}
+           "morse": "telegraph", "engine": "steamengine",
+           "tumbler": "glass", "matches": "matchbox", "brushteeth": "toothbrush", "hygiene": "soap", "frame": "photoframe",
+           "plant": "flowerpot", "pottedplant": "flowerpot", "fishtank": "aquarium", "cage": "birdcage", "torchlight": "flashlight",
+           "wardrobe": "almirah", "closet": "almirah", "belan": "rollingpin", "griddle": "tawa", "staple": "stapler",
+           "clip": "paperclip", "fitnessband": "smartwatch", "pendrive": "usb", "datacenter": "server", "cloudserver": "server",
+           "mouse": "computermouse", "advert": "billboard", "advertisement": "billboard", "hoarding": "billboard",
+           "savings": "coinjar", "skate": "skateboard", "lifering": "lifebuoy", "steering": "steeringwheel", "wheel3": "tyre",
+           "tire": "tyre", "jerrycan": "fuelcan", "stumps": "wicket", "football2": "goalpost", "soccer": "goalpost",
+           "basketball": "basketballhoop", "playground": "slide", "toy": "teddybear", "teddy": "teddybear",
+           "lever": "seesaw", "earthquake": "seismograph", "wind": "anemometer", "ammonite": "fossil", "fossils": "fossil",
+           "planets": "solarsystem", "vision": "eye", "breathing": "lungs", "lung": "lungs", "injury": "crutch",
+           "scrollpapyrus": "papyrus", "egypt": "sphinx", "mummy": "sarcophagus", "coffin": "sarcophagus", "viking": "longship",
+           "vikingship": "longship", "navigation": "astrolabe", "frenchrevolution": "guillotine", "ger": "yurt",
+           "baoli": "stepwell", "vav": "stepwell", "shrinegate": "torii", "arabship": "dhow", "chineseship": "junkship",
+           "porcelain": "porcelainvase", "chinavase": "porcelainvase", "teastall": "chaistall", "chaiwala": "chaistall",
+           "pankha": "handfan", "fan2": "handfan", "chudi": "bangles", "bangle": "bangles", "stones": "pebbles",
+           "spider": "spiderweb", "web": "spiderweb", "ants": "anthill", "pine_cone": "pinecone"}
 
 NAMES = tuple(sorted({n for v in SECTIONS.values() for n in v.split()}))
 # The land, drawn to stand behind people (a river, hills, a forest): never moved off what stands on it, always behind.

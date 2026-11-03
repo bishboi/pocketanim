@@ -482,7 +482,8 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
                 raise ValueError(f"a {kind} is drawn on a {'timeline' if kind in ('event', 'span') else 'thing'}: "
                                  "`on NAME`")
         if kind == "timeline":
-            m = kit.Timeline(kit.year_of(args[0]), kit.year_of(args[1]), float(mods.get("w", 11)), c)
+            m = kit.Timeline(kit.year_of(args[0]), kit.year_of(args[1]), float(mods.get("w", 11)), c,
+                             str(mods.get("style") or os.environ.get("V3_TIMELINE", "track")), float(mods.get("h", 5.6)))
         elif kind == "event":
             m = kit.event(on, args[0], args[1] if len(args) > 1 else "", mods, c)
         elif kind == "span":
@@ -526,6 +527,9 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
     elif kind in KIT2:
         m = _kit2(kind, args, mods, size, c, locate, find)
+    elif kind in KIT3:
+        import kit3
+        m = kit3.BUILD[kind](args, mods, c)
     elif kind == "person":
         import people
         m = people.person(mods, size or 2.8, c)
@@ -644,6 +648,7 @@ KIT = {"timeline", "event", "span", "chart", "pyramid", "cycle", "flow", "quote"
        "table", "list", "steps", "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather",
        "tree"}
 # More pieces (kit2.py); `who` and `polaroids` are drawn here (they hold pictures).
+KIT3 = {"funnel", "iceberg", "ranking", "mindmap", "checklist", "proscons", "kpi", "beforeafter", "progress", "quadrant"}
 KIT2 = {"numberline", "plot", "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate",
         "quiz", "lens", "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe"}
 

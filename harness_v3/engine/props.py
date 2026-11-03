@@ -6382,6 +6382,268 @@ def _calendarpage(m, w):
                   word(said_or(m, "15"), 0.0, 0.15, 0.18, "#22201E", 0.3), word(str(m.get("sub") or "AUG"), 0.0, 0.37, 0.05, "#F7F5F0", 0.3)), None
 
 
+# -- the town, the farm's machines, health, energy, film, festivals, sport ----------------------------------------
+
+def _apartment(m, w):
+    c = col(m["color"]) if m.get("color") else "#E8D9C0"
+    g = VGroup(shadow_under(-0.45, 0.45, 0.0, w), rect(-0.4, 0.0, 0.4, 1.2, c, w), rect(-0.43, 1.2, 0.43, 1.25, tint(c, -0.2), w))
+    for r in range(6):
+        y = 0.12 + r * 0.18
+        for x in (-0.26, 0.0, 0.26):
+            g.add(rect(x - 0.08, y, x + 0.08, y + 0.1, "#9FC5DA" if (r + int(x * 10)) % 3 else "#F2E3A8", w * 0.5),
+                  rect(x - 0.1, y - 0.02, x + 0.1, y, tint(c, -0.25), 0))
+    g.add(rect(-0.08, 0.0, 0.08, 0.14, "#6B4A2F", w * 0.6), rect(0.25, 1.25, 0.35, 1.36, "#2B2826", w * 0.5),
+          *(VGroup(ell(x, 0.13 + r * 0.18, 0.05, 0.03, "#5E8A3E", 0)) for x, r in ((-0.26, 2), (0.26, 4))))
+    return g, None
+
+
+def _hotel(m, w):
+    g, _ = _apartment({"color": "#F3E1C8"}, w)
+    g.add(rect(-0.32, 1.27, 0.32, 1.42, RED, w * 0.7), letters(m.get("label") or "HOTEL", 0.0, 1.345, 0.08, "#F7F5F0"),
+          poly([(-0.25, 0.14), (0.25, 0.14), (0.3, 0.2), (-0.3, 0.2)], RED, w * 0.6))
+    return g, None
+
+
+def _streetcart(m, w):
+    c = col(m["color"]) if m.get("color") else "#2E7D74"
+    g = VGroup(rect(-0.45, 0.18, 0.45, 0.42, c, w), rect(-0.47, 0.42, 0.47, 0.45, WOOD_D, w * 0.6),
+               *(line((x, 0.45), (x, 0.8), WOOD, w * 1.2) for x in (-0.42, 0.42)),
+               poly([(-0.55, 0.8), (0.55, 0.8), (0.48, 0.88), (-0.48, 0.88)], "#E07B39", w),
+               *(stroke([(x, 0.8), (x + 0.05, 0.76), (x + 0.1, 0.8)], "#F7F5F0", w * 0.6) for x in np.linspace(-0.5, 0.4, 8)),
+               *(circ(x, 0.48, 0.035, cc, w * 0.4) for x, cc in ((-0.3, "#F2913B"), (-0.22, "#F2913B"), (-0.1, RED), (0.0, "#7FB05A"), (0.1, "#F2D24E"), (0.22, RED))),
+               line((0.45, 0.3), (0.7, 0.4), WOOD, w * 1.4))
+    g.add(*wheelset((-0.3, 0.3), 0.09, w))
+    return g, None
+
+
+def _metro(m, w):
+    c = col(m["color"]) if m.get("color") else "#C9CED2"
+    g = VGroup(rect(-1.0, -0.02, 1.0, 0.02, "#6E747A", w * 0.6),
+               rrect(-0.95, 0.06, 0.85, 0.5, 0.06, c, w), poly([(0.85, 0.06), (1.0, 0.1), (1.0, 0.4), (0.85, 0.5)], c, w),
+               rect(-0.95, 0.18, 1.0, 0.22, "#E07B39", 0), rect(-0.95, 0.4, 0.85, 0.42, "#3E7CB1", 0),
+               *(rect(x, 0.27, x + 0.16, 0.38, "#9FC5DA", w * 0.5) for x in np.linspace(-0.88, 0.58, 7)),
+               poly([(0.88, 0.27), (0.98, 0.29), (0.98, 0.38), (0.88, 0.38)], "#9FC5DA", w * 0.5))
+    g.add(*wheelset((-0.75, -0.55, 0.45, 0.65), 0.05, w))
+    return g, None
+
+
+def _firehydrant(m, w):
+    return VGroup(rect(-0.1, 0.0, 0.1, 0.04, RED, w * 0.6), rrect(-0.07, 0.04, 0.07, 0.3, 0.02, RED, w),
+                  blob(zoo.P._arc(0.0, 0.3, 0.07, 0, 180, 8), RED, w), rect(-0.02, 0.36, 0.02, 0.4, "#9AA3A9", w * 0.5),
+                  *(rect(s * 0.07, 0.16, s * 0.12, 0.22, "#9AA3A9", w * 0.5) for s in (-1, 1))), None
+
+
+def _phonebooth(m, w):
+    return VGroup(rect(-0.2, 0.0, 0.2, 0.85, RED, w), rect(-0.16, 0.08, 0.16, 0.7, "#DDEEF6", w * 0.5),
+                  *(line((-0.16, y), (0.16, y), RED, w * 0.8) for y in (0.24, 0.4, 0.56)), line((0.0, 0.08), (0.0, 0.7), RED, w * 0.8),
+                  rect(-0.18, 0.74, 0.18, 0.8, "#F7F5F0", w * 0.4), letters("PHONE", 0.0, 0.77, 0.035, "#22201E"),
+                  blob(zoo.P._arc(0.0, 0.85, 0.2, 0, 180, 10), RED, w)), None
+
+
+def _newsstand(m, w):
+    return VGroup(rect(-0.45, 0.0, 0.45, 0.5, "#2E5E4E", w), poly([(-0.55, 0.62), (0.55, 0.62), (0.45, 0.5), (-0.45, 0.5)], "#E07B39", w),
+                  *(VGroup(rect(x - 0.08, 0.08, x + 0.08, 0.3, "#F7F5F0", w * 0.5), scribble(x - 0.06, x + 0.06, 0.25, w * 0.3), scribble(x - 0.06, x + 0.04, 0.2, w * 0.3),
+                           rect(x - 0.06, 0.1, x + 0.06, 0.16, c, 0)) for x, c in ((-0.3, "#9FC5DA"), (-0.1, "#F2B8C6"), (0.1, "#F2E3A8"), (0.3, "#B5D88A"))),
+                  rect(-0.42, 0.34, 0.42, 0.46, "#F7F5F0", w * 0.5), letters(m.get("label") or "NEWS", 0.0, 0.4, 0.06, "#B83227")), None
+
+
+def _zebracrossing(m, w):
+    g = VGroup(poly([(-0.9, 0.0), (0.9, 0.0), (0.7, 0.4), (-0.7, 0.4)], "#5E5A55", w))
+    for i in range(7):
+        x0 = -0.75 + i * 0.22
+        g.add(poly([(x0, 0.03), (x0 + 0.12, 0.03), (x0 * 0.78 + 0.1, 0.37), (x0 * 0.78, 0.37)], "#F7F5F0", 0))
+    return g, None
+
+
+def _flyover(m, w):
+    g = VGroup(rect(-1.0, 0.0, 1.0, 0.08, "#5E5A55", w * 0.6), *(line((x, 0.0), (x + 0.15, 0.0), "#F7F5F0", w) for x in np.linspace(-0.9, 0.7, 5)))
+    g.add(poly([(-1.0, 0.5), (1.0, 0.5), (1.0, 0.6), (-1.0, 0.6)], "#9A948A", w), rect(-1.0, 0.6, 1.0, 0.64, "#C9CED2", w * 0.5),
+          *(poly([(x - 0.06, 0.0), (x + 0.06, 0.0), (x + 0.04, 0.5), (x - 0.04, 0.5)], "#B5AD9C", w) for x in (-0.6, 0.0, 0.6)),
+          VGroup(rrect(-0.5, 0.64, -0.2, 0.74, 0.03, "#3E7CB1", w * 0.6), *(circ(x, 0.645, 0.02, "#2B2826", 0) for x in (-0.44, -0.26))),
+          VGroup(rrect(0.2, 0.08, 0.5, 0.18, 0.03, "#E2A93B", w * 0.6), *(circ(x, 0.085, 0.02, "#2B2826", 0) for x in (0.26, 0.44))))
+    return g, None
+
+
+def _stockboard(m, w):
+    g = VGroup(rect(-0.6, 0.0, 0.6, 0.6, "#1E2A2A", w), rect(-0.6, 0.5, 0.6, 0.6, "#2B3A3A", w * 0.5), letters(m.get("label") or "MARKET", -0.35, 0.55, 0.05, "#F7F5F0"))
+    for i, (name, up) in enumerate((("BANK", True), ("TECH", False), ("AUTO", True), ("AGRI", True))):
+        y = 0.42 - i * 0.1
+        g.add(letters(name, -0.42, y, 0.04, "#C9CED2"), letters("▲" if up else "▼", 0.1, y, 0.04, "#7FD18B" if up else "#E8524A"),
+              letters(("+1.2%", "-0.8%", "+2.4%", "+0.6%")[i], 0.35, y, 0.04, "#7FD18B" if up else "#E8524A"))
+    g.add(live(stroke([(0.2, 0.52), (0.3, 0.55), (0.38, 0.53), (0.5, 0.58)], "#7FD18B", w), "puff"))
+    return g, None
+
+
+def _cottonbale(m, w):
+    return VGroup(rrect(-0.3, 0.0, 0.3, 0.36, 0.06, "#F3EEE4", w), *(line((x, 0.0), (x, 0.36), "#9AA3A9", w) for x in (-0.15, 0.15)),
+                  *(circ(x, y, 0.03, "#FBF8F1", w * 0.3) for x, y in ((-0.22, 0.3), (0.0, 0.33), (0.22, 0.28), (-0.05, 0.08))),
+                  rect(-0.12, 0.12, 0.08, 0.22, "#E8D4AE", w * 0.4)), None
+
+
+def _thresher(m, w):
+    g = VGroup(rect(-0.45, 0.12, 0.25, 0.5, "#B83227", w), poly([(0.25, 0.5), (0.45, 0.6), (0.5, 0.52), (0.25, 0.4)], "#8E2E22", w),
+               rect(-0.4, 0.5, -0.1, 0.62, "#8E2E22", w), circ(-0.15, 0.3, 0.1, "#3A3631", w), circ(-0.15, 0.3, 0.04, "#9AA3A9", 0),
+               live(VGroup(*(circ(0.5 + 0.06 * k, 0.6 + 0.04 * k, 0.025, "#E2C066", 0) for k in range(4))), "puff"),
+               blob([(0.2, 0.0), (0.3, 0.1), (0.5, 0.12), (0.6, 0.0)], "#E2C066", w * 0.5))
+    g.add(*wheelset((-0.35, 0.15), 0.08, w))
+    return g, None
+
+
+def _pumpset(m, w):
+    return VGroup(rect(-0.3, 0.0, 0.2, 0.06, "#6B4A2F", w * 0.6), rrect(-0.25, 0.06, 0.05, 0.3, 0.04, "#3E7CB1", w),
+                  circ(0.12, 0.18, 0.1, "#3E7CB1", w), rect(-0.2, 0.3, -0.05, 0.36, "#2B2826", w * 0.5),
+                  tube([(0.2, 0.18), (0.45, 0.18), (0.5, 0.1)], [0.06, 0.06, 0.06], "#9AA3A9", w * 0.7),
+                  live(VGroup(stroke([(0.5, 0.08), (0.56, 0.0), (0.62, -0.02)], WATER, w * 3)), "steam"),
+                  ell(0.62, -0.02, 0.3, 0.05, WATER, 0)), None
+
+
+def _sprinkler(m, w):
+    g = VGroup(poly([(-0.8, 0.0), (0.8, 0.0), (0.8, 0.12), (-0.8, 0.12)], "#8DBB6A", w * 0.4), line((0.0, 0.0), (0.0, 0.3), "#6E747A", w * 1.4),
+               rect(-0.05, 0.3, 0.05, 0.34, "#3A3631", w * 0.5))
+    for a in np.linspace(20, 160, 7):
+        r = math.radians(a)
+        g.add(live(stroke([(0.0, 0.34), (0.3 * math.cos(r), 0.34 + 0.25 * math.sin(r)), (0.6 * math.cos(r), 0.2 + 0.1 * math.sin(r))], "#9FC5DA", w * 0.8), "steam"))
+    return g, None
+
+
+def _dripirrigation(m, w):
+    g = VGroup(poly([(-0.9, 0.0), (0.9, 0.0), (0.9, 0.14), (-0.9, 0.14)], SOIL, w * 0.5), line((-0.9, 0.2), (0.9, 0.2), "#2B2826", w * 1.6))
+    for x in np.linspace(-0.75, 0.75, 6):
+        g.add(stroke([(x, 0.14), (x, 0.4)], "#5E8A3E", w), *(tube([(x, y), (x + d * 0.1, y + 0.06)], [0.035, 0.005], LEAF, w * 0.3) for y, d in ((0.26, 1), (0.33, -1))),
+              live(ell(x + 0.05, 0.17, 0.02, 0.03, WATER, w * 0.3), "steam"), ell(x + 0.05, 0.14, 0.1, 0.02, "#5E4A32", 0))
+    return g, None
+
+
+def _fertilizerbag(m, w):
+    return VGroup(blob([(-0.18, 0.0), (-0.2, 0.3), (-0.14, 0.44), (0.14, 0.44), (0.2, 0.3), (0.18, 0.0)], "#F3EEE4", w),
+                  rect(-0.15, 0.12, 0.15, 0.3, "#4F9A6A", w * 0.4), letters(m.get("label") or "UREA", 0.0, 0.21, 0.06, "#F7F5F0"),
+                  stroke([(-0.13, 0.44), (0.13, 0.44)], "#C9C2B2", w * 1.4)), None
+
+
+def _sprayer(m, w):
+    return VGroup(rrect(-0.15, 0.1, 0.12, 0.5, 0.05, "#E2A93B", w), stroke([(0.12, 0.2), (0.3, 0.15), (0.45, 0.35)], "#3A3631", w * 1.2),
+                  line((0.45, 0.35), (0.65, 0.45), "#6E747A", w * 1.6), live(VGroup(*(circ(0.68 + 0.04 * k, 0.47 + 0.02 * (k % 2), 0.012, "#9FC5DA", 0) for k in range(5))), "puff"),
+                  rect(-0.12, 0.5, 0.06, 0.55, "#3A3631", w * 0.5)), None
+
+
+def _greenhouse(m, w):
+    g = VGroup(poly([(-0.6, 0.0), (0.6, 0.0), (0.6, 0.4), (0.0, 0.62), (-0.6, 0.4)], "#DDEEF6", w, op=0.65))
+    g.add(*(line((x, 0.0), (x, 0.4 + 0.22 * (1 - abs(x) / 0.6)), "#9AA3A9", w * 0.6) for x in np.linspace(-0.45, 0.45, 7)),
+          line((-0.6, 0.4), (0.6, 0.4), "#9AA3A9", w * 0.6),
+          *(VGroup(stroke([(x, 0.0), (x, 0.18)], "#5E8A3E", w), circ(x, 0.2, 0.05, "#7FB05A", w * 0.3)) for x in np.linspace(-0.45, 0.45, 6)))
+    return g, None
+
+
+def _vaccinevial(m, w):
+    return VGroup(rrect(-0.07, 0.0, 0.07, 0.24, 0.02, "#EEF4F8", w), rect(-0.06, 0.02, 0.06, 0.13, "#9FC5DA", 0),
+                  rect(-0.05, 0.24, 0.05, 0.28, "#C9CED2", w * 0.5), rect(-0.06, 0.28, 0.06, 0.33, "#3E7CB1", w * 0.6),
+                  rect(-0.07, 0.14, 0.07, 0.2, "#F7F5F0", w * 0.4), line((-0.04, 0.17), (0.04, 0.17), "#3E7CB1", w * 0.6)), None
+
+
+def _toilet(m, w):
+    return VGroup(rect(-0.3, 0.0, 0.3, 0.7, "#C9A27A", w), rect(-0.22, 0.0, 0.22, 0.55, "#5E8A8A", w), circ(0.15, 0.27, 0.02, GOLD, 0),
+                  poly([(-0.35, 0.7), (0.35, 0.7), (0.3, 0.78), (-0.3, 0.78)], "#8E969C", w),
+                  rect(-0.1, 0.6, 0.1, 0.66, "#F7F5F0", w * 0.4), letters("WC", 0.0, 0.63, 0.035, "#22201E"),
+                  VGroup(rect(0.36, 0.0, 0.46, 0.2, "#4F9A6A", w * 0.5), ell(0.41, 0.2, 0.1, 0.03, "#3E7CB1", w * 0.4))), None
+
+
+def _mosquito(m, w):
+    return VGroup(ell(0.0, 0.25, 0.22, 0.05, "#3A3631", w * 0.5), circ(0.12, 0.26, 0.03, "#3A3631", 0), line((0.14, 0.26), (0.24, 0.22), "#3A3631", w * 0.6),
+                  *(live(ell(x, 0.31, 0.12, 0.05, "#DDEEF6", w * 0.4).rotate(0.4 * s), "puff") for x, s in ((-0.02, 1), (0.04, -1))),
+                  *(line((x, 0.24), (x + d, 0.1), "#3A3631", w * 0.4) for x, d in ((-0.06, -0.05), (0.0, 0.0), (0.06, 0.05)))), None
+
+
+def _mosquitonet(m, w):
+    g, _ = _charpai({}, w)
+    g.add(*(line((x, 0.24), (x * 0.85, 0.8), "#C9CED2", w * 0.5) for x in (-0.45, 0.45)),
+          poly([(-0.45, 0.24), (-0.38, 0.8), (0.38, 0.8), (0.45, 0.24)], "#EEF4F8", w * 0.5, op=0.45),
+          *(line((x, 0.26), (x * 0.85, 0.78), "#DDE5EA", w * 0.3) for x in np.linspace(-0.35, 0.35, 6)))
+    return g, None
+
+
+def _biogas(m, w):
+    return VGroup(blob(zoo.P._arc(0.0, 0.0, 0.4, 0, 180, 14) + [(0.4, 0.0)], "#9A948A", w), rect(-0.5, -0.02, 0.5, 0.02, SOIL, 0),
+                  line((0.0, 0.4), (0.0, 0.55), "#6E747A", w * 1.4), stroke([(0.0, 0.55), (0.3, 0.55), (0.6, 0.3), (0.75, 0.3)], "#6E747A", w * 1.2),
+                  VGroup(rect(0.7, 0.2, 0.9, 0.28, "#3A3631", w * 0.5), live(blob([(0.76, 0.28), (0.8, 0.35), (0.84, 0.28)], "#6FA8DC", 0), "flame")),
+                  poly([(-0.6, 0.0), (-0.45, 0.2), (-0.35, 0.0)], "#6B4E2E", w * 0.6), letters("BIOGAS", 0.0, 0.18, 0.06, "#F7F5F0")), None
+
+
+def _electricpole(m, w):
+    return VGroup(line((0.0, 0.0), (0.0, 1.0), "#9A948A", w * 2.6), line((-0.25, 0.9), (0.25, 0.9), "#6E747A", w * 1.6),
+                  *(circ(x, 0.92, 0.02, "#F7F5F0", w * 0.3) for x in (-0.22, 0.0, 0.22)),
+                  *(stroke([(x, 0.92), (x + 0.5, 0.85), (x + 1.0, 0.92)], "#2B2826", w * 0.6) for x in (-1.22, -1.0, -0.78)),
+                  rect(0.03, 0.6, 0.13, 0.72, "#9AA3A9", w * 0.5), line((0.0, 0.3), (0.12, 0.6), "#2B2826", w * 0.5)), None
+
+
+def _filmreel(m, w):
+    g = VGroup(circ(0.0, 0.25, 0.25, "#3A3631", w), circ(0.0, 0.25, 0.05, "#9AA3A9", w * 0.6))
+    g.add(*(circ(0.14 * math.cos(a), 0.25 + 0.14 * math.sin(a), 0.055, "#F4EFE4", w * 0.4) for a in np.linspace(0, 2 * math.pi, 6)[:-1]),
+          stroke([(0.2, 0.08), (0.4, -0.02), (0.6, 0.02)], "#2B2826", w * 4))
+    return g, None
+
+
+def _clapperboard(m, w):
+    return VGroup(rect(-0.25, 0.0, 0.25, 0.3, "#2B2826", w), *(line((-0.22, y), (0.22, y), "#F7F5F0", w * 0.5) for y in (0.1, 0.2)),
+                  letters(m.get("label") or "SCENE 1", 0.0, 0.15, 0.04, "#F7F5F0"),
+                  VGroup(rect(-0.25, 0.3, 0.25, 0.38, "#2B2826", w), *(poly([(x, 0.3), (x + 0.05, 0.3), (x + 0.09, 0.38), (x + 0.04, 0.38)], "#F7F5F0", 0) for x in np.linspace(-0.24, 0.16, 5)))
+                  .rotate(0.2, about_point=np.array([-0.25, 0.3, 0]))), None
+
+
+def _fireworks(m, w):
+    g = VGroup()
+    for x, y, c in ((-0.3, 0.6, "#F2C14E"), (0.25, 0.75, "#E8524A"), (0.0, 0.4, "#6FA8DC")):
+        rays = VGroup(*(line((x + 0.05 * math.cos(a), y + 0.05 * math.sin(a)), (x + 0.18 * math.cos(a), y + 0.18 * math.sin(a)), c, w * 0.9) for a in np.linspace(0, 2 * math.pi, 13)[:-1]))
+        g.add(live(rays, "puff"), circ(x, y, 0.025, "#FBF8F1", 0))
+    g.add(stroke([(0.0, 0.0), (-0.1, 0.2), (-0.25, 0.45)], "#C9C2B2", w * 0.5))
+    return g, None
+
+
+def _garland(m, w):
+    g = VGroup()
+    pts = [(x, 0.5 - 0.3 * (1 - (x / 0.6) ** 2)) for x in np.linspace(-0.6, 0.6, 15)]
+    g.add(stroke(pts, "#5E8A3E", w * 0.6), *(circ(x, y, 0.045, "#F2A93B" if i % 2 else "#E8822E", w * 0.3) for i, (x, y) in enumerate(pts)))
+    return g, None
+
+
+def _veena(m, w):
+    return VGroup(circ(-0.42, 0.15, 0.14, "#B5643C", w), circ(0.4, 0.22, 0.09, "#B5643C", w), rect(-0.3, 0.13, 0.32, 0.2, WOOD, w),
+                  *(line((-0.28, 0.17 + 0.01 * k), (0.32, 0.17 + 0.01 * k), "#E8E0CC", w * 0.3) for k in range(3)),
+                  *(rect(x, 0.2, x + 0.012, 0.23, GOLD, 0) for x in np.linspace(-0.2, 0.25, 8)),
+                  stroke([(0.32, 0.2), (0.45, 0.3), (0.48, 0.42)], WOOD_D, w * 1.4)), None
+
+
+def _theatremasks(m, w):
+    return VGroup(VGroup(blob([(-0.3, 0.2), (-0.28, 0.4), (-0.1, 0.46), (0.05, 0.38), (0.02, 0.2), (-0.12, 0.08)], GOLD, w),
+                         *(ell(x, 0.32, 0.06, 0.04, "#2B2826", 0) for x in (-0.2, -0.06)), stroke([(-0.2, 0.18), (-0.13, 0.13), (-0.04, 0.17)], "#2B2826", w * 1.2)).rotate(0.15),
+                  VGroup(blob([(-0.02, 0.2), (0.0, 0.4), (0.18, 0.46), (0.33, 0.38), (0.3, 0.2), (0.16, 0.08)], "#9FC5DA", w),
+                         *(ell(x, 0.32, 0.06, 0.04, "#2B2826", 0) for x in (0.1, 0.24)), stroke([(0.08, 0.14), (0.16, 0.19), (0.24, 0.14)], "#2B2826", w * 1.2)).rotate(-0.15)), None
+
+
+def _shuttlecock(m, w):
+    return VGroup(blob(zoo.P._arc(0.0, 0.05, 0.05, 180, 360, 8) + [(0.05, 0.05), (-0.05, 0.05)], "#F7F5F0", w), rect(-0.05, 0.05, 0.05, 0.07, RED, w * 0.4),
+                  poly([(-0.05, 0.07), (0.05, 0.07), (0.12, 0.3), (-0.12, 0.3)], "#FBF8F1", w * 0.8),
+                  *(line((x * 0.4, 0.07), (x, 0.3), "#C9C2B2", w * 0.4) for x in np.linspace(-0.1, 0.1, 5))), None
+
+
+def _stadium(m, w):
+    g = VGroup(ell(0.0, 0.22, 1.9, 0.5, "#9AA3A9", w), ell(0.0, 0.22, 1.6, 0.36, "#B5AFA4", w * 0.5), ell(0.0, 0.2, 1.2, 0.24, "#7FB05A", w * 0.6),
+               ell(0.0, 0.2, 0.3, 0.08, "#9DC77A", w * 0.4))
+    g.add(*(circ(0.85 * math.cos(a), 0.22 + 0.21 * math.sin(a), 0.015, ("#E8524A", "#3E7CB1", "#F2C14E")[i % 3], 0) for i, a in enumerate(np.linspace(0, 2 * math.pi, 40))),
+          *(VGroup(line((x, 0.4), (x, 0.75), "#6E747A", w), rect(x - 0.06, 0.75, x + 0.06, 0.8, "#F7F5F0", w * 0.4)) for x in (-0.85, 0.85)))
+    return g, None
+
+
+def _gurdwara(m, w):
+    c = "#F7F4EC"
+    return VGroup(rect(-0.6, 0.0, 0.6, 0.06, tint(c, -0.1), w), rect(-0.45, 0.06, 0.45, 0.5, c, w),
+                  blob([(-0.12, 0.06), (-0.12, 0.3), (0.0, 0.38), (0.12, 0.3), (0.12, 0.06)], "#E8D9B5", w * 0.7),
+                  *(blob([(x - 0.06, 0.2), (x - 0.06, 0.32), (x, 0.36), (x + 0.06, 0.32), (x + 0.06, 0.2)], "#E8D9B5", w * 0.5) for x in (-0.3, 0.3)),
+                  rect(-0.2, 0.5, 0.2, 0.56, c, w * 0.8),
+                  blob([(-0.18, 0.56), (-0.2, 0.68), (-0.1, 0.8), (0.0, 0.86), (0.1, 0.8), (0.2, 0.68), (0.18, 0.56)], GOLD, w),
+                  line((0.0, 0.86), (0.0, 0.94), GOLD_D, w), *(VGroup(blob(zoo.P._arc(x, 0.5, 0.05, 0, 180, 6), GOLD, w * 0.5)) for x in (-0.38, 0.38)),
+                  line((0.75, 0.0), (0.75, 1.1), "#9AA3A9", w * 1.4), live(poly([(0.75, 1.1), (0.95, 1.05), (0.75, 0.98)], "#E8822E", w * 0.6), "flag")), None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 import shelf as _index  # noqa: E402

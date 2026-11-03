@@ -91,7 +91,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "rot": "n", "layer": "n", "badge": "s", "x": "i", "row": None, "col": None, "grid": "i", "ring": "n",
         "bold": None, "italic": None, "serif": None, "solid": None, "dashed": None, "curve": "n", "max": "n",
         "prefix": "s", "suffix": "s", "opacity": "n", "hidden": None, "shadow": None, "flat": None, "cluster": None,
-        "to": "s", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "flag": "s", "img": "s", "sub": "s",
+        "to": "s", "done": "i", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "flag": "s", "img": "s", "sub": "s",
         "map": "s", "year": "i", "names": None, "rivers": None, "outline": None, "side": "s", "who": "s",
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
@@ -276,7 +276,8 @@ KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "s
                "type", "hammer", "sweep", "count", "vote", "ring", "stir", "enter", "exit", "climb", "sleep", "use",
                "drive"}
 # Every kind of thing (look.build): a line `ent KIND ...` with no name is given one.
-KINDS = {"text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
+KINDS = {"funnel", "iceberg", "ranking", "mindmap", "checklist", "proscons", "kpi", "beforeafter", "progress", "quadrant",
+         "text", "icon", "circle", "rect", "blob", "ring", "waves", "dots", "num", "bar", "arrow", "path", "pic", "photo",
          "flag", "card", "tag", "label", "map", "region", "pin", "river", "land", "islands", "timeline", "event", "span",
          "chart", "pyramid", "cycle", "flow", "quote", "doc", "title", "labels", "compare", "table", "list", "steps",
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",

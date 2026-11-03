@@ -139,9 +139,25 @@ KIT = {
   globe LON,LAT   the Earth as a globe | layers "TOP" ... "BOTTOM" [round]   bands or a cut-away globe's rings
   Where things happen, use a map, never a blob for a country; routes are `path M.a M.b M.c` (then `along SHIP
   ROUTE`); the camera goes to a place: `cam M.paris zoom 2`.""",
-    "timeline": """  timeline Y0 Y1 [w 12]   an axis of years (500bc, 1347); every year on it is TL.YEAR (`move x to tl.1347`)
-  event YEAR "WORDS" on TL   a card on a stem at its year (kept clear of the others)
-  span Y0 Y1 "WORDS" on TL   a band along the axis  (`in` each on the word that names it)""",
+    "timeline": """  timeline Y0 Y1 [w 12] [style track|ribbon|cards|vertical|road]   an axis of years (500bc, 1347); every year
+             on it is TL.YEAR (`move x to tl.1347`). STYLES: track (a line, cards on stems), ribbon (a thick band, events
+             as flags on poles, spans its own eras inside it), cards (cards hung on strings from pins), vertical (a line
+             down the screen, each card beside its big year: `h 5.6`, for a life or a run of many dates), road (a
+             winding road, each event a sign on a post: a journey, a path taken). Choose the one that fits the story.
+  event YEAR "WORDS" on TL   an event at its year, drawn the timeline's way (kept clear of the others)
+  span Y0 Y1 "WORDS" on TL   a stretch of years: a band along the axis (on a ribbon, an era of the band itself)
+             (`in` each on the word that names it)""",
+    "shapes": """  funnel "VISITORS:1000" "SIGNUPS:300" "BUYERS:40"   bands narrowing, each with its number (fewer at each step)
+  iceberg "WHAT IS SEEN" "BELOW" "BELOW" ...   the tip above the water, the hidden causes named below it
+  ranking "China:1400" "India:1380" "USA:330"   places in order: medals for the top three, bars to scale
+  mindmap "CENTRE" "BRANCH" "BRANCH" ...   a centre and its branches round it (`in mm[0]`, then each branch)
+  checklist "ITEM" "ITEM" ... [done N]   boxes, the first N ticked (`tick cl.item` ticks one as it is said)
+  proscons "FOR:a|b|c" "AGAINST:d|e"   two columns, a plus or a minus on each line
+  kpi "LABEL:VALUE:CHANGE" ...   number cards in a row ("GDP:$3.7T:+7%"), an arrow up or down by each change
+  beforeafter "BEFORE:words|words" "AFTER:words|words"   two cards, the second brighter, an arrow between
+  progress 70 "WORDS"   a bar filled to a share, its number at its end
+  quadrant "X AXIS" "Y AXIS" "TOP LEFT" "TOP RIGHT" "BOTTOM LEFT" "BOTTOM RIGHT"   a two-by-two, its axes named
+  (each one's parts come on in turn: `in NAME stagger 0.4`, or `in NAME[2]` on its word; named parts are places)""",
     "science": """  numberline A B [step S]   a number line; NL.3 is a place on it (`move pin to nl.3`)
   plot "x^2 - 2" A B   axes and a curve y = f(x) for x from A to B; PL.2 is the curve at x = 2 (`move dot to pl.2`)
   triangle A:0,0 B:4,0 C:1,3 [sides] [angles]   a shape from its corners, named (lengths, angles marked)
@@ -252,6 +268,9 @@ KIT_WORDS = {
            r"annex|conquer|seiz|sail|voyage|front line|province|territor|rival|tension|north|south|"
            r"state[s]?\b|glar|angry|feud",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
+    "shapes": r"funnel|iceberg|hidden|beneath the surface|rank|top (three|five|ten)|largest|mind ?map|branches|"
+              r"checklist|to-do|pros|cons|advantages|disadvantages|for and against|kpi|growth rate|gdp|revenue|"
+              r"donut|share of|before and after|progress|literacy|quadrant|two by two|matrix",
     "chart": r"chart|graph|\bbars?\b|donut|\bshare|percent|population|rise|fall|fifth|half|quarter|million|"
              r"isotype|out of|in every|\bone in\b|thousand",
     "diagram": r"flow|diagram|pyramid|cycle|hierarch|rotation|chain|process|orders|tree|venn|overlap|both",
@@ -288,7 +307,9 @@ def kit_for(plan: str, cast: list[str] | None = None) -> list[str]:
              "quiz": "story", "lens": "story", "split": "story", "clock": "story", "odometer": "story",
              "clipping": "story", "who": "story", "polaroids": "story", "shade": "map", "march": "map",
              "inset": "map", "globe": "map", "layers": "map", "era": "map", "annex": "map", "travel": "map",
-             "isotype": "chart", "alive": "people", "react": "people", "person": "people", "walk": "people", "nation": "people", "country": "people",
+             "isotype": "chart", "funnel": "shapes", "iceberg": "shapes", "ranking": "shapes", "mindmap": "shapes",
+             "checklist": "shapes", "proscons": "shapes", "kpi": "shapes", "beforeafter": "shapes", "progress": "shapes",
+             "quadrant": "shapes", "alive": "people", "react": "people", "person": "people", "walk": "people", "nation": "people", "country": "people",
              "figure": "people"}
     named = {alias.get(w, w) for w in named}
     for c in cast or []:

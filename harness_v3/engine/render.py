@@ -2707,49 +2707,72 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
 
     # ------------------------------------------------------------ on the screen ----------------------------------------
     def _chapter_cards(self) -> None:
-        """At each chapter, a card slides in from the left on the screen (CHAPTER 2, its title on the accent), holds
-        a moment and slides away: the viewer always knows where the story has got to (V3_CHAPTER_CARDS=0: none)."""
+        """At each chapter, a card slides in from the left on the screen and slides away: its number large in the
+        accent, CHAPTER 2 OF 5 over its title, a rule swept in under it, a dot for each chapter (those done filled), so
+        the viewer always knows where the story has got to. `V3_CHAPTER_STYLE=full`: the screen itself turns to a page
+        with the number and the title for a moment instead. V3_CHAPTER_CARDS=0: none."""
         if os.environ.get("V3_CHAPTER_CARDS", "1").strip() == "0":
             return
+        full = os.environ.get("V3_CHAPTER_STYLE", "card").strip().lower() == "full"
         chapters = sorted((a.t0, a.target) for a in self.SCORE.acts if a.verb == "chapter")
         first = int(PART["chapters_before"]) if PART and "chapters_before" in PART else 0
+        total = len(PART["chapters"]) if PART and PART.get("chapters") else first + len(chapters)
         for k, (t, title) in enumerate(chapters):
             if t < -0.5:                        # (a part's head: chapters before it began)
                 continue
             n = first + k + 1 if not PART else 1 + sum(1 for c in PART["chapters"] if float(c[0]) - float(PART["offset"]) < t - 0.01)
-            head = look.label(f"CHAPTER {n}", 0.16, "soft")
-            name = look.text(str(title), 0.42, bold=True, color="ink", width=6.0)
-            rule = Rectangle(width=max(name.width, head.width) * 0.5, height=0.07, fill_color=look.col("accent"),
-                             fill_opacity=1, stroke_width=0)
-            words = VGroup(head, name, rule).arrange(DOWN, buff=0.16, aligned_edge=LEFT)
-            card = RoundedRectangle(width=words.width + 0.9, height=words.height + 0.6, corner_radius=0.08,
-                                    fill_color=look.col("card"), fill_opacity=0.97, stroke_color=look.col("soft"),
-                                    stroke_width=1.2)
-            g = VGroup(card, words.move_to(card)).set_z_index(HUD_Z + 2)
-            home = -S.SCREEN_W / 2 + g.width / 2 + 0.45
-            away = -S.SCREEN_W / 2 - g.width / 2 - 0.2
+            accent = look.col("accent")
+            big = look.text(str(n), 1.05 if not full else 2.4, bold=True, color="accent")
+            head = look.label(f"CHAPTER {n} OF {max(total, n)}", 0.15 if not full else 0.22, "soft")
+            name = look.text(str(title), 0.44 if not full else 0.7, bold=True, color="ink", width=6.0 if not full else 10.0)
+            rule = Rectangle(width=max(name.width, head.width), height=0.07 if not full else 0.1, fill_color=accent, fill_opacity=1,
+                             stroke_width=0)
+            dots = VGroup(*(Circle(radius=0.05 if not full else 0.08, fill_color=accent if i < n else look.col("card"), fill_opacity=1,
+                                   stroke_color=accent, stroke_width=1.5) for i in range(max(total, n)))).arrange(RIGHT, buff=0.1)
+            words = VGroup(head, name, rule, dots).arrange(DOWN, buff=0.16, aligned_edge=LEFT)
+            if full:
+                page = Rectangle(width=S.SCREEN_W * 1.1, height=S.SCREEN_H * 1.1, fill_color=look.col("bg"), fill_opacity=1, stroke_width=0)
+                body = VGroup(big, words).arrange(RIGHT, buff=0.6)
+                g = VGroup(page, body.move_to(np.zeros(3))).set_z_index(HUD_Z + 2)
+            else:
+                body = VGroup(big, Line(UP * 0.5, DOWN * 0.5, stroke_color=look.col("soft"), stroke_width=1.5), words).arrange(RIGHT, buff=0.3)
+                card = RoundedRectangle(width=body.width + 0.8, height=body.height + 0.55, corner_radius=0.1,
+                                        fill_color=look.col("card"), fill_opacity=0.97, stroke_color=look.col("soft"), stroke_width=1.2)
+                strip = Rectangle(width=0.12, height=card.height, fill_color=accent, fill_opacity=1, stroke_width=0).move_to(card.get_left(), aligned_edge=LEFT)
+                g = VGroup(look.soft_shadow(card), card, strip, body.move_to(card)).set_z_index(HUD_Z + 2)
+            rule_w = rule.width
+            home = 0.0 if full else -S.SCREEN_W / 2 + g.width / 2 + 0.45
+            away = (-S.SCREEN_H * 1.2) if full else -S.SCREEN_W / 2 - g.width / 2 - 0.2
             st = {}
+            dur = 2.0 if full else 2.8
 
-            def start(g=g, st=st, away=away):
-                g.move_to([away, 0.3 * S.SCREEN_H, 0])
+            def start(g=g, st=st, away=away, full=full):
+                if full:
+                    g.move_to([0, away, 0])
+                else:
+                    g.move_to([away, 0.3 * S.SCREEN_H, 0])
                 st["rec"] = [g, 1.0, np.zeros(3)]
                 self.hud.append(st["rec"])
                 st["x"] = away
                 self.add(g)
                 self._place_hud()
 
-            def step(a, g=g, st=st, home=home, away=away):
-                tt = a * 2.6
-                k = rate_functions.ease_out_cubic(min(1.0, tt / 0.4)) - rate_functions.ease_in_cubic(max(0.0, (tt - 2.2) / 0.4))
+            def step(a, g=g, st=st, home=home, away=away, full=full, rule=rule, rule_w=rule_w, big=big, dur=dur):
+                tt = a * dur
+                k = rate_functions.ease_out_cubic(min(1.0, tt / 0.45)) - rate_functions.ease_in_cubic(max(0.0, (tt - dur + 0.45) / 0.45))
                 x = away + (home - away) * k
-                g.shift(RIGHT * (x - st["x"]) * st["rec"][1])
+                g.shift((UP if full else RIGHT) * (x - st["x"]) * st["rec"][1])
                 st["x"] = x
+                sweep = min(1.0, max(0.02, (tt - 0.35) / 0.5))       # the rule drawn across once the card is in
+                left = rule.get_left()
+                rule.stretch_to_fit_width(max(1e-3, rule_w * sweep * st["rec"][1]))
+                rule.move_to(left, aligned_edge=LEFT)
 
             def stop(g=g, st=st):
                 self.remove(g)
                 if st.get("rec") in self.hud:
                     self.hud.remove(st["rec"])
-            self.tweens.append(Call(max(0.0, t - 0.1), max(0.0, t - 0.1) + 2.6, start, step, stop, rate_functions.linear))
+            self.tweens.append(Call(max(0.0, t - 0.1), max(0.0, t - 0.1) + dur, start, step, stop, rate_functions.linear))
 
     def _hud_add(self, m, x: float, y: float) -> None:
         """A thing kept on the screen (x, y in screen widths and heights from its centre), whatever the camera does."""

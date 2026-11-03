@@ -25,7 +25,7 @@ import re
 import zlib
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, AnnularSector, Circle, Dot, Line, Polygon, Rectangle,
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, AnnularSector, Circle, DashedVMobject, Dot, Line, Polygon, Rectangle,
                    RoundedRectangle, VGroup, VMobject)
 
 from look import L, STROKE, col, label, soft_shadow, text
@@ -184,55 +184,197 @@ class _Years:
         return iter(())
 
 
-class Timeline(VGroup):
-    """An axis of years with ticks; its parts: [axis, ticks]."""
+STYLES = ("track", "ribbon", "cards", "vertical", "road")
 
-    def __init__(self, y0: float, y1: float, w: float = 11.0, color=None):
+
+class Timeline(VGroup):
+    """An axis of years with ticks; its parts: [axis, ticks]. Five styles (`style S`): track (a line, cards on stems),
+    ribbon (a thick band, events as flags on poles, its spans the band's own eras), cards (a line, cards hung on
+    strings from pins), vertical (a line down the screen, a year beside each card) and road (a winding road, each
+    event a sign on a post)."""
+
+    def __init__(self, y0: float, y1: float, w: float = 11.0, color=None, style: str = "track", h: float = 5.6):
         super().__init__()
         self.y0, self.y1 = (y0, y1) if y1 > y0 else (y1, y0)
+        self.style = style if style in STYLES else "track"
         span = self.y1 - self.y0
         step = next((s for s in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000) if span / s <= 8), 10000)
-        self.axis = Line(LEFT * w / 2, RIGHT * w / 2, stroke_color=col(color or "ink"), stroke_width=STROKE * 0.55)
+        ink = col(color or "ink")
+        if self.style == "vertical":
+            self.axis = Line(UP * h / 2, DOWN * h / 2, stroke_color=ink, stroke_width=STROKE * 0.7)
+        elif self.style == "road":
+            pts = [np.array([-w / 2 + w * t, 0.55 * math.sin(t * math.pi * 2.2 + 0.4) - 0.1, 0]) for t in np.linspace(0, 1, 40)]
+            self.axis = VMobject(stroke_color=col("soft"), stroke_width=STROKE * 6.5)
+            self.axis.set_points_smoothly(pts)
+        else:
+            self.axis = Line(LEFT * w / 2, RIGHT * w / 2, stroke_color=ink, stroke_width=STROKE * 0.55)
+        dress = VGroup()
+        if self.style == "ribbon":                 # a thick rounded band, a fine line through it
+            band = RoundedRectangle(width=w + 0.3, height=0.3, corner_radius=0.15, fill_color=col(color or "accent"),
+                                    fill_opacity=0.9, stroke_color=col("ink"), stroke_width=1.5)
+            dress.add(band, Line(LEFT * (w / 2 + 0.05), RIGHT * (w / 2 + 0.05), stroke_color=col("card"), stroke_width=1.2))
+            self.axis.set_stroke(opacity=0)
+        if self.style == "road":                   # the road's edges and its dashed middle
+            edge = self.axis.copy().set_stroke(col("ink"), width=STROKE * 7.6)
+            mid = DashedVMobject(self.axis.copy().set_stroke(col("card"), width=STROKE * 0.5), num_dashes=46)
+            dress.add(edge)
+            self.add(dress)
+            dress = VGroup(mid)
         ticks = VGroup()
         y = math.ceil(self.y0 / step) * step
         while y <= self.y1 + 1e-9:
             p = self.point(y)
-            ticks.add(Line(p + UP * 0.1, p + DOWN * 0.1, stroke_color=col("ink"), stroke_width=STROKE * 0.4),
-                      label(year_words(y), 0.12, "soft").move_to(p + DOWN * 0.34))
+            if self.style == "vertical":             # (no years by the ticks: each event shows its own, large)
+                ticks.add(Line(p + LEFT * 0.12, p + RIGHT * 0.12, stroke_color=ink, stroke_width=STROKE * 0.4))
+            elif self.style == "road":
+                stone = RoundedRectangle(width=0.16, height=0.2, corner_radius=0.07, fill_color=col("card"), fill_opacity=1,
+                                         stroke_color=col("ink"), stroke_width=1).move_to(p + DOWN * 0.42)
+                ticks.add(stone, Rectangle(width=0.16, height=0.045, fill_color=col(color or "accent"), fill_opacity=1,
+                                           stroke_width=0).move_to(stone.get_top() + DOWN * 0.06),
+                          label(year_words(y), 0.1, "soft").move_to(p + DOWN * 0.64))
+            elif self.style == "cards":
+                ticks.add(Dot(p, radius=0.045, color=ink), label(year_words(y), 0.12, "soft").move_to(p + DOWN * 0.3))
+            else:
+                off = 0.36 if self.style == "track" else 0.42
+                ticks.add(Line(p + UP * 0.1, p + DOWN * 0.1, stroke_color=col("ink"), stroke_width=STROKE * 0.4),
+                          label(year_words(y), 0.12, "soft").move_to(p + DOWN * off))
             y += step
         self.add(self.axis, ticks)
+        if len(dress):
+            self.add(dress)
         self.used: list[tuple[float, float, int]] = []     # the events' boxes: (x0, x1, row; + above, - below)
         self.places = _Years(self)
 
     def point(self, y: float) -> np.ndarray:
+        t = (y - self.y0) / ((self.y1 - self.y0) or 1)
+        if self.style == "road":
+            return self.axis.point_from_proportion(min(1.0, max(0.0, t)))
         a, b = self.axis.get_start(), self.axis.get_end()
-        return a + (b - a) * (y - self.y0) / ((self.y1 - self.y0) or 1)
+        return a + (b - a) * t
+
+
+def _free_row(tl: Timeline, lo: float, hi: float, order) -> int:
+    return next(r for r in order if all(r != u[2] or hi + 0.12 < u[0] or u[1] < lo - 0.12 for u in tl.used))
 
 
 def event(tl: Timeline, year: str, words: str, mods: dict, c=None) -> VGroup:
-    """A card on a stem at its year: above the axis where there is room, else below, else a row further out."""
+    """An event at its year, drawn as its timeline's style draws one: a card on a stem (track), a flag on a pole
+    (ribbon), a card hung on a string from a pin (cards), a card beside a big year (vertical), a sign on a post (road).
+    Above where there is room, else below, else a row further out."""
     y = year_of(year)
     p = tl.point(y)
-    card = node(words, float(mods.get("size") or 0.8), fill=mods.get("fill"), sub=year_words(y), min_w=1.2)
+    colour = col(c or "accent")
+    k = float(mods.get("size") or 0.8)
+    if tl.style == "vertical":
+        n = getattr(tl, "events", 0)
+        tl.events = n + 1
+        side = -1 if (mods.get("side") == "left" or (mods.get("side") != "right" and n % 2)) else 1
+
+        def free(sd, lo, hi):
+            return all(u[2] != sd or hi + 0.1 < u[0] or u[1] < lo - 0.1 for u in tl.used)
+
+        year_t = text(year_words(y), 0.3 * k, color=c or "accent")
+        big = free(-side, p[1] - year_t.height / 2, p[1] + year_t.height / 2)
+        card = node(words, k, fill=mods.get("fill"), min_w=1.4, sub=None if big else year_words(y))
+        hh = card.height / 2
+        if not free(side, p[1] - hh, p[1] + hh) and free(-side, p[1] - hh, p[1] + hh) and mods.get("side") is None:
+            side = -side
+            big = free(-side, p[1] - year_t.height / 2, p[1] + year_t.height / 2)
+            card = node(words, k, fill=mods.get("fill"), min_w=1.4, sub=None if big else year_words(y))
+            hh = card.height / 2
+        cy = p[1]
+        for _ in range(60):                        # crowded years: the card steps down until it has its own room
+            if free(side, cy - hh, cy + hh):
+                break
+            cy -= 0.12
+        tl.used.append((cy - hh, cy + hh, side))
+        card.move_to([p[0] + side * (0.6 + card.width / 2), cy, 0])
+        bits = VGroup()
+        if big:
+            year_t.next_to(p, LEFT if side > 0 else RIGHT, buff=0.3)
+            tl.used.append((year_t.get_bottom()[1], year_t.get_top()[1], -side))
+            bits.add(year_t)
+        edge = card.get_left() if side > 0 else card.get_right()
+        lead = VMobject(stroke_color=col("ink"), stroke_width=STROKE * 0.35)
+        lead.set_points_as_corners([p, np.array([p[0] + side * 0.3, cy, 0]), edge])
+        dot = Dot(p, radius=0.1, color=colour).set_stroke(col("ink"), width=2)
+        return VGroup(VGroup(lead, dot, bits), card)
+    if tl.style == "ribbon":
+        flag = node(words, k, fill=mods.get("fill"), sub=year_words(y), min_w=1.1)
+        order = [1, -1, 2, -2, 3, -3] if mods.get("side") != "down" else [-1, 1, -2, 2, -3, 3]
+        row = _free_row(tl, p[0], p[0] + flag.width, order)
+        tl.used.append((p[0], p[0] + flag.width, row))
+        sign = 1 if row > 0 else -1
+        top = p + UP * sign * (0.45 + (abs(row) - 1) * (flag.height + 0.2) + flag.height)
+        flag.move_to([p[0] + flag.width / 2 + 0.02, top[1] - sign * flag.height / 2, 0])
+        pole = Line(p + UP * sign * 0.15, [p[0], top[1] if sign > 0 else flag.get_bottom()[1], 0], stroke_color=col("ink"), stroke_width=STROKE * 0.45)
+        knob = Dot(pole.get_end() if sign > 0 else pole.get_end(), radius=0.04, color=col("ink"))
+        return VGroup(VGroup(pole, knob, Dot(p, radius=0.07, color=col("card")).set_stroke(col("ink"), width=2)), flag)
+    if tl.style == "road":
+        sign_ = node(words, k, fill=mods.get("fill") or "card", sub=year_words(y), min_w=1.2)
+        order = [1, 2, -1, -2, 3, -3]
+        row = _free_row(tl, p[0] - sign_.width / 2, p[0] + sign_.width / 2, order)
+        tl.used.append((p[0] - sign_.width / 2, p[0] + sign_.width / 2, row))
+        sign = 1 if row > 0 else -1
+        # the rows stand over the whole road (or under it), not over each bend: signs never meet
+        base = tl.axis.get_top()[1] + 0.35 if sign > 0 else tl.axis.get_bottom()[1] - 0.85
+        h = (abs(row) - 1) * (sign_.height + 0.2)
+        sign_.move_to([p[0], base + sign * (h + sign_.height / 2), 0])
+        post = Line(p + UP * sign * 0.25, sign_.get_bottom() if sign > 0 else sign_.get_top(), stroke_color="#6B4A2F", stroke_width=STROKE * 0.9)
+        pin = VGroup(Circle(radius=0.12, fill_color=colour, fill_opacity=1, stroke_color=col("ink"), stroke_width=2).move_to(p + UP * 0.02),
+                     Dot(p + UP * 0.02, radius=0.04, color=col("card")))
+        return VGroup(VGroup(post, pin), sign_)
+    card = node(words, k, fill=mods.get("fill"), sub=year_words(y), min_w=1.2)
     w = card.width
     # Above the axis first (two rows), then below: a timeline low on the screen keeps its cards on it.
     order = [1, 2, -1, -2, 3, -3, 4, -4] if mods.get("side") != "down" else [-1, -2, 1, 2, -3, 3, -4, 4]
-    row = next(r for r in order
-               if all(r != u[2] or p[0] + w / 2 + 0.12 < u[0] or u[1] < p[0] - w / 2 - 0.12 for u in tl.used))
+    if tl.style == "cards":
+        order = [1, -1, 2, -2, 3, -3] if mods.get("side") != "down" else [-1, 1, -2, 2, -3, 3]
+    row = _free_row(tl, p[0] - w / 2, p[0] + w / 2, order)
     tl.used.append((p[0] - w / 2, p[0] + w / 2, row))
     sign = 1 if row > 0 else -1
     # (below the axis, clear of the years and of a span's words)
     dy = 0.55 + (abs(row) - 1) * (card.height + 0.25) + card.height / 2 + (0.75 if sign < 0 else 0)
     card.move_to(p + UP * sign * dy)
     edge = card.get_bottom() if sign > 0 else card.get_top()
-    colour = col(c or "ink")
-    stem = VGroup(Line(p, [p[0], edge[1], 0], stroke_color=colour, stroke_width=STROKE * 0.35),
-                  Dot(p, radius=0.08, color=col(c or "accent")).set_stroke(col("ink"), width=2))
+    if tl.style == "cards":                        # hung on a string from a pin, a little askew
+        card.rotate((0.04 if (len(tl.used) % 2) else -0.04), about_point=edge)
+        knot = card.get_top() if sign < 0 else card.get_bottom()
+        string = VGroup(Line(p, knot, stroke_color=col("soft"), stroke_width=STROKE * 0.3),
+                        Dot(p, radius=0.09, color=colour).set_stroke(col("ink"), width=2), Dot(knot, radius=0.035, color=col("ink")))
+        return VGroup(string, card)
+    stem = VGroup(Line(p, [p[0], edge[1], 0], stroke_color=col(c or "ink"), stroke_width=STROKE * 0.35),
+                  Dot(p, radius=0.08, color=colour).set_stroke(col("ink"), width=2))
     return VGroup(stem, card)
 
 
 def span(tl: Timeline, a: str, b: str, words: str, mods: dict, c=None) -> VGroup:
     pa, pb = tl.point(year_of(a)), tl.point(year_of(b))
+    if tl.style == "vertical":                     # a band down the line, its name far out to the left, clear of the cards
+        band = Rectangle(width=0.2, height=max(0.08, abs(pb[1] - pa[1])), fill_color=col(c or "accent"),
+                         fill_opacity=float(mods.get("opacity", 0.85)), stroke_width=0).move_to((pa + pb) / 2)
+        t = halo(label(words, float(mods.get("size") or 0.12), "ink")).rotate(math.pi / 2).move_to((pa + pb) / 2 + LEFT * 2.9)
+        brace = VGroup(Line(pa + LEFT * 2.7, pb + LEFT * 2.7, stroke_color=col(c or "accent"), stroke_width=STROKE * 0.5),
+                       Line(pa + LEFT * 2.7, pa + LEFT * 2.6, stroke_color=col(c or "accent"), stroke_width=STROKE * 0.5),
+                       Line(pb + LEFT * 2.7, pb + LEFT * 2.6, stroke_color=col(c or "accent"), stroke_width=STROKE * 0.5))
+        return VGroup(band, brace, t)
+    if tl.style == "road":                         # the stretch of the road itself, lit
+        t0 = (year_of(a) - tl.y0) / ((tl.y1 - tl.y0) or 1)
+        t1 = (year_of(b) - tl.y0) / ((tl.y1 - tl.y0) or 1)
+        part = tl.axis.get_subcurve(max(0.0, min(t0, t1)), min(1.0, max(t0, t1))).copy()
+        part.set_stroke(col(c or "accent"), width=STROKE * 3.2, opacity=float(mods.get("opacity", 0.7)))
+        mid = tl.point((year_of(a) + year_of(b)) / 2)
+        t = halo(label(words, float(mods.get("size") or 0.12), "ink")).move_to([mid[0], tl.axis.get_bottom()[1] - 0.95, 0])
+        return VGroup(part, t)
+    if tl.style == "ribbon":                       # an era of the band itself, named inside it
+        band = RoundedRectangle(width=max(0.12, abs(pb[0] - pa[0])), height=0.3, corner_radius=0.12, fill_color=col(c or "coral"),
+                                fill_opacity=float(mods.get("opacity", 0.95)), stroke_color=col("ink"), stroke_width=1.2).move_to((pa + pb) / 2)
+        t = label(words, float(mods.get("size") or 0.11), "card")
+        if t.width > band.width - 0.1:
+            t = halo(label(words, float(mods.get("size") or 0.11), "ink")).next_to(band, DOWN, buff=0.55)
+        else:
+            t.move_to(band)
+        return VGroup(band, t)
     band = Rectangle(width=max(0.08, abs(pb[0] - pa[0])), height=0.24, fill_color=col(c or "accent"),
                      fill_opacity=float(mods.get("opacity", 0.85)), stroke_width=0).move_to((pa + pb) / 2)
     side = DOWN if mods.get("side") == "down" else UP

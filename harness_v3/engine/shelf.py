@@ -18,7 +18,7 @@ SECTIONS = {
     "Money, trade": (
         "moneybag coins coin goldbars cash gem crown chest piggybank wallet card receipt abacus safe stall scales "
         "shoppingcart pricetag cashregister atm suitcase backpack scepter orb ring necklace billboard "
-        "vendingmachine coinjar"),
+        "vendingmachine coinjar stockboard"),
     "Writing, office": (
         "book books openbook ledger scroll letter document charter newspaper oldmap quill inkwell seal pencil "
         "notebook clipboard folder stamp typewriter briefcase ballotbox calendar ticket passport idcard cheque "
@@ -48,7 +48,7 @@ SECTIONS = {
         "jalebi dosa idli noodles burger coffee orange lemon potato corn salt"),
     "Care, learning": (
         "medkit pills syringe mask thermometer heart gradcap diploma stethoscope bandage wheelchair crayons ruler "
-        "slate ecg hospitalbed xray eye lungs crutch"),
+        "slate ecg hospitalbed xray eye lungs crutch vaccinevial mosquito mosquitonet toilet"),
     "Arms": (
         "sword shield spear bow axe musket cannon bomb helmet dagger mace armor arrow quiver catapult cannonballs "
         "chariot tank banner drum horn crossbow torch trench barbedwire mushroomcloud"),
@@ -57,19 +57,19 @@ SECTIONS = {
         "wheelbarrow toolbox scissors paintbrush easel"),
     "Music, play, sport": (
         "guitar piano harmonium dhol violin headphones speaker dice chessboard playingcards gamecontroller racket "
-        "dumbbell hockeystick wicket goalpost basketballhoop swing slide seesaw marbles yoyo teddybear"),
+        "dumbbell hockeystick wicket goalpost basketballhoop swing slide seesaw marbles yoyo teddybear fireworks theatremasks shuttlecock filmreel clapperboard"),
     "Law": (
         "gavel handcuffs evm stopsign podium placard inkedfinger constitution"),
     "Getting about": (
         "cart carriage bicycle rickshaw autorickshaw car bus truck tractor train plane boat ship motorcycle "
         "scooter helicopter hotairballoon submarine sailboat canoe ambulance firetruck policecar jeep bulldozer "
         "jet tram trafficcone railtrack station busstop milestone skateboard parachute anchor lifebuoy "
-        "steeringwheel tyre fuelcan"),
+        "steeringwheel tyre fuelcan metro flyover zebracrossing streetcart"),
     "Places": (
         "house hut tent well tower castle palace temple mosque church school hospital bank shop skyscraper "
         "lighthouse bridge gate fence signpost flagpole flagindia bunting pyramids obelisk pillar arch statue "
         "fountain stupa parliament court prison dam barn silo warehouse igloo pagoda tajmahal indiagate "
-        "eiffeltower colosseum greatwall powerplant"),
+        "eiffeltower colosseum greatwall powerplant apartment hotel stadium gurdwara firehydrant phonebooth newsstand electricpole"),
     "Land and water": (
         "river lake waterfall hills mountainrange snowpeak valley desert dune oasis forest jungle swamp glacier "
         "iceberg canyon cliff cave beach ocean coast delta plateau meadow acacia bamboo banyan terraces mangrove "
@@ -81,10 +81,10 @@ SECTIONS = {
         "lightning snowflake star rainbow volcano island leaf sprout beehive nest logs haystack scarecrow tornado "
         "pebbles feather acorn pinecone spiderweb anthill"),
     "Environment, water, power": (
-        "recycle watertank tap pipe garbage smog chargingstation"),
+        "recycle watertank tap pipe garbage smog chargingstation biogas"),
     "India": (
         "loom kalash conch sitar tabla flute palanquin chulha handpump spices puppet jalebi dosa idli chaistall "
-        "toran handfan bangles stepwell"),
+        "toran handfan bangles stepwell garland veena"),
     "First farmers, first cities": (
         "kernel handaxe flintknife polishedaxe cavepainting leanto quern barley millet riceplant lentils peapod "
         "cotton flax yarn spindle clothbolt storagejar copperore ingot obsidian seashell lapis claytablet stylus "
@@ -95,7 +95,7 @@ SECTIONS = {
         "porcelainvase"),
     "Farms and fields": (
         "farm farmland farmhouse wheatfield cornfield paddyfield orchard vegetablegarden pasture irrigatedfields "
-        "teagarden henhouse seedbed growthstages roots savanna hillvillage"),
+        "teagarden henhouse seedbed growthstages roots savanna hillvillage cottonbale thresher pumpset sprinkler dripirrigation fertilizerbag sprayer greenhouse"),
     "Soil and rocks": (
         "alluvialsoil blacksoil redsoil lateritesoil desertsoil mountainsoil peatsoil salinesoil soilprofile "
         "soiltexture permeability soilerosion contourfarming shelterbelt strata earthlayers rocktypes weathering "
@@ -193,7 +193,19 @@ KEYWORDS = {
 CORE = "table chair book scroll document letter coins moneybag crown house hut tree mountain river cloud sun flagpole road village sack basket".split()
 
 # Other names things go by (what a model or a person may write): the drawn thing each is.
-ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": "coins", "treasure": "chest",
+ALIASES = {"flats": "apartment", "apartments": "apartment", "inn": "hotel", "foodcart": "streetcart",
+           "thela": "streetcart", "subway": "metro", "underground": "metro", "hydrant": "firehydrant",
+           "telephonebooth": "phonebooth", "kiosk": "newsstand", "crosswalk": "zebracrossing", "overpass": "flyover",
+           "stockmarket": "stockboard", "sensex": "stockboard", "shares": "stockboard", "bale": "cottonbale",
+           "threshingmachine": "thresher", "waterpump": "pumpset", "tubewell": "pumpset", "drip": "dripirrigation",
+           "fertiliser": "fertilizerbag", "fertilizer": "fertilizerbag", "pesticide": "sprayer",
+           "polyhouse": "greenhouse", "latrine": "toilet", "sanitation": "toilet", "malaria": "mosquito",
+           "dengue": "mosquito", "bednet": "mosquitonet", "gobargas": "biogas", "electricitypole": "electricpole",
+           "cinema": "filmreel", "movie": "filmreel", "film": "filmreel", "clapper": "clapperboard",
+           "diwali_crackers": "fireworks", "crackers": "fireworks", "mala": "garland", "marigold": "garland",
+           "theatre": "theatremasks", "drama": "theatremasks", "shuttle": "shuttlecock", "arena": "stadium",
+           "gurudwara": "gurdwara",
+           "bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": "coins", "treasure": "chest",
            "coinpile": "coins", "notes": "cash", "banknotes": "cash", "jewel": "gem", "diamond": "gem",
            "ruby": "gem", "tome": "book", "paper": "document", "contract": "document", "deed": "charter",
            "decree": "charter", "treaty": "charter", "envelope": "letter", "map": "oldmap", "featherpen": "quill",

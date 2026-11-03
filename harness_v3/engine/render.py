@@ -109,6 +109,11 @@ def has_picture(m) -> bool:
     return any(isinstance(x, ImageMobject) for x in m.get_family())
 
 
+def _size(m) -> float:
+    """How big a thing is, for a mark round it to keep to (its longer side)."""
+    return max(m.width, m.height, 1e-3)
+
+
 class Alpha:
     """A mobject's opacity as a share of its own (recorded once): fade in and out, dim and lift without losing what
     its parts' own opacities were."""
@@ -834,13 +839,21 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         self._mounted()
         # A mark goes where what it marks goes (a ring round a thing that then moves, a fill in a box that slides).
         for rec in self.follows:
-            mk, what, last, fill = rec
+            mk, what, last, fill = rec[:4]
+            size = rec[4] if len(rec) > 4 else None     # a ring, a box: its size kept to what it marks too
+            if size is not None and size["busy"]:
+                continue                                # (being drawn: placed as it is drawn, _mark)
             c = what.get_center()
             if not np.allclose(c, last, atol=1e-4):
                 mk.shift(c - last)
                 if fill is not None:
                     fill["base"] += (c - last)[1]
                 rec[2] = c.copy()
+            if size is not None:
+                sz = _size(what)
+                if abs(sz / max(size["s"], 1e-6) - 1) > 0.03:
+                    mk.scale(sz / max(size["s"], 1e-6), about_point=c)
+                    size["s"] = sz
         self._place_hud()
         if self.BOIL and self.texture and dt:
             self._boil()
@@ -1703,7 +1716,11 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 raise ValueError(f"no mark {kind!r}")
             mk.set_z_index(z + 2)
             self.marks.setdefault(name, []).append(mk)
-            self.follows.append([mk, core, core.get_center().copy(), None])
+            # it follows what it marks, its place and its size (busy while it is drawn: the drawing redraws it from
+            # where it began each frame, so it is put where the thing is now as it goes: _keep_on)
+            rec = [mk, core, core.get_center().copy(), None, {"busy": how in ("draw", "sweep"), "s": _size(core)}]
+            self.follows.append(rec)
+            state["rec"], state["c0"], state["s0"] = rec, core.get_center().copy(), _size(core)
             self.add(mk)
             state["mk"] = mk
             if how == "draw":
@@ -1722,16 +1739,29 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 state["al"] = Alpha(mk)
                 state["k"] = 1.0
 
+        def keep_on(sized):
+            # the mark as drawn so far, put where (and as big as) what it marks is now
+            c, sz = state["rec"][1].get_center(), _size(state["rec"][1])
+            k = sz / max(state["s0"], 1e-6)
+            if sized and abs(k - 1) > 0.03:
+                state["mk"].scale(k, about_point=state["c0"])
+            else:
+                sz = state["s0"]
+            state["mk"].shift(c - state["c0"])
+            return c, sz
+
         def step(a):
             mk = state["mk"]
             if "anim" in state:
                 state["anim"].interpolate(a)
+                keep_on(True)
                 if "nib" in state:
                     if len(mk.points):           # the head of the stroke drawn so far
                         state["nib"].move_to(mk.points[-1])
             elif "w" in state:
                 mk.stretch_to_fit_width(max(0.01, state["w"] * a))
                 mk.move_to(state["left"] + RIGHT * mk.width / 2)
+                keep_on(False)
             else:                               # a stamp: down hard from bigger
                 k = 1.0 + 0.8 * (1 - a)
                 mk.scale(k / state["k"])
@@ -1739,9 +1769,18 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 state["al"].set(min(1.0, a * 2.2))
 
         def stop():
+            rec = state["rec"]
             if "anim" in state:
                 state["anim"].interpolate(1)
                 state["anim"].finish()
+                c, sz = keep_on(True)
+            elif "w" in state:
+                state["mk"].stretch_to_fit_width(state["w"])
+                state["mk"].move_to(state["left"] + RIGHT * state["w"] / 2)
+                c, sz = keep_on(False)
+            else:
+                c, sz = rec[2], rec[4]["s"]
+            rec[2], rec[4]["s"], rec[4]["busy"] = c.copy(), sz, False
             if "nib" in state:
                 self.remove(state["nib"])
         rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, feel.pen if self.texture else rate_functions.ease_in_out_sine)

@@ -56,9 +56,14 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            hammer saw wrench screwdriver shovel pickaxe sickle hoe pitchfork wateringcan wheelbarrow toolbox
            scissors paintbrush easel | music, play, sport: guitar piano harmonium dhol violin headphones
            speaker dice chessboard playingcards gamecontroller racket dumbbell hockeystick | law: gavel
-           handcuffs evm stopsign | India: diya charkha charpai thali kulhad tiffin lattu rangoli
-           autorickshaw rickshaw flagindia loom kalash conch sitar tabla flute palanquin chulha handpump
-           spices samosa laddoo roti sugarcane harmonium dhol gascylinder tajmahal indiagate evm.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
+           handcuffs evm stopsign | first farmers, first cities: kernel handaxe flintknife polishedaxe
+           cavepainting leanto quern barley millet riceplant lentils peapod cotton flax yarn spindle
+           clothbolt storagejar copperore ingot obsidian seashell lapis claytablet stylus claylump ziggurat
+           mudbricks citywall stele cylinderseal claycones potterswheel lyre dates barge shaduf canal cheese
+           hide oillamp sealing beacon tabletshelf eclipse mudhouse field yoke fishingnet | India: diya
+           charkha charpai thali kulhad tiffin lattu rangoli autorickshaw rickshaw flagindia loom kalash
+           conch sitar tabla flute palanquin chulha handpump spices samosa laddoo roti sugarcane harmonium
+           dhol gascylinder tajmahal indiagate evm.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
            wave, windmills, turbines, fans and propellers turn, smoke and steam drift by themselves.
            PEOPLE USE THEM (they walk up to it first): `use P X` does what the thing is for (eat bread, drink tea,
            read a book, sit on a chair, enter a house, wear a crown, ride a bicycle, count coins, vote, ring a bell,

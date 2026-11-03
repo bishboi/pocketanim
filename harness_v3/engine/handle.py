@@ -68,11 +68,16 @@ USES = {**{n: "eat" for n in FOOD}, **{n: "drink" for n in CUPS}, **{n: "read" f
         "teapot": "holdup", "passport": "read", "ticket": "read", "calendar": "read",
         "cheque": "read", "idcard": "holdup", "tablet": "type", "evm": "vote", "gavel": "hammer",
         "scepter": "holdup", "orb": "holdup", "spectacles": "holdup", "necklace": "holdup",
-        "dumbbell": "holdup", "racket": "holdup", "hockeystick": "holdup"}
+        "dumbbell": "holdup", "racket": "holdup", "hockeystick": "holdup",
+        "dates": "eat", "cheese": "eat", "peapod": "eat", "claytablet": "read", "stele": "read", "stylus": "write",
+        "quern": "stir", "handaxe": "hammer", "polishedaxe": "hammer", "flintknife": "holdup", "seashell": "holdup",
+        "lapis": "holdup", "obsidian": "holdup", "ingot": "holdup", "cylinderseal": "holdup", "kernel": "holdup",
+        "oillamp": "holdup", "spindle": "holdup", "storagejar": "pickup", "barge": "ride",
+        "mudhouse": "enter", "ziggurat": "enter", "leanto": "enter", "citywall": "enter"}
 # Where a rider sits on a vehicle (its own frame), and those that swallow their riders (seen through no window)
 VEHICLE_SEATS = {"bicycle": (-0.06, 0.24), "rickshaw": (0.2, 0.3), "cart": (-0.05, 0.3), "tractor": (-0.15, 0.3),
                  "boat": (0.05, 0.12), "motorcycle": (-0.2, 0.41), "scooter": (-0.26, 0.41), "canoe": (0.0, 0.04),
-                 "sailboat": (-0.12, 0.05), "hotairballoon": (0.0, 0.08), "wheelchair": (0.03, 0.22), "jeep": (-0.15, 0.22)}
+                 "sailboat": (-0.12, 0.05), "hotairballoon": (0.0, 0.08), "barge": (0.4, 0.14), "wheelchair": (0.03, 0.22), "jeep": (-0.15, 0.22)}
 INSIDE = ("car", "bus", "truck", "train", "plane", "carriage", "autorickshaw", "ship", "ambulance", "firetruck",
           "policecar", "helicopter", "submarine", "jet", "tram", "bulldozer")
 

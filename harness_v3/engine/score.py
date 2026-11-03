@@ -55,6 +55,7 @@ class Shot:
     y: float
     zoom: float
     line: int
+    period: str | None = None     # `shot NAME period medieval`: the age it is set in (else the score's, else guessed)
 
 
 @dataclass
@@ -84,6 +85,8 @@ class Score:
     captions: bool | None = None    # `captions on`: the narration's words at the bottom, the one said lit
     progress: bool | None = None    # `progress on|off`: the chapter bar (on when the score has `chapter` lines)
     cast: dict = field(default_factory=dict)   # `cast NAME KIND ARGS MODS`: a character made once, used by name
+    period: str | None = None       # `period ancient|medieval|early|modern|auto`: the age the video is set in
+    periods: dict = field(default_factory=dict)  # the age each shot is drawn in (its towns, roads, carts), by shot
 
 
 # What a modifier is followed by (its value's shape).
@@ -91,7 +94,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "rot": "n", "layer": "n", "badge": "s", "x": "i", "row": None, "col": None, "grid": "i", "ring": "n",
         "bold": None, "italic": None, "serif": None, "solid": None, "dashed": None, "curve": "n", "max": "n",
         "prefix": "s", "suffix": "s", "opacity": "n", "hidden": None, "shadow": None, "flat": None, "cluster": None,
-        "to": "s", "done": "i", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "shrink": "n", "flag": "s", "img": "s", "sub": "s",
+        "to": "s", "done": "i", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "shrink": "n", "period": "s", "flag": "s", "img": "s", "sub": "s",
         "map": "s", "year": "i", "names": None, "rivers": None, "outline": None, "side": "s", "who": "s",
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
@@ -253,7 +256,8 @@ VERB_ALIAS = {"appear": "in", "show": "in", "enter": "in", "reveal": "in", "add"
 # Ways a thing comes on or goes (`in X pop`), also written as the verb (`pop X` is `in X pop`).
 IN_WAYS = {"fade", "pop", "rise", "drop", "slide-left", "slide-right", "draw", "write", "grow", "unfold", "slap", "speak"}
 OUT_WAYS = {"fade", "shrink", "drop", "peel"}
-KEYWORDS = {"look", "music", "sound", "shot", "ent", "texture", "parallax", "motion", "captions", "progress", "cast"}
+KEYWORDS = {"look", "music", "sound", "shot", "ent", "texture", "parallax", "motion", "captions", "progress", "cast",
+            "period"}
 
 
 def _is_time(tok: str) -> bool:
@@ -396,6 +400,7 @@ def parse(text: str, words: list[dict], seconds: float) -> Score:
     _name_the_nameless(sc, state.get("nameless", []))
     _camera_to_every_shot(sc)
     sc.acts.sort(key=lambda a: a.t0)
+    _periods(sc, words)
     return sc
 
 
@@ -445,6 +450,8 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             setattr(sc, head, (toks[1] if len(toks) > 1 else "on") not in ("off", "none", "0", "no"))
         elif head == "motion":
             sc.motion = toks[1] if len(toks) > 1 else "paper"
+        elif head == "period":
+            sc.period = PERIOD_NAMES.get(toks[1].lower()) if len(toks) > 1 else None
         elif head == "cast":
             # `cast monk person wear habit hat hood longbeard`: a character once, then `ent m1 monk at X,Y` anywhere,
             # always looking the same (its looks are picked from the cast's name, not the thing's)
@@ -461,7 +468,8 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             else:
                 last = list(sc.shots.values())[-1] if sc.shots else None
                 x, y = ((last.x + SHOT_STEP, last.y) if last else (0.0, 0.0))
-            shot = Shot(toks[1], x, y, float(mods.get("zoom", 1.0)), n)
+            shot = Shot(toks[1], x, y, float(mods.get("zoom", 1.0)), n,
+                        PERIOD_NAMES.get(str(mods.get("period") or "").lower()))
             sc.shots[shot.name] = shot
         elif head == "ent":
             cast = None
@@ -574,6 +582,85 @@ def shot_of(sc: Score, ref: str) -> str | None:
     m = REF.match(ref.split(",")[0])
     e = sc.ents.get(m.group(1)) if m else None
     return e.shot if e else None
+
+
+# -- the age a shot is set in ---------------------------------------------------------------------------------------
+# A shot set in the past draws its towns, houses, roads and ports as they were then, and what that age did not have
+# as what stood in its place (props.py: a car is a cart). Said by `period X` (the whole video, from the top) or
+# `shot NAME period X`; else guessed from the years and the names of ages its narration says, else the shot before's.
+PERIOD_NAMES = {"ancient": "ancient", "antiquity": "ancient", "classical": "ancient", "prehistoric": "ancient",
+                "medieval": "medieval", "middle": "medieval", "early": "early", "earlymodern": "early",
+                "early-modern": "early", "colonial": "early", "modern": "modern", "today": "modern", "auto": "auto"}
+PERIOD_CUES = {
+    "ancient": ("neolithic", "stone age", "bronze age", "iron age", "mesopotamia", "sumer", "sumerian", "babylon", "assyria",
+                "pharaoh", "harappa", "harappan", "indus valley", "mohenjo", "vedic", "maurya", "ashoka", "ancient", "antiquity",
+                "roman empire", "julius caesar", "first cities", "first farmers", "hunter-gatherer", "hunter gatherer",
+                "isa purv", "ईसा पूर्व", "प्राचीन"),
+    "medieval": ("medieval", "middle ages", "feudal", "feudalism", "knight", "knights", "crusade", "crusades", "viking", "vikings",
+                 "monastery", "manor", "serf", "serfs", "delhi sultanate", "chola", "मध्यकाल"),
+    "early": ("renaissance", "mughal", "east india company", "colonial", "printing press", "gutenberg", "age of exploration",
+              "enlightenment", "industrial revolution", "steam engine"),
+    "modern": ("today", "nowadays", "internet", "smartphone", "app", "apps", "online", "modern", "aaj kal", "आज"),
+}
+
+
+def _era_of_year(y: float) -> str:
+    return "ancient" if y < 500 else "medieval" if y < 1500 else "early" if y < 1850 else "modern"
+
+
+def guess_period(text: str) -> str | None:
+    """The age a stretch of narration is set in, from the years and the names of ages it says (None: it says none)."""
+    t = " " + text.lower().replace(",", "") + " "
+    votes: dict[str, float] = {}
+    for m in re.finditer(r"(\d{1,5})\s*(?:bc|bce|b\.c\.?|b\.c\.e\.?)\b", t):
+        votes["ancient"] = votes.get("ancient", 0) + 2
+    for m in re.finditer(r"(\d{1,2})(?:st|nd|rd|th)\s+century(\s+(?:bc|bce))?", t):
+        y = (int(m.group(1)) - 1) * 100 + 50
+        e = "ancient" if m.group(2) else _era_of_year(y)
+        votes[e] = votes.get(e, 0) + 2
+    for m in re.finditer(r"(?<![\d.])(1\d{3}|20\d{2})(?:s)?(?![\d.%])", t):
+        e = _era_of_year(int(m.group(1)))
+        votes[e] = votes.get(e, 0) + 1.5
+    for m in re.finditer(r"(?:\bad|\bce)\s+(\d{1,4})\b|\b(\d{1,4})\s+(?:ad|ce)\b", t):
+        e = _era_of_year(int(m.group(1) or m.group(2)))
+        votes[e] = votes.get(e, 0) + 2
+    for era, cues in PERIOD_CUES.items():
+        for c in cues:
+            n = len(re.findall(rf"(?<![a-z]){re.escape(c)}(?![a-z])", t))
+            if n:
+                votes[era] = votes.get(era, 0) + n
+    if not votes:
+        return None
+    return max(votes, key=lambda e: (votes[e], ("modern", "early", "medieval", "ancient").index(e)))
+
+
+def _periods(sc: Score, words: list[dict]) -> None:
+    """Each shot's age (sc.periods), and each drawn thing in a past shot told it (`period` on a prop with none)."""
+    starts = {}
+    for a in sc.acts:
+        if a.verb == "cam" and a.target in sc.shots:
+            starts[a.target] = min(starts.get(a.target, 1e9), a.t0)
+    order = sorted(sc.shots, key=lambda s: (starts.get(s, 1e9), sc.shots[s].line))
+    times = [starts.get(s, 1e9) for s in order]
+    said = lambda t0, t1: " ".join(str(w.get("w", "")) for w in words if t0 <= float(w.get("start", 0)) < t1)  # noqa: E731
+    whole = sc.period if sc.period not in (None, "auto") else guess_period(said(-1, 1e9))
+    prev = whole
+    for k, name in enumerate(order):
+        shot = sc.shots[name]
+        if shot.period:
+            era = shot.period
+        elif sc.period not in (None, "auto"):
+            era = sc.period
+        else:
+            t0 = times[k] if times[k] < 1e9 else 0.0
+            t1 = times[k + 1] if k + 1 < len(times) and times[k + 1] < 1e9 else 1e9
+            era = guess_period(said(t0, t1)) or prev
+        sc.periods[name] = era
+        prev = era
+    for e in sc.ents.values():
+        era = sc.periods.get(e.shot)
+        if e.kind == "prop" and era and era != "modern" and not e.mods.get("period"):
+            e.mods["period"] = era
 
 
 def _camera_to_every_shot(sc: Score) -> None:

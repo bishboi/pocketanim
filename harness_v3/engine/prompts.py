@@ -15,7 +15,11 @@ import re
 import textwrap
 
 GRAMMAR = """SCORE GRAMMAR (one item per line; # starts a comment)
-shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `ent` lines follow.
+shot NAME at X,Y [period ancient|medieval|early|modern]   a new shot on the canvas (shots ~18 apart). Its `ent`
+                              lines follow. `period` (or one `period X` line at the top for the whole video) is the
+                              age it is set in: its props are drawn as they were then (a skyline is a mud-brick city
+                              with a ziggurat, or a walled town with a spire; a road is an earth track; a car or bus
+                              is a cart). Left out, it is guessed from the years the narration says.
 ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wide, 8 tall, centred on the shot.
   KINDS: text "WORDS" | circle | rect | blob | ring | waves N | dots N (`shape user`: little drawn people) | num V
          | bar V | arrow A B | path P P P...
@@ -109,6 +113,8 @@ RULES
   map, put things at its places (MAP.place), not beside it. Overlap only to put one on another on purpose (a label
   on its card, a pin on its map). (A solver moves what still collides, but a clean first layout keeps your intent.)
 - Show real things: a pic, a photo, a flag or a card. No icons. One big picture per idea; few small pics.
+- Keep to the age the narration is in: nothing a shot's age did not have (no towers, cars, phones or tarmac before
+  their time), and a pic's words say the age ("a Sumerian mud-brick city, 3000 BC", "a medieval market town").
 - A thing on a map is at a place on it (MAP.place); a place beyond the map's region is drawn at its edge: choose
   a region that holds every place you name.
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).

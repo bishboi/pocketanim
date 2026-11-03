@@ -6911,6 +6911,291 @@ def _gurdwara(m, w):
                   line((0.75, 0.0), (0.75, 1.1), "#9AA3A9", w * 1.4), live(poly([(0.75, 1.1), (0.95, 1.05), (0.75, 0.98)], "#E8822E", w * 0.6), "flag")), None
 
 
+# -- the past: the same things as they were in an earlier age (`period ancient|medieval|early`) ----------------------
+# A shot set in the past draws its towns, houses, roads, shops and ports as they were then; what that age did not
+# have is drawn as what stood in its place (a car is a cart, a laptop a clay tablet or a book).
+
+PERIODS = ("ancient", "medieval", "early")
+P_STONE, P_TIMBER, P_PLASTER, P_TILE, P_THATCH = "#B9AE98", "#6B4A2F", "#EFE3C8", "#B5543C", "#B9944A"
+
+
+def period_of(m) -> str | None:
+    p = str(m.get("period") or "").lower()
+    return p if p in PERIODS else None
+
+
+def mud_block(x, wd, h, c, w, door=True, roof_beams=True):
+    """A flat-roofed mud-brick house: its parapet, beam ends, a dark door and a small high window."""
+    g = VGroup(rect(x - wd / 2, 0.0, x + wd / 2, h, c, w), rect(x - wd / 2 - 0.02, h, x + wd / 2 + 0.02, h + 0.035, tint(c, -0.12), w * 0.7))
+    if roof_beams:
+        g.add(*(line((bx, h - 0.04), (bx, h - 0.01), WOOD_D, w * 1.1) for bx in np.linspace(x - wd / 2 + 0.04, x + wd / 2 - 0.04, max(2, int(wd / 0.09)))))
+    if door:
+        g.add(rrect(x - 0.035, 0.0, x + 0.035, min(0.15, h * 0.55), 0.02, "#4A3626", w * 0.6))
+    g.add(rect(x + wd / 2 - 0.07, h * 0.7, x + wd / 2 - 0.035, h * 0.7 + 0.04, "#3A2A1E", 0))
+    return g
+
+
+def timber_house(x, wd, h, c, w, roof=None, s=1.0, pitch=0.75):
+    """A timber-framed house: white plaster crossed by dark beams, a steep roof, a small door and windows."""
+    roof = roof or P_TILE
+    g = VGroup(rect(x - wd / 2, 0.0, x + wd / 2, h, c, w),
+               poly([(x - wd / 2 - 0.03, h), (x, h + wd * pitch), (x + wd / 2 + 0.03, h)], roof, w))
+    g.add(line((x - wd / 2, h * 0.5), (x + wd / 2, h * 0.5), P_TIMBER, w * 1.1),
+          *(line((bx, 0.0), (bx, h), P_TIMBER, w * 1.1) for bx in (x - wd / 2 + 0.015, x + wd / 2 - 0.015)),
+          line((x - wd / 2, h * 0.5), (x - wd / 4, h), P_TIMBER, w * 0.9), line((x + wd / 2, h * 0.5), (x + wd / 4, h), P_TIMBER, w * 0.9),
+          rrect(x - 0.03 * s, 0.0, x + 0.03 * s, 0.11 * s, 0.015, P_TIMBER, w * 0.6),
+          rect(x + wd / 4 - 0.025, h * 0.62, x + wd / 4 + 0.025, h * 0.62 + 0.05, "#E9C46A", w * 0.5))
+    return g
+
+
+def spire_church(x, s, w):
+    """A stone church: nave, a tower with a tall slate spire and a cross."""
+    return VGroup(rect(x - 0.18 * s, 0.0, x + 0.12 * s, 0.32 * s, P_STONE, w), poly([(x - 0.2 * s, 0.32 * s), (x - 0.04 * s, 0.46 * s), (x + 0.14 * s, 0.32 * s)], "#7C7468", w),
+                  rect(x + 0.1 * s, 0.0, x + 0.24 * s, 0.6 * s, tint(P_STONE, -0.05), w),
+                  poly([(x + 0.09 * s, 0.6 * s), (x + 0.17 * s, 1.0 * s), (x + 0.25 * s, 0.6 * s)], "#5D6670", w),
+                  line((x + 0.17 * s, 1.0 * s), (x + 0.17 * s, 1.08 * s), "#3A3631", w), line((x + 0.145 * s, 1.05 * s), (x + 0.195 * s, 1.05 * s), "#3A3631", w),
+                  rrect(x + 0.145 * s, 0.4 * s, x + 0.195 * s, 0.5 * s, 0.02 * s, "#3A3631", w * 0.5),
+                  *(rrect(bx, 0.12 * s, bx + 0.04 * s, 0.22 * s, 0.02 * s, "#5A6E80", w * 0.4) for bx in (x - 0.14 * s, x - 0.06 * s, x + 0.02 * s)))
+
+
+def old_city(m, w, era):
+    """A city of its age: mud-brick and a ziggurat behind a wall (ancient); timber houses, a castle keep and a
+    spired church behind towered stone walls (medieval); brick and plaster houses with tiled roofs, a domed church
+    and a windmill (early)."""
+    g = VGroup()
+    if era == "ancient":
+        g.add(*(round_tree(x, 0.25, 0.9, w, "#6E9A4A") for x in (-0.95,)))
+        z, _ = _ziggurat({}, w)
+        g.add(z.scale(0.62, about_point=np.array([0, 0, 0])).shift([0.15, 0.2, 0]))
+        for x, wd, h, c in ((-0.7, 0.26, 0.42, "#C9A27A"), (-0.42, 0.3, 0.55, "#D2AE84"), (-0.12, 0.24, 0.38, "#C49A70"), (0.5, 0.3, 0.5, "#D2AE84"),
+                            (0.8, 0.26, 0.4, "#C9A27A")):
+            g.add(mud_block(x, wd, h, c, w).shift([0, 0.18, 0]))
+        wall, _ = _citywall({}, w)
+        wall.scale(0.42, about_point=np.array([0, 0, 0]))
+        g.add(wall.stretch(2.0 / wall.width, 0, about_point=np.array([0, 0, 0])))
+        g.add(VGroup(stroke([(0.98, 0.0), (0.97, 0.3), (1.0, 0.55)], WOOD_D, w * 1.6),
+                     *(poly([(1.0, 0.55), (1.0 + 0.16 * math.cos(a), 0.55 + 0.1 * math.sin(a) - 0.05), (1.0 + 0.1 * math.cos(a), 0.55 + 0.03)], "#5E8A3E", w * 0.5)
+                       for a in (0.3, 1.2, 2.0, 2.9))))
+        return g, None
+    if era == "medieval":
+        g.add(spire_church(0.25, 1.0, w))
+        keep = VGroup(rect(-0.62, 0.0, -0.3, 0.78, P_STONE, w), *(rect(-0.62 + i * 0.07, 0.78, -0.58 + i * 0.07, 0.84, P_STONE, w * 0.6) for i in range(5)),
+                      rrect(-0.48, 0.5, -0.44, 0.6, 0.02, "#3A3631", w * 0.4), line((-0.46, 0.84), (-0.46, 0.98), "#3A3631", w),
+                      poly([(-0.46, 0.98), (-0.36, 0.95), (-0.46, 0.92)], RED, w * 0.5))
+        g.add(keep)
+        for x, wd, h, c, r in ((-0.85, 0.2, 0.36, P_PLASTER, P_TILE), (-0.15, 0.2, 0.42, "#F3E7CC", "#8E5A3C"), (0.6, 0.22, 0.38, P_PLASTER, P_TILE),
+                               (0.85, 0.18, 0.32, "#F3E7CC", "#8E5A3C")):
+            g.add(timber_house(x, wd, h, c, w, r).shift([0, 0.2, 0]))
+        wall = VGroup(rect(-1.0, 0.0, 1.0, 0.3, tint(P_STONE, -0.05), w), *(rect(-1.0 + i * 0.1, 0.3, -0.95 + i * 0.1, 0.35, tint(P_STONE, -0.05), w * 0.5) for i in range(20)))
+        for x in (-0.75, 0.0, 0.75):
+            wall.add(rect(x - 0.08, 0.0, x + 0.08, 0.42, P_STONE, w), poly([(x - 0.1, 0.42), (x, 0.56), (x + 0.1, 0.42)], "#5D6670", w))
+        wall.add(blob([(-0.36, 0.0), (-0.36, 0.14), *zoo.P._arc(-0.3, 0.14, 0.06, 180, 0, 6), (-0.24, 0.0)], "#4A3626", w * 0.7))
+        g.add(wall)
+        return g, None
+    # early (1500-1850): no wall, brick and plaster rows, a domed church, a windmill on the edge
+    dome = VGroup(rect(-0.12, 0.0, 0.12, 0.5, P_PLASTER, w), Circle(radius=0.12, fill_color="#7D9AA8", fill_opacity=1, stroke_color=zoo.INK,
+                                                              stroke_width=w).move_to([0, 0.5, 0]),
+                  rect(-0.13, 0.42, 0.13, 0.5, P_PLASTER, w), line((0, 0.62), (0, 0.72), "#3A3631", w), line((-0.025, 0.69), (0.025, 0.69), "#3A3631", w),
+                  *(rrect(bx - 0.02, 0.18, bx + 0.02, 0.3, 0.02, "#5A6E80", w * 0.4) for bx in (-0.06, 0.06)))
+    g.add(dome.shift([0.05, 0.0, 0]))
+    mill, _ = _windmill({}, w)
+    g.add(mill.scale(0.45, about_point=np.array([0, 0, 0])).shift([0.88, 0, 0]))
+    for x, wd, h, c in ((-0.85, 0.22, 0.48, "#B9654A"), (-0.6, 0.24, 0.6, P_PLASTER), (-0.33, 0.24, 0.52, "#C9785A"), (0.33, 0.22, 0.56, P_PLASTER),
+                        (0.6, 0.22, 0.46, "#B9654A")):
+        g.add(rect(x - wd / 2, 0.0, x + wd / 2, h, c, w), poly([(x - wd / 2 - 0.02, h), (x - wd / 2 + 0.03, h + 0.12), (x + wd / 2 - 0.03, h + 0.12),
+                                                                   (x + wd / 2 + 0.02, h)], "#7A4A3A", w),
+              rrect(x - 0.03, 0.0, x + 0.03, 0.12, 0.015, P_TIMBER, w * 0.5),
+              *(rect(wx - 0.022, wy, wx + 0.022, wy + 0.06, "#E9C46A" if (k % 3) else "#9FC5DA", w * 0.4)
+                for k, (wx, wy) in enumerate((wx, wy) for wx in (x - wd / 4, x + wd / 4) for wy in np.arange(0.2, h - 0.06, 0.14))))
+    return g, None
+
+
+def old_village(m, w, era):
+    g = VGroup(ell(0.0, 0.0, 2.0, 0.12, GRASS, 0))
+    if era == "ancient":
+        for x, wd, h, c in ((-0.65, 0.3, 0.3, "#C9A27A"), (-0.2, 0.34, 0.36, "#D2AE84"), (0.28, 0.3, 0.3, "#C49A70"), (0.68, 0.26, 0.26, "#D2AE84")):
+            g.add(mud_block(x, wd, h, c, w))
+        well, _ = _well({}, w)
+        g.add(well.scale(0.28, about_point=np.array([0, 0, 0])).shift([0.98, 0, 0]))
+        return g, None
+    for x, s in ((-0.65, 0.9), (-0.2, 1.1), (0.3, 0.95), (0.7, 0.8)):
+        h = 0.24 * s
+        g.add(rect(x - 0.17 * s, 0.0, x + 0.17 * s, h, "#D9C3A0" if era == "medieval" else "#E3CFAE", w))
+        if era == "medieval":                  # a thatch, its straws
+            g.add(blob([(x - 0.24 * s, h - 0.01), (x - 0.12 * s, h + 0.16 * s), (x, h + 0.2 * s), (x + 0.12 * s, h + 0.16 * s), (x + 0.24 * s, h - 0.01)],
+                       P_THATCH, w),
+                  *(stroke([(x + k * 0.05 * s, h + 0.01), (x + k * 0.045 * s, h + 0.14 * s)], tint(P_THATCH, -0.25), w * 0.4) for k in range(-3, 4)))
+        else:                                  # a tiled roof and a chimney
+            g.add(rect(x + 0.08 * s, h + 0.06 * s, x + 0.12 * s, h + 0.17 * s, "#8E5A3C", w * 0.6),
+                  poly([(x - 0.22 * s, h), (x, h + 0.16 * s), (x + 0.22 * s, h)], "#A0523C", w))
+        g.add(rrect(x - 0.04 * s, 0.0, x + 0.04 * s, 0.13 * s, 0.02, P_TIMBER, w * 0.6),
+              rect(x + 0.07 * s, 0.1 * s, x + 0.12 * s, 0.15 * s, "#E9C46A", w * 0.4))
+    g.add(round_tree(1.0, 0.0, 0.9, w), fence(-1.0, -0.82, 0.0, w, 0.08))
+    return g, None
+
+
+def old_port(m, w, era):
+    """A harbour of its age: a stone quay, barrels and sacks, a wooden crane, and the ships of the time (a reed-
+    and-plank boat with a square sail; a round-bellied cog; a three-masted sailing ship)."""
+    g = VGroup(rect(-1.0, 0.0, 1.0, 0.12, WATER, 0), *(stroke([(x, 0.06), (x + 0.1, 0.06)], "#EAF4FA", w * 0.8) for x in (-0.05, 0.3, 0.65)),
+               rect(-1.0, 0.12, -0.15, 0.2, P_STONE, w), *(line((x, 0.12), (x, 0.2), tint(P_STONE, -0.2), w * 0.4) for x in np.arange(-0.9, -0.15, 0.12)))
+    for x in (-0.9, -0.78):
+        g.add(VGroup(ell(x, 0.26, 0.09, 0.12, WOOD, w * 0.7), line((x - 0.045, 0.23), (x + 0.045, 0.23), WOOD_D, w * 0.5),
+                     line((x - 0.045, 0.29), (x + 0.045, 0.29), WOOD_D, w * 0.5)))
+    g.add(blob([(-0.68, 0.2), (-0.7, 0.28), (-0.62, 0.31), (-0.56, 0.27), (-0.58, 0.2)], CLOTH, w * 0.7))
+    if era != "ancient":                       # a treadwheel crane, all timber
+        g.add(line((-0.42, 0.2), (-0.42, 0.62), P_TIMBER, w * 1.8), line((-0.42, 0.6), (-0.2, 0.72), P_TIMBER, w * 1.6),
+              line((-0.22, 0.71), (-0.22, 0.42), "#3A3631", w * 0.5), rect(-0.25, 0.38, -0.19, 0.42, WOOD, w * 0.5),
+              Circle(radius=0.09, stroke_color=P_TIMBER, stroke_width=w * 1.2).move_to([-0.42, 0.3, 0]))
+    if era == "ancient":                       # a plank boat, upswept at both ends, one square sail
+        g.add(blob([(0.05, 0.2), (0.12, 0.08), (0.75, 0.08), (0.85, 0.24), (0.7, 0.14), (0.2, 0.14)], WOOD, w),
+              line((0.45, 0.14), (0.45, 0.62), P_TIMBER, w * 1.4), line((0.3, 0.6), (0.6, 0.6), P_TIMBER, w),
+              poly([(0.31, 0.59), (0.59, 0.59), (0.57, 0.3), (0.33, 0.3)], "#EFE3C8", w * 0.8),
+              *(line((x, 0.59), (x, 0.3), tint("#EFE3C8", -0.15), w * 0.4) for x in (0.4, 0.5)))
+        return g, None
+    hull = blob([(0.0, 0.24), (0.08, 0.06), (0.8, 0.06), (0.92, 0.26), (0.75, 0.2), (0.15, 0.2)], WOOD, w)
+    g.add(hull, *(line((0.12 + k * 0.1, 0.13), (0.15 + k * 0.1, 0.13), "#3A2A1E", w * 1.2) for k in range(6)))
+    masts = (0.46,) if era == "medieval" else (0.28, 0.48, 0.68)
+    for x in masts:
+        top = 0.78 if x == 0.48 or len(masts) == 1 else 0.68
+        g.add(line((x, 0.2), (x, top), P_TIMBER, w * 1.4))
+        for y0, y1, k in ((top - 0.04, top - 0.2, 0.11), (top - 0.24, 0.32, 0.14)) if len(masts) > 1 else ((top - 0.04, 0.3, 0.16),):
+            g.add(blob([(x - k, y0), (x + k, y0), (x + k * 1.1, (y0 + y1) / 2), (x + k, y1), (x - k, y1), (x - k * 1.1, (y0 + y1) / 2)], "#EFE3C8", w * 0.8))
+        g.add(poly([(x, top), (x + 0.07, top - 0.02), (x, top - 0.04)], RED, w * 0.4))
+    return g, None
+
+
+def old_house(m, w, era):
+    if era == "ancient":
+        return VGroup(shadow_under(-0.45, 0.45, 0.0, w), mud_block(0.0, 0.76, 0.55, col(m["color"]) if m.get("color") else "#CDA77D", w),
+                      line((0.3, 0.0), (0.42, 0.6), P_TIMBER, w * 0.9), line((0.36, 0.0), (0.48, 0.6), P_TIMBER, w * 0.9),
+                      *(line((0.31 + k * 0.024, 0.06 + k * 0.12), (0.37 + k * 0.024, 0.06 + k * 0.12), P_TIMBER, w * 0.8) for k in range(5))), None
+    if era == "medieval":
+        return VGroup(shadow_under(-0.45, 0.45, 0.0, w), timber_house(0.0, 0.7, 0.55, col(m["color"]) if m.get("color") else P_PLASTER, w, P_THATCH, 2.2, 0.45)), None
+    g, lid = _house({"color": m.get("color") or "#D9B48F"}, w)
+    return g, lid
+
+
+def old_road(m, w, era):
+    """A road before tarmac: a beaten earth track with wheel ruts and stones."""
+    g = VGroup(poly([(-1.0, 0.0), (1.0, 0.0), (0.22, 0.6), (-0.22, 0.6)], "#B99A6A", w),
+               poly([(-1.0, 0.0), (-0.22, 0.6), (-0.3, 0.6), (-1.1, 0.0)], GRASS, 0), poly([(1.0, 0.0), (0.22, 0.6), (0.3, 0.6), (1.1, 0.0)], GRASS, 0))
+    for sgn in (-1, 1):
+        g.add(stroke([(sgn * 0.42, 0.0), (sgn * 0.08, 0.6)], "#9A7B4E", w * 1.6))
+    g.add(*(circ(x, y, 0.018, "#8A8478", w * 0.4) for x, y in ((0.2, 0.08), (-0.3, 0.2), (0.12, 0.33), (-0.1, 0.45), (0.35, 0.14))))
+    return g, None
+
+
+def old_shop(m, w, era):
+    """A shop of its age: an open-fronted booth, its awning cloth, wares on the counter, shutters let down."""
+    c = col(m["color"]) if m.get("color") else ("#C9A27A" if era == "ancient" else P_PLASTER)
+    g = VGroup(shadow_under(-0.5, 0.5, 0.0, w), rect(-0.45, 0.0, 0.45, 0.7, c, w))
+    if era == "ancient":
+        g.add(rect(-0.48, 0.7, 0.48, 0.74, tint(c, -0.12), w * 0.7))
+    else:
+        g.add(poly([(-0.52, 0.7), (0.0, 0.95), (0.52, 0.7)], P_TILE if era == "early" else P_THATCH, w),
+              line((-0.45, 0.0), (-0.45, 0.7), P_TIMBER, w * 1.2), line((0.45, 0.0), (0.45, 0.7), P_TIMBER, w * 1.2))
+    g.add(rect(-0.36, 0.22, 0.36, 0.56, "#4A3626", w * 0.8),
+          poly([(-0.42, 0.6), (0.42, 0.6), (0.48, 0.48), (-0.48, 0.48)], "#B83227" if era != "ancient" else "#D9C29A", w),
+          *(line((x, 0.6), (x + 0.012, 0.48), "#F3EEE4", w * 1.4) for x in np.arange(-0.34, 0.4, 0.12)),
+          rect(-0.4, 0.18, 0.4, 0.24, P_TIMBER, w),
+          *(circ(x, 0.27, 0.03, cc, w * 0.4) for x, cc in ((-0.25, "#D9822B"), (-0.18, "#C0392B"), (-0.11, "#E9C46A"), (0.12, "#7AA05A"), (0.19, "#D9822B"))),
+          ell(0.0, 0.29, 0.12, 0.08, "#A0703C", w * 0.5),
+          rect(-0.38, 0.0, -0.32, 0.18, P_TIMBER, w * 0.6), rect(0.32, 0.0, 0.38, 0.18, P_TIMBER, w * 0.6))
+    if m.get("label"):
+        g.add(rect(-0.24, 0.62, 0.24, 0.69, "#F3EEE4", w * 0.5), letters(str(m["label"]), 0.0, 0.655, 0.04, "#3A3631"))
+    return g, None
+
+
+def old_hall(m, w, era):
+    """A school, hospital or hall of its age: a mud-brick courtyard house (ancient), a stone house of a monastery
+    with arched windows and a bell (medieval), a plastered two-storey house with a pediment (early)."""
+    if era == "ancient":
+        g = VGroup(shadow_under(-0.6, 0.6, 0.0, w), mud_block(-0.3, 0.5, 0.5, "#CDA77D", w), mud_block(0.3, 0.6, 0.42, "#D2AE84", w, door=False),
+                   rrect(0.18, 0.0, 0.42, 0.24, 0.1, "#4A3626", w * 0.6))
+        return g, None
+    if era == "medieval":
+        g = VGroup(shadow_under(-0.55, 0.55, 0.0, w), rect(-0.5, 0.0, 0.5, 0.55, P_STONE, w),
+                   poly([(-0.55, 0.55), (0.0, 0.82), (0.55, 0.55)], "#7C7468", w),
+                   rect(-0.06, 0.82, 0.06, 0.95, P_STONE, w), poly([(-0.08, 0.95), (0.0, 1.02), (0.08, 0.95)], "#7C7468", w),
+                   circ(0.0, 0.87, 0.025, GOLD, w * 0.4),
+                   blob([(-0.08, 0.0), (-0.08, 0.2), *zoo.P._arc(0.0, 0.2, 0.08, 180, 0, 8), (0.08, 0.0)], P_TIMBER, w))
+        for x in (-0.33, -0.2, 0.2, 0.33):
+            g.add(blob([(x - 0.035, 0.28), (x - 0.035, 0.4), *zoo.P._arc(x, 0.4, 0.035, 180, 0, 6), (x + 0.035, 0.28)], "#5A6E80", w * 0.5))
+        g.add(*(line((-0.5, y), (0.5, y), tint(P_STONE, -0.15), w * 0.3) for y in (0.14, 0.48)))
+        return g, None
+    g = VGroup(shadow_under(-0.55, 0.55, 0.0, w), rect(-0.5, 0.0, 0.5, 0.62, P_PLASTER, w),
+               poly([(-0.55, 0.62), (0.0, 0.8), (0.55, 0.62)], "#B9654A", w), poly([(-0.16, 0.62), (0.0, 0.7), (0.16, 0.62)], P_PLASTER, w * 0.6),
+               rrect(-0.07, 0.0, 0.07, 0.22, 0.03, P_TIMBER, w))
+    for x in (-0.36, -0.2, 0.2, 0.36):
+        for y in (0.12, 0.38):
+            g.add(rect(x - 0.04, y, x + 0.04, y + 0.12, "#9FC5DA", w * 0.5), line((x, y), (x, y + 0.12), zoo.INK, w * 0.3))
+    return g, None
+
+
+def old_store(m, w, era):
+    """A storehouse of its age: beehive granaries of mud (ancient), a timber barn of a store (medieval, early)."""
+    if era == "ancient":
+        g = VGroup(shadow_under(-0.7, 0.7, 0.0, w))
+        for x, s in ((-0.4, 1.0), (0.05, 1.15), (0.5, 0.95)):
+            g.add(blob([(x - 0.2 * s, 0.0), (x - 0.21 * s, 0.25 * s), (x - 0.12 * s, 0.45 * s), (x, 0.5 * s), (x + 0.12 * s, 0.45 * s), (x + 0.21 * s, 0.25 * s),
+                        (x + 0.2 * s, 0.0)], "#CDA77D", w),
+                  rrect(x - 0.04, 0.3 * s, x + 0.04, 0.38 * s, 0.02, "#4A3626", w * 0.5))
+        return g, None
+    g = VGroup(shadow_under(-0.7, 0.7, 0.0, w), rect(-0.65, 0.0, 0.65, 0.5, "#9A6B43", w), poly([(-0.72, 0.5), (0.0, 0.85), (0.72, 0.5)], P_THATCH if era == "medieval" else P_TILE, w))
+    g.add(*(line((x, 0.0), (x, 0.5), tint("#9A6B43", -0.25), w * 0.4) for x in np.arange(-0.55, 0.6, 0.1)),
+          rect(-0.18, 0.0, 0.18, 0.36, P_TIMBER, w), line((-0.18, 0.0), (0.18, 0.36), "#3A2A1E", w * 0.6), line((-0.18, 0.36), (0.18, 0.0), "#3A2A1E", w * 0.6),
+          rect(-0.08, 0.6, 0.08, 0.7, "#3A2A1E", w * 0.5))
+    return g, None
+
+
+def old_mill(m, w, era):
+    """A mill before steam: a stone watermill, its wheel turning in the race."""
+    g = VGroup(shadow_under(-0.7, 0.7, 0.0, w), rect(-0.5, 0.0, 0.25, 0.55, P_STONE, w), poly([(-0.56, 0.55), (-0.12, 0.85), (0.31, 0.55)], P_THATCH if era != "early" else P_TILE, w),
+               rrect(-0.3, 0.0, -0.16, 0.24, 0.05, P_TIMBER, w), rect(0.02, 0.3, 0.12, 0.4, "#3A2A1E", w * 0.5),
+               rect(0.2, 0.0, 0.85, 0.06, WATER, 0))
+    wheel, _ = _waterwheel({}, w)
+    wheel.scale(0.5, about_point=np.array([0, 0, 0])).shift([0.45, 0.0, 0])
+    g.add(wheel)
+    return g, None
+
+
+# What the past drew in place of what it did not have.
+PERIOD_DRAW = {"skyline": old_city, "skyscraper": old_house, "village": old_village, "port": old_port, "house": old_house,
+               "apartment": old_house, "hotel": old_house, "road": old_road, "shop": old_shop, "school": old_hall,
+               "hospital": old_hall, "warehouse": old_store, "factory": old_mill, "powerplant": old_mill}
+_MOTOR = ("car", "bus", "truck", "jeep", "ambulance", "policecar", "firetruck", "tractor", "autorickshaw", "motorcycle",
+          "scooter", "tram", "metro", "train", "bulldozer")
+PERIOD_SUB = {
+    "ancient": {**{k: "cart" for k in _MOTOR}, "laptop": "claytablet", "computer": "claytablet", "tablet": "claytablet",
+                "phone": "claytablet", "oldphone": "claytablet", "newspaper": "scroll", "book": "scroll", "books": "scroll",
+                "streetlight": "torch", "lightbulb": "oillamp", "lantern": "oillamp", "billboard": "stele", "clock": "sundial",
+                "station": "well", "trafficlight": "torch", "busstop": "well"},
+    "medieval": {**{k: "cart" for k in _MOTOR}, "laptop": "book", "computer": "book", "tablet": "book", "phone": "letter",
+                 "oldphone": "letter", "newspaper": "scroll", "streetlight": "lantern", "lightbulb": "candle",
+                 "billboard": "banner", "station": "well", "trafficlight": "lantern", "busstop": "well"},
+    "early": {**{k: "carriage" for k in ("car", "bus", "jeep", "ambulance", "policecar", "tram", "metro", "taxi", "autorickshaw")},
+              **{k: "cart" for k in ("truck", "tractor", "bulldozer", "firetruck")}, "motorcycle": "bicycle", "scooter": "bicycle",
+              "laptop": "book", "computer": "book", "tablet": "letter", "phone": "letter", "streetlight": "lantern",
+              "lightbulb": "candle", "billboard": "banner", "busstop": "milestone", "trafficlight": "lantern"},
+}
+
+
+def period_thing(name: str, mods: dict, w):
+    """(drawing, lid, the name it is drawn as) for a thing in a shot set in the past, or None (drawn as it is)."""
+    era = period_of(mods)
+    if not era:
+        return None
+    if name in PERIOD_DRAW:
+        g, lid = PERIOD_DRAW[name](dict(mods), w, era)
+        return g, lid, name
+    sub = PERIOD_SUB[era].get(name)
+    if sub and sub in SHELF:
+        g, lid = SHELF[sub](dict(mods), w)
+        return g, lid, sub
+    return None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 import shelf as _index  # noqa: E402
@@ -6994,7 +7279,11 @@ class Prop(VGroup):
         k = size / 1.8
         w = 2.0 * k
         self.name = known(name) or "crate"
-        g, lid = SHELF[self.name](dict(mods), w)
+        past = period_thing(self.name, mods, w)
+        if past:
+            g, lid, self.name = past
+        else:
+            g, lid = SHELF[self.name](dict(mods), w)
         finish(g)
         self.add(g)
         self.lid = None

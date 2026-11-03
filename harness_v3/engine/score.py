@@ -94,7 +94,7 @@ MODS = {"at": "xy", "size": "n", "color": "s", "fill": "s", "line": "s", "w": "n
         "rot": "n", "layer": "n", "badge": "s", "x": "i", "row": None, "col": None, "grid": "i", "ring": "n",
         "bold": None, "italic": None, "serif": None, "solid": None, "dashed": None, "curve": "n", "max": "n",
         "prefix": "s", "suffix": "s", "opacity": "n", "hidden": None, "shadow": None, "flat": None, "cluster": None,
-        "to": "s", "done": "i", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "shrink": "n", "period": "s", "flag": "s", "img": "s", "sub": "s",
+        "to": "s", "done": "i", "label": "s", "width": "n", "zoom": "n", "on": "s", "nudge": "xy", "period": "s", "flag": "s", "img": "s", "sub": "s",
         "map": "s", "year": "i", "names": None, "rivers": None, "outline": None, "side": "s", "who": "s",
         "seal": None, "down": None, "shape": "s", "inverted": None, "numbered": None, "compass": None, "scale": None,
         "n": "i", "below": "s", "above": "s", "left": "s", "right": "s", "step": "n", "sides": None, "angles": None,
@@ -341,8 +341,6 @@ def _mend_action(toks: list[str], names=frozenset()) -> list[list[str]] | None:
     if not (verb in ("enter", "exit") and len(args) >= 2 and args[1] in names):     # `enter P HOUSE`: a person's
         verb = VERB_ALIAS.get(verb, verb)
     person_use = verb in ("write", "drop") and len(args) >= 2 and args[0] in names and args[1] in names
-    if verb == "draw" and args and not (len(args) >= 2 and args[1] in names):
-        verb, args = "in", [args[0], "draw"] + args[1:]    # `draw X` is `in X draw` (a pen draws it on)
     if verb in IN_WAYS - {"fade", "draw", "grow"} and args and not person_use:
         verb, args = "in", [args[0], verb] + args[1:]      # `pop X` is `in X pop`
     if verb in ("in", "out") and len(args) >= 2 and args[0] in (IN_WAYS | OUT_WAYS) \
@@ -496,15 +494,7 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             # (a prop's or an animal's kind, `prop crown`, is a word, never a renamed thing called crown)
             keep = 4 if toks[2] in ("prop", "animal") else 3
             toks = toks[:keep] + [_renamed(t, alias) for t in toks[keep:]]
-            rest = list(toks[3:])
-            if "at" in rest and rest.index("at") + 1 < len(rest):
-                ref = rest[rest.index("at") + 1]
-                if not re.match(r"^-?[\d.]+,-?[\d.]+$", ref):
-                    for i in range(len(rest) - 1, -1, -1):
-                        # `at X below gap 0.4` (below what is not said): below X
-                        if rest[i] in ("below", "above", "left", "right") and (i + 1 == len(rest) or rest[i + 1] in MODS):
-                            rest.insert(i + 1, ref)
-            args, mods = parse_mods(rest)
+            args, mods = parse_mods(toks[3:])
             if cast is not None:
                 args, mods = list(cast[1]) + args, {**cast[2], **mods}
             nd = mods.get("nudge")
@@ -513,9 +503,6 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
                 sc.notes.append(f"line {n}: `nudge {nd[0]:g},{nd[1]:g}` would put {toks[1]} off the screen: no nudge "
                                 f"(a nudge is a small shift, in the shot's own coordinates)")
                 mods.pop("nudge")
-            for k in ("below", "above", "left", "right"):
-                if isinstance(mods.get(k), str) and mods.get(k) == mods.get("at"):
-                    mods.pop("at")                  # `at X below X`: below X
             for k in ("below", "above", "left", "right"):
                 # `at X below 0.8`: below X, 0.8 apart
                 if isinstance(mods.get(k), str) and re.match(r"^-?[\d.]+$", mods[k]) and isinstance(mods.get("at"), str):

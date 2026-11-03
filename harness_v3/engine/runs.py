@@ -1105,15 +1105,39 @@ def _shot_blocks(text: str) -> dict[str, tuple[int, int]]:
     return out
 
 
-def _layout(run: dict) -> None:
-    """The layout check (layout.py): the score's things built with their real sizes, and what covers what, runs off
-    the screen or is empty said by shot. A shot with problems goes back to the score's model once with them and the
-    real sizes (V3_LAYOUT_FIX rounds, default 2; 0: only checked), and is checked again. A score given by hand is
-    only checked: what to change is said here."""
+def _arrange(run: dict) -> list[str]:
+    """The layout solver (arrange.py), no model asked: each thing that covers another while both are up, or hangs off
+    its screen, moved to the nearest free place (a little smaller only when nowhere is free; what is in the way
+    taken out as it comes in when there is no room for both), the new places written into the score
+    (V3_ARRANGE=0: off). The score as written is kept as video.before-layout.score."""
     d = run_dir(run["id"])
+    if os.environ.get("V3_ARRANGE", "1").strip() == "0":
+        return ["layout solver off (V3_ARRANGE=0)"]
+    if run["settings"].get("given_score"):
+        return ["the score was given by hand: not rearranged"]
+    text = (d / "video.score").read_text()
+    if not (d / "video.before-layout.score").exists():
+        (d / "video.before-layout.score").write_text(text)
+    p = _proc(run["id"], [sys.executable, str(HERE / "arrange.py"), str(d / "video.score"), str(d)])
+    if p.returncode != 0:
+        (d / "video.score").write_text(text)
+        return ["layout solver failed (the score is as written): " + _tail(p)[-300:]]
+    line = next((l for l in p.stdout.splitlines() if l.startswith("arrange: ")), None)
+    rep = json.loads(line[9:]) if line else {"moved": 0, "actions": 0, "notes": []}
+    return [f"layout solver: {rep['moved']} thing(s) moved, {rep.get('actions', 0)} move(s) re-aimed"] + rep["notes"][:40]
+
+
+def _layout(run: dict) -> None:
+    """The layout step: the solver (arrange.py) puts things apart with no model asked, then the check (layout.py)
+    says what is left, by shot. A shot with problems still left goes back to the score's model only if
+    V3_LAYOUT_FIX asks for rounds of that (default 0: none; the renderer's own mend nudges what is left apart). A
+    score given by hand is only checked: what to change is said here."""
+    d = run_dir(run["id"])
+    solved = _arrange(run)
     rep = _check_layout(run)
-    notes = [f"{rep['count']} layout problem(s) in {len(rep['problems'])} shot(s)" if rep["count"] else "no layout problems"]
-    rounds = int(os.environ.get("V3_LAYOUT_FIX", "2"))
+    notes = solved + [f"{rep['count']} layout problem(s) left in {len(rep['problems'])} shot(s)" if rep["count"]
+                      else "no layout problems"]
+    rounds = int(os.environ.get("V3_LAYOUT_FIX", "0"))
     can = bool(os.environ.get("OPENROUTER_API_KEY")) and not run["settings"].get("given_score")
     if rep["count"] and (not can or rounds <= 0):
         notes += [f"{shot}: {p}" for shot, ps in rep["problems"].items() for p in ps][:30]
@@ -1125,7 +1149,7 @@ def _layout(run: dict) -> None:
         if not rep["count"]:
             break
         text = (d / "video.score").read_text()
-        if rnd == 0:
+        if rnd == 0 and not (d / "video.before-layout.score").exists():
             (d / "video.before-layout.score").write_text(text)
         blocks = _shot_blocks(text)
         lines = text.splitlines()

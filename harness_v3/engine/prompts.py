@@ -101,8 +101,13 @@ RULES
 - Start every shot with `cam SHOT` on its first word: the camera only goes where a `cam` line sends it.
 - A name is one thing for the whole video: a thing from the shot before is used by its name (no new `ent` line for
   it); a new thing gets a new name.
-- Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
-  to put one on another on purpose (a label on its card, a pin on its map).
+- Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4). What each thing takes up: a pic or photo
+  about 3 x 3, a person 0.8 wide x 2.6 tall (standing on its at), a prop its size, a card or tag about 3 x 1, a
+  chart, cycle, compare or list 5-7 wide, a full map the whole screen. Use the slots: x -4.5 | 0 | 4.5 and
+  y 2.2 | 0 | -2.2; two things up at the same time never share a slot (centres at least 3.2 apart side by side, 2.6
+  above and below). At most 4 big things up at once: take one `out` before the next comes into its slot. On a full
+  map, put things at its places (MAP.place), not beside it. Overlap only to put one on another on purpose (a label
+  on its card, a pin on its map). (A solver moves what still collides, but a clean first layout keeps your intent.)
 - Show real things: a pic, a photo, a flag or a card. No icons. One big picture per idea; few small pics.
 - A thing on a map is at a place on it (MAP.place); a place beyond the map's region is drawn at its edge: choose
   a region that holds every place you name.

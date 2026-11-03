@@ -661,6 +661,8 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         if (e.kind not in ("land", "waves", "path", "arrow", "islands", "map", "backdrop", "weather", "march") and not on_map
                 and (m.width > 12 or m.height > 7)):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
+        if e.mods.get("shrink") and 0.2 <= float(e.mods["shrink"]) < 1.0 and not on_map:
+            m.scale(float(e.mods["shrink"]))              # made smaller by the layout solver to find it room
         if e.mods.get("on") and len(m.submobjects) > 1 and not on_map:
             # Its copies (or dots) spread along a path, evenly.
             track = self._track(self.E[e.mods["on"]])

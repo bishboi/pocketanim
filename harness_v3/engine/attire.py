@@ -11,6 +11,8 @@ shield or a book in the other hand; glasses or an eye patch on the face. Anythin
 from __future__ import annotations
 
 
+import math
+
 import numpy as np
 from manim import Circle, Dot, Ellipse, Line, VGroup
 
@@ -84,13 +86,60 @@ ROLES = {
     "pandit": dict(wear="vest", color="#F3EEE4", hair="bald", tool="scroll", skin="tan",
                    decor=dict(dhoti=True, shawl="#E07B39", tilak=True)),
     "freedom": dict(wear="vest", color="#F3EEE4", hat="topi", skin="tan", tool="flag", decor=dict(shawl="#F3EEE4")),
+    # Communities and everyday working lives. Each is dressed as people dress for their day or their work, plainly and
+    # with care: no costume, no feathers, nothing to laugh at; the face is the same doodle face as everyone's. A skin
+    # tone, hair, colours and what is held can be changed on the line (`as adivasi skin dark tool basket`).
+    "adivasi": dict(wear="vest", color="#F3EEE4", skin="brown", hair="short-black", tool="basket",
+                    decor=dict(dhoti=True, gamcha_shoulder="#B83227", beads_multi=True)),
+    "adivasi_woman": dict(wear="dress", color="#F3EEE4", skin="brown", hair="bun-black", hat="flower-gold",
+                          decor=dict(sari="#F3EEE4", border="#2E7D4E", beads_multi=True)),
+    "farmwoman": dict(wear="dress", color="#C2552B", skin="brown", hair="bun-black", hat="pallu", tool="sickle",
+                      decor=dict(sari="#C2552B", border="#F2C14E")),
+    "fisher": dict(hair="short-black", wear="vest", color="#F3EEE4", skin="brown", hat="gamcha-red", tool="basket",
+                   decor=dict(lungi="#2E6E9E")),
+    "fisherwoman": dict(wear="dress", color="#2E7D74", skin="brown", hair="bun-black", hat="flower-white", tool="basket",
+                        decor=dict(sari="#2E7D74", border="#E07B39")),
+    "teaworker": dict(hair="bun-black", wear="dress", color="#D46A9A", skin="brown", hat="headscarf",
+                      decor=dict(sari="#D46A9A", border="#F2C14E", basket_back=True)),
+    "weaver": dict(wear="vest", color="#F3EEE4", skin="tan", hair="short-black", tool="basket",
+                   decor=dict(dhoti=True, shawl="#2E6E9E")),
+    "potter": dict(wear="apron", color="#A8714A", skin="brown", hair="short-black", decor=dict(lungi="#8C6E52")),
+    "shepherd": dict(wear="robe", color="#8C6E52", hat="pagdi", tool="staff", skin="tan", mustache=True,
+                     decor=dict(shawl="#E8E0CC")),
+    "herder": dict(wear="robe", color="#F3EEE4", hat="pagdi", tool="staff", skin="brown", mustache=True,
+                   decor=dict(sash="#B83227")),
+    "sikh": dict(wear="robe", color="#F3EEE4", hat="dastar-navy", beard=True, skin="tan", hair="short-black"),
+    "imam": dict(hair="short-black", wear="robe", color="#F7F5F0", hat="kufi", beard=True, tool="book", skin="tan"),
+    "bhikkhu": dict(wear="robe", color="#C9662B", hair="bald", tool="bowl", skin="tan", decor=dict(sash="#9E3A1E")),
+    "rabbi": dict(hair="short-black", wear="suit", color="#22201E", hat="kippah", beard=True, tool="book"),
+    "ricefarmer": dict(hair="short-black", wear="shirt", color="#3E5C82", hat="conical", tool="sickle", skin="light"),
+    "bedouin": dict(hair="short-black", wear="robe", color="#F3EEE4", hat="keffiyeh", tool="staff", beard=True, skin="olive"),
+    "marketwoman": dict(wear="dress", color="#E0A23B", hat="gele-coral", skin="dark", tool="basket",
+                        decor=dict(wrapper="#2E6E9E")),
+    "elder": dict(wear="robe", color="#6E5A8E", tool="cane", old=True, skin="dark", hair="coily-grey",
+                  decor=dict(stole="#F2C14E/#2E7D4E/#B83227/#22201E")),
+    "mandarin": dict(hair="short-black", wear="robe", color="#2F3B8C", hat="mandarin", beard=True, tool="scroll", skin="light"),
+    "scribe": dict(wear="robe", color="#F3EEE4", hair="bald", tool="tablet", skin="tan"),
+    "forager": dict(wear="tunic", color="#A8784E", hair="long-black", tool="spear", skin="tan", decor=dict(beads="#8C6E52")),
+    "nurse": dict(wear="lab", color="#7FB5B0", tool="briefcase", decor=dict(stethoscope=True)),
+    "pilot": dict(wear="uniform", color="#2F3B4C", hat="cap", decor=dict(belt="#22201E")),
+    "astronaut": dict(wear="overalls", color="#F7F5F0", hat="helmet", decor=dict(belt="#E07B39")),
+    "firefighter": dict(wear="coat", color="#B83227", hat="hardhat", tool="hammer", decor=dict(stripes="#F2C14E")),
 }
 ROLE_NAMES = tuple(ROLES)
 ALIASES = {"noble": "lord", "nobleman": "lord", "noblewoman": "lady", "duke": "lord", "baron": "lord",
            "emperor": "king", "empress": "queen", "raja": "maharaja", "maharani": "rani", "farmer": "kisan",
            "serf": "peasant", "villager_woman": "villager", "legionary": "roman", "cardinal": "bishop",
            "friar": "monk", "teacher_woman": "teacher", "british": "officer", "soldier_british": "redcoat",
-           "trader": "merchant", "guru": "sadhu", "brahmin": "pandit", "satyagrahi": "freedom", "constable": "police"}
+           "trader": "merchant", "guru": "sadhu", "brahmin": "pandit", "satyagrahi": "freedom", "constable": "police",
+           "tribal": "adivasi", "santhal": "adivasi", "gond": "adivasi", "bhil": "adivasi", "munda": "adivasi",
+           "oraon": "adivasi", "adivasi_man": "adivasi", "tribal_woman": "adivasi_woman", "santhali": "adivasi_woman",
+           "farmer_woman": "farmwoman", "kisan_woman": "farmwoman", "fisherman": "fisher", "koli": "fisher",
+           "tea_picker": "teaworker", "teapicker": "teaworker", "artisan": "weaver", "shepherdess": "shepherd",
+           "rabari": "herder", "camel_herder": "herder", "sardar": "sikh", "maulvi": "imam", "buddhist_monk": "bhikkhu",
+           "lama": "bhikkhu", "rice_farmer": "ricefarmer", "nomad": "bedouin", "market_woman": "marketwoman",
+           "chief": "elder", "grandparent": "elder", "official": "mandarin", "hunter_gatherer": "forager",
+           "hunter": "forager", "gatherer": "forager", "sumerian": "scribe", "clerk": "scribe", "fireman": "firefighter"}
 
 
 def role(mods: dict) -> dict:
@@ -262,6 +311,83 @@ def hat(kind: str, ink, ow, R, cloth):
                         "#2E7D74", ink, ow),
                   _stroke(_arc(0, R * 0.05, R * 1.16, 30, 200, 16), "#F2C14E", ow * 1.4))
         return back, front
+    c_ = cloth or "#2F3B8C"
+    if kind == "dastar":                        # a Sikh turban: neat folds rising to a peak at the front
+        front.add(_blob([(-R * 1.12, R * 0.12), (-R * 1.18, R * 0.85), (-R * 0.55, R * 1.45), (R * 0.35, R * 1.62),
+                         (R * 1.05, R * 1.1), (R * 1.12, R * 0.3), (R * 0.2, R * 0.5), (-R * 0.4, R * 0.42)], c_, ink, ow),
+                  *(_stroke([(-R * 1.05, R * (0.45 + i * 0.28)), (R * 0.1, R * (0.75 + i * 0.25)), (R * 1.05, R * (0.5 + i * 0.22))],
+                            _shade(c_, 0.78), ow * 0.9) for i in range(3)))
+        return back, front
+    if kind == "patka":                         # a boy's head covering, knotted on top
+        front.add(_blob(_arc(0, R * 0.2, R * 1.1, 0, 180, 16), c_, ink, ow),
+                  Circle(radius=R * 0.3, fill_color=c_, fill_opacity=1, stroke_color=ink, stroke_width=ow).move_to([0, R * 1.25, 0]))
+        return back, front
+    if kind == "kufi":                          # a rounded cap (white unless coloured)
+        c = cloth if cloth else white
+        front.add(_blob(_arc(0, R * 0.55, R * 0.92, 0, 180, 16), c, ink, ow),
+                  *(Dot([R * x, R * 0.95, 0], radius=0.006, color=_shade(c, 0.75)) for x in (-0.5, -0.2, 0.1, 0.4)))
+        return back, front
+    if kind == "kippah":                        # a small round cap at the crown
+        front.add(_blob(_arc(-R * 0.15, R * 0.88, R * 0.45, 0, 180, 12), cloth or "#2F3B4C", ink, ow * 0.8))
+        return back, front
+    if kind == "hijab":                         # a headscarf wrapped round the face, falling over the shoulders
+        c = cloth or "#2E7D74"
+        back.add(_blob([(R * 0.3, R * 1.25), (-R * 0.8, R * 1.25), (-R * 1.45, R * 0.3), (-R * 1.5, -R * 1.5),
+                        (R * 0.1, -R * 1.55), (R * 0.95, -R * 0.9), (R * 1.25, R * 0.25)], c, ink, ow))
+        # in front: a band framing the face (over the brow, down both sides, under the chin), the face left clear
+        outer = _arc(0, 0, R * 1.22, -60, 240, 26)
+        inner = _arc(R * 0.08, -R * 0.02, R * 0.93, 240, -60, 26)
+        front.add(_blob(outer + inner, c, ink, ow))
+        return back, front
+    if kind == "gele":                          # a tall wrapped head-tie, its folds fanning up
+        c = cloth or "#C2552B"
+        front.add(_blob([(-R * 1.15, R * 0.3), (-R * 1.45, R * 1.2), (-R * 0.8, R * 2.0), (R * 0.2, R * 1.75), (R * 1.0, R * 2.0),
+                         (R * 1.45, R * 1.15), (R * 1.15, R * 0.3), (0.0, R * 0.55)], c, ink, ow),
+                  *(_stroke(p, _shade(c, 0.75), ow) for p in ([(-R * 1.1, R * 0.7), (-R * 0.6, R * 1.6)],
+                                                              [(0.0, R * 0.7), (-R * 0.2, R * 1.7)],
+                                                              [(R * 1.05, R * 0.7), (R * 0.7, R * 1.75)])))
+        return back, front
+    if kind == "keffiyeh":                      # a chequered head cloth held by a black cord (agal)
+        c = cloth or "#F7F5F0"
+        back.add(_blob([(R * 0.3, R * 1.2), (-R * 0.9, R * 1.2), (-R * 1.5, R * 0.2), (-R * 1.55, -R * 1.6), (-R * 0.3, -R * 1.5),
+                        (R * 0.4, -R * 0.4)], c, ink, ow))
+        front.add(_blob(_arc(0, R * 0.05, R * 1.18, 25, 195, 16) + [(-R * 0.9, R * 0.2), (R * 0.4, R * 0.6)], c, ink, ow),
+                  *(Dot([R * x, R * y, 0], radius=0.007, color=red) for x in (-0.7, -0.3, 0.1, 0.5) for y in (0.75, 1.0)),
+                  _stroke(_arc(0, R * 0.05, R * 1.02, 30, 175, 12), ink, ow * 2.6))
+        return back, front
+    if kind == "conical":                       # a wide conical hat of woven leaves (a rice farmer's)
+        front.add(_poly([(-R * 2.0, R * 0.55), (R * 2.0, R * 0.55), (0.0, R * 1.75)], "#E2C27A", ink, ow),
+                  *(_stroke([(0.0, R * 1.75), (R * x, R * 0.58)], "#C9A44E", ow * 0.6) for x in (-1.2, -0.5, 0.2, 0.9, 1.5)))
+        return back, front
+    if kind == "gamcha":                        # a chequered cotton cloth tied round the head
+        c = cloth or "#B83227"
+        front.add(_blob([(-R * 1.1, R * 0.35), (-R * 1.05, R * 0.95), (0.0, R * 1.2), (R * 1.05, R * 0.95), (R * 1.1, R * 0.4),
+                         (0.0, R * 0.6)], c, ink, ow),
+                  *(_stroke([(R * x, R * 0.55), (R * x, R * 1.1)], white, ow * 0.6) for x in (-0.6, 0.0, 0.6)),
+                  _stroke([(-R * 1.08, R * 0.75), (R * 1.08, R * 0.8)], white, ow * 0.6))
+        back.add(_blob([(-R * 0.95, R * 0.6), (-R * 1.45, R * 0.3), (-R * 1.35, R * 0.05), (-R * 0.9, R * 0.35)], c, ink, ow))
+        return back, front
+    if kind == "beanie":
+        front.add(_blob(_arc(0, R * 0.35, R * 1.1, 0, 180, 16), cloth or "#3E5C82", ink, ow),
+                  _poly([(-R * 1.12, R * 0.3), (R * 1.12, R * 0.3), (R * 1.12, R * 0.6), (-R * 1.12, R * 0.6)],
+                        _shade(cloth or "#3E5C82", 0.8), ink, ow * 0.7))
+        return back, front
+    if kind == "flatcap":
+        front.add(_blob([(-R * 1.05, R * 0.6), (-R * 0.8, R * 1.05), (R * 0.4, R * 1.1), (R * 1.35, R * 0.75), (R * 1.1, R * 0.55)],
+                        cloth or "#6E6458", ink, ow))
+        return back, front
+    if kind == "mandarin":                      # a scholar-official's black cap, its knob on top
+        front.add(_blob(_arc(0, R * 0.6, R * 0.95, 0, 180, 16), "#2B2826", ink, ow),
+                  Ellipse(width=R * 2.3, height=R * 0.3, fill_color="#2B2826", fill_opacity=1, stroke_width=0).move_to([0, R * 0.62, 0]),
+                  Circle(radius=R * 0.15, fill_color=red, fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.6).move_to([0, R * 1.6, 0]))
+        return back, front
+    if kind == "flower":                        # a flower worn in the hair
+        for a in range(0, 360, 72):
+            front.add(Circle(radius=R * 0.16, fill_color=cloth or "#F2C14E", fill_opacity=1, stroke_color=ink,
+                             stroke_width=ow * 0.4).move_to([-R * 0.75 + R * 0.17 * math.cos(math.radians(a)),
+                                                             R * 0.85 + R * 0.17 * math.sin(math.radians(a)), 0]))
+        front.add(Dot([-R * 0.75, R * 0.85, 0], radius=R * 0.08, color=red))
+        return back, front
     if kind == "topi":                          # a white cotton cap (a satyagrahi's)
         front.add(_poly([(-R * 0.95, R * 0.62), (R * 0.95, R * 0.62), (R * 0.75, R * 1.05), (-R * 0.75, R * 1.05)],
                         "#F7F5F0", ink, ow),
@@ -282,6 +408,12 @@ def tool(kind: str, ink, ow, k):
     from people import _arc
     wood, metal, gold = "#9A6B43", "#B8BEC2", "#F2C14E"
     stick = lambda y0, y1, c=wood, w=4.0: Line([0, y0, 0], [0, y1, 0], stroke_color=c, stroke_width=w * k)  # noqa: E731
+    if kind == "bowl":                          # an alms bowl held in front
+        return VGroup(_blob(_arc(0.03, -0.01, 0.055, 180, 360, 10), "#3A2A1E", ink, ow),
+                      Line([-0.025, -0.01, 0], [0.085, -0.01, 0], stroke_color=ink, stroke_width=ow))
+    if kind == "tablet":                        # a clay tablet held
+        return VGroup(_poly([(-0.01, -0.05), (0.07, -0.05), (0.07, 0.06), (-0.01, 0.06)], "#C9A27A", ink, ow),
+                      *(_stroke([(0.0, y), (0.06, y)], "#8C6A42", ow * 0.6) for y in (-0.03, 0.0, 0.03)))
     if kind == "scepter":
         return VGroup(stick(-0.12, 0.3, gold, 3.6), Circle(radius=0.03, fill_color=gold, fill_opacity=1,
                                                            stroke_color=ink, stroke_width=ow).move_to([0, 0.32, 0]),
@@ -350,8 +482,14 @@ def offhand(kind: str, ink, ow, k):
 # ---------------------------------------------------------------- on the body (the torso's frame) -------------------
 
 def behind(decor: dict, ink, ow, W: float, y0: float, top: float):
-    """What hangs behind the body: a cape."""
+    """What hangs behind the body: a cape; a basket carried on the back (a tea picker's)."""
     g = VGroup()
+    if decor.get("basket_back"):
+        g.add(_blob([(-W * 0.75, top + 0.06), (-W * 0.05, top + 0.06), (-W * 0.15, y0 + (top - y0) * 0.3),
+                     (-W * 0.6, y0 + (top - y0) * 0.3)], "#C9A66B", ink, ow),
+              *(_stroke([(-W * 0.72 + i * 0.02, top + 0.02 - i * 0.06), (-W * 0.08 - i * 0.02, top + 0.02 - i * 0.06)], "#9A6B43", ow * 0.6)
+                for i in range(4)),
+              _blob([(-W * 0.7, top + 0.06), (-W * 0.5, top + 0.12), (-W * 0.3, top + 0.1), (-W * 0.1, top + 0.06)], "#5E8A3E", ink, ow * 0.6))
     if decor.get("cape"):
         c = col(decor["cape"])
         g.add(_blob([(-W * 0.5, top - 0.02), (W * 0.5, top - 0.02), (W * 0.78, y0 + 0.06), (W * 0.6, y0 - 0.02),
@@ -476,6 +614,42 @@ def on_body(decor: dict, ink, ow, W: float, y0: float, top: float):
         g.add(_poly([(-W / 2, yb), (W / 2, yb), (W / 2, y0 + 0.01), (-W / 2, y0 + 0.01)], "#F7F5F0", ink, ow * 0.8),
               line([(0.0, yb), (-0.02, y0 + 0.02)], "#C9C2B2", ow),
               line([(0.05, yb), (0.07, y0 + 0.06)], "#C9C2B2", ow * 0.8))
+    if decor.get("beads_multi"):                # strings of coloured beads
+        for j, (cc, dy) in enumerate((("#B83227", 0.0), ("#F2C14E", 0.03), ("#2E6E9E", 0.06))):
+            for x in np.linspace(-W * 0.3, W * 0.3, 9):
+                yy = top - 0.045 - dy - 0.05 * (1 - (x / (W * 0.3)) ** 2)
+                g.add(Dot([x, yy, 0], radius=0.007, color=cc))
+    if decor.get("gamcha_shoulder"):            # a chequered cloth over one shoulder
+        c = col(decor["gamcha_shoulder"])
+        g.add(_poly([(W * 0.15, top - 0.01), (W * 0.42, top - 0.01), (W * 0.36, y0 + full * 0.45), (W * 0.18, y0 + full * 0.45)],
+                    c, ink, ow * 0.6),
+              *(line([(W * 0.17, top - 0.01 - i * 0.06), (W * 0.41, top - 0.01 - i * 0.06)], white, ow * 0.6) for i in range(1, 5)))
+    if decor.get("stole"):                      # a woven stole in bright bands (kente-like) over both shoulders
+        bands = [col(x) for x in str(decor["stole"]).split("/")] if "/" in str(decor["stole"]) else ["#F2C14E", "#2E7D4E", "#B83227", "#22201E"]
+        for sgn in (-1, 1):
+            x0, x1 = sgn * W * 0.32, sgn * W * 0.14
+            g.add(_poly([(x0, top - 0.01), (x1, top - 0.01), (x1, y0 + 0.04), (x0, y0 + 0.04)], bands[0], ink, ow * 0.6))
+            for i in range(9):
+                yy = top - 0.04 - i * (full - 0.08) / 9
+                g.add(_poly([(x0, yy), (x1, yy), (x1, yy - 0.02), (x0, yy - 0.02)], bands[1 + i % (len(bands) - 1)], ink, 0))
+    if decor.get("lungi"):                      # a chequered cloth wrapped from the waist
+        c = col(decor["lungi"])
+        yb = y0 + full * 0.4
+        g.add(_poly([(-W / 2, yb), (W / 2, yb), (W / 2, y0 + 0.01), (-W / 2, y0 + 0.01)], c, ink, ow * 0.8),
+              *(line([(x, yb), (x, y0 + 0.01)], _shade(c, 0.7), ow * 0.7) for x in (-W * 0.25, 0.0, W * 0.25)),
+              *(line([(-W / 2, yy), (W / 2, yy)], _shade(c, 0.7), ow * 0.7) for yy in (yb - 0.05, yb - 0.1)))
+    if decor.get("wrapper"):                    # a patterned cloth wrapped as a skirt
+        c = col(decor["wrapper"])
+        yb = y0 + full * 0.42
+        g.add(_poly([(-W / 2, yb), (W / 2, yb), (W / 2, y0 + 0.01), (-W / 2, y0 + 0.01)], c, ink, ow * 0.8),
+              *(Circle(radius=0.016, fill_opacity=0, stroke_color=_shade(c, 0.6), stroke_width=ow * 0.7).move_to([x, yy, 0])
+                for x in (-W * 0.3, 0.0, W * 0.3) for yy in (yb - 0.04, yb - 0.1)))
+    if decor.get("dupatta"):                    # a scarf over both shoulders, its ends falling in front
+        c = col(decor["dupatta"])
+        g.add(_blob([(-W * 0.5, top - 0.01), (0.0, top - 0.07), (W * 0.5, top - 0.01), (W * 0.42, top - 0.06), (0.0, top - 0.12),
+                     (-W * 0.42, top - 0.06)], c, ink, ow * 0.6),
+              *(_poly([(sg * W * 0.42, top - 0.04), (sg * W * 0.3, top - 0.04), (sg * W * 0.32, y0 + full * 0.4),
+                       (sg * W * 0.44, y0 + full * 0.4)], c, ink, ow * 0.6) for sg in (-1, 1)))
     if decor.get("quiver"):
         g.add(_poly([(-W * 0.5, top - 0.02), (-W * 0.36, top + 0.02), (-W * 0.18, y0 + full * 0.35),
                      (-W * 0.32, y0 + full * 0.3)], "#6B4A2F", ink, ow * 0.6),

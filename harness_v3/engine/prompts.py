@@ -228,16 +228,25 @@ KIT = {
                king queen lord lady prince princess jester | knight soldier archer roman viking samurai redcoat sepoy
                officer general pirate | bishop pope priest monk nun scholar pharaoh | peasant merchant blacksmith
                sailor explorer doctor scientist judge police teacher student worker chef | maharaja rani mughal kisan
-               villager sadhu pandit freedom (a satyagrahi in a topi). (also: emperor, noble, duke, farmer, serf,
-               raja, maharani, legionary, cardinal, friar, trader, guru, brahmin, constable.) Use a role whenever the
-               person is one: it brings the right clothes, hat, things held, cape, emblem, beads, sari.
+               villager sadhu pandit freedom (a satyagrahi in a topi) | adivasi adivasi_woman farmwoman fisher
+               fisherwoman teaworker weaver potter shepherd herder sikh imam bhikkhu rabbi ricefarmer bedouin
+               marketwoman elder mandarin scribe forager nurse pilot astronaut firefighter. (also: emperor, noble,
+               duke, farmer, serf, raja, maharani, legionary, cardinal, friar, trader, guru, brahmin, constable,
+               santhal, gond, bhil, munda, tea_picker, rabari, lama, hunter_gatherer, sumerian, official.) Use a role
+               whenever the person is one: it brings the right clothes, hat, things held, cape, emblem, beads, sari.
+               PEOPLE OF EVERY BACKGROUND, SHOWN WITH RESPECT: dress a community as its people dress for their day
+               or their work (the role, or the pieces below), give skin and hair as they are (skin fair..deep; hair
+               afro, coily, braids, locs as well as straight), and nothing more: no costume, no exaggerated feature,
+               no community made the joke or the villain. A crowd is mixed when the place and time were mixed.
   person [wear shirt|tunic|robe|habit|dress|gown|coat|suit|armor|apron|toga|uniform|lab|overalls|vest]
                [hat top|bowler|cap|beret|straw|cowboy|crown|helmet|tricorn|mitre|turban|hood|veil|chef|hardhat|wreath|
-               headscarf] [hair short|long|bob|bun|ponytail|curly|spiky|bald(-black|brown|blonde|red|grey|white)]
-               [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark]
+               headscarf|hijab|dastar|patka|kufi|kippah|gele|keffiyeh|conical|gamcha|beanie|flatcap|mandarin|flower
+               (-COLOUR: hat dastar-navy)] [hair short|long|bob|bun|ponytail|curly|coily|afro|braids|locs|spiky|bald
+               (-black|brown|blonde|red|grey|white)] [beard|longbeard] [mustache]
+               [skin fair|light|olive|tan|medium|brown|dark|deep]
                [mood FACE] [stubble]
                [tool book|scroll|quill|coin|bag|sword|shield|staff|spear|flag|sign|hammer|pickaxe|torch|lantern|basket|
-               cane|pointer|briefcase] [color C] [seat] [old] [kid] [face left] [size H]
+               cane|pointer|briefcase|bowl|tablet] [color C] [seat] [old] [kid] [face left] [size H]
                a little drawn figure dressed piece by piece (for someone no role fits), feet at its place
   walk P to X,Y|ENT|M.place | run P to ... | point P at T | wave P | talk P "WORDS" (mouth moves; a bubble only
   for words the narration quotes) | carry P THING (it goes into the hands) | sit P | stand P | turn P left|right
@@ -418,9 +427,11 @@ character who comes back again and again (a person, a country acting as a charac
 it looks the same every time. One line each, nothing else:
 cast NAME person as ROLE [hair H] [beard] [skin S] [mood FACE]   (ROLE dresses them whole: king|queen|lord|lady|knight|soldier|peasant|merchant|monk|nun|bishop|priest|scholar|maharaja|rani|kisan|sepoy|
      prince|princess|jester|archer|roman|viking|samurai|redcoat|officer|general|pirate|pope|pharaoh|blacksmith|sailor|
-     explorer|doctor|scientist|judge|police|teacher|student|worker|chef|mughal|villager|sadhu|pandit|freedom)
+     explorer|doctor|scientist|judge|police|teacher|student|worker|chef|mughal|villager|sadhu|pandit|freedom|
+     adivasi|adivasi_woman|farmwoman|fisher|fisherwoman|teaworker|weaver|potter|shepherd|herder|sikh|imam|bhikkhu|
+     rabbi|ricefarmer|bedouin|marketwoman|elder|mandarin|scribe|forager|nurse|pilot|astronaut|firefighter)
 cast NAME person [wear habit|gown|coat|suit|armor|tunic|robe|dress|uniform|lab|apron|toga|shirt] [hat H] [hair H]
-     [beard|longbeard] [mustache] [skin fair|light|tan|brown|dark] [tool T] [old|kid] [mood FACE]
+     [beard|longbeard] [mustache] [skin fair|light|olive|tan|medium|brown|dark|deep] [tool T] [old|kid] [mood FACE]
 cast NAME nation COUNTRY [color C] [mood FACE] [named]
                         (a cast NAME is that figure's alone: a map's region of it is another name, `ent china_land region "China" on map`)
 cast NAME pic "WHAT, a cut-out object" alive [mood FACE]

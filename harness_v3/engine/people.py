@@ -93,10 +93,18 @@ MOODS = {
 MOODS.update({"neutral": MOODS["calm"], "cry": MOODS["crying"], "shy": MOODS["embarrassed"], "thinking": MOODS["think"],
               "fear": MOODS["scared"], "mad": MOODS["angry"], "glad": MOODS["happy"], "sly": MOODS["smug"]})
 
-SKIN = {"fair": "#F6DCC4", "light": "#EFC9A6", "tan": "#D9A274", "brown": "#A8714A", "dark": "#6E4429"}
+SKIN = {"fair": "#F6DCC4", "light": "#EFC9A6", "olive": "#D8B08A", "tan": "#D9A274", "medium": "#C08A5E",
+        "brown": "#A8714A", "dark": "#6E4429", "deep": "#553321"}
 HAIR = {"black": "#2A2320", "brown": "#6B4226", "blonde": "#D9AA4E", "red": "#B4532A", "grey": "#A9A49B",
         "white": "#EEEAE2"}
 SHOE = "#2B2622"
+
+
+def _hair_colours(skin: str) -> list:
+    """The hair colours a figure is given when none is said: blonde and red only with the lighter skins."""
+    if skin in (SKIN["fair"], SKIN["light"]):
+        return [HAIR["black"], HAIR["brown"], HAIR["brown"], HAIR["blonde"], HAIR["red"]]
+    return [HAIR["black"], HAIR["black"], HAIR["black"], HAIR["brown"]]
 
 
 def walk_pose(phase: float, run: bool = False) -> dict:
@@ -186,11 +194,10 @@ class Person(VGroup):
         ink = col("ink")
         self.ow = ow = 2.2 * k                  # the outline
         old = bool(mods.get("old"))
-        skin = SKIN.get(str(mods.get("skin") or ""), None) or _pick(list(SKIN.values()), seed, "skin")
+        skin = SKIN.get(str(mods.get("skin") or ""), None) or _pick([SKIN[k] for k in ("fair", "light", "tan", "brown", "dark")], seed, "skin")
         hair_s, _, hair_c = str(mods.get("hair") or _pick(["short", "short", "bob", "curly", "long", "bun", "spiky"],
                                                             seed, "hair")).partition("-")
-        hair = HAIR.get(hair_c) or (HAIR["grey"] if old else _pick([HAIR["black"], HAIR["brown"], HAIR["brown"],
-                                                                     HAIR["blonde"], HAIR["red"]], seed, "hc"))
+        hair = HAIR.get(hair_c) or (HAIR["grey"] if old else _pick(_hair_colours(skin), seed, "hc"))
         wear = str(mods.get("wear") or "shirt").lower()
         spec = WEAR.get(wear, WEAR["shirt"])
         cloth = col(mods.get("color") or c) if (mods.get("color") or c) else (
@@ -250,7 +257,7 @@ class Person(VGroup):
         # -- the head: hair behind it, the head, the face, hair over it, a beard, a hat -----------------------------
         R = HEAD
         hat = str(mods.get("hat") or "").lower()
-        covered = hat in COVERED
+        covered = hat.partition("-")[0] in COVERED
         back, front = _hair(hair_s if not covered else "none", hair, ink, ow, R)
         hb, hf = _hat(hat, ink, ow, R, cloth)
         hf.add(attire.plume(mods.get("decor") or {}, ink, ow, R))
@@ -844,6 +851,30 @@ def _hair(style: str, hair, ink, ow, R):
             pts.append((r * math.cos(math.radians(a)), r * math.sin(math.radians(a))))
         front.add(_poly(pts + [(-R * 0.82, -R * 0.05), (-R * 0.4, R * 0.4), (R * 0.4, R * 0.62)], hair, ink, ow))
         return back, front
+    if style == "afro":                         # a full rounded natural: round behind the head, a soft hairline in front
+        back.add(Circle(radius=R * 1.45, fill_color=hair, fill_opacity=1, stroke_color=ink, stroke_width=ow)
+                 .move_to([-R * 0.12, R * 0.3, 0]))
+        front.add(_blob(_arc(0.0, 0.0, R * 1.05, 25, 200, 16) + [(-R * 0.8, R * 0.05), (-R * 0.3, R * 0.5), (R * 0.45, R * 0.62)],
+                        hair, ink, ow * 0.6))
+        return back, front
+    if style == "coily":                        # short tight coils close to the head
+        for a in np.linspace(20, 210, 11):
+            x, y = R * 1.0 * math.cos(math.radians(a)), R * 1.0 * math.sin(math.radians(a))
+            front.add(Circle(radius=R * 0.22, fill_color=hair, fill_opacity=1, stroke_color=ink, stroke_width=ow * 0.6)
+                      .move_to([x, y, 0]))
+        front.add(_blob(cap, hair, ink, ow * 0.6))
+        return back, front
+    if style in ("braids", "locs"):             # braids or locs hanging down the back
+        front.add(_blob(cap, hair, ink, ow))
+        n, wid = (4, 0.22) if style == "braids" else (5, 0.26)
+        for i in range(n):
+            x = -R * (0.35 + 0.2 * i)
+            back.add(_blob([(x - R * wid / 2, R * 0.6), (x - R * wid / 2 - R * 0.1, -R * 1.3), (x + R * wid / 2 - R * 0.1, -R * 1.35),
+                            (x + R * wid / 2, R * 0.6)], hair, ink, ow * 0.7))
+            if style == "braids":
+                back.add(*(_stroke([(x - R * 0.1 - R * 0.04 * t, R * (0.3 - t * 0.5)), (x + R * 0.08 - R * 0.04 * t, R * (0.2 - t * 0.5))],
+                                   _shade(hair, 1.4), ow * 0.5) for t in range(4)))
+        return back, front
     if style == "curly":
         for a in np.linspace(15, 215, 9):
             x, y = R * 0.98 * math.cos(math.radians(a)), R * 0.98 * math.sin(math.radians(a))
@@ -879,6 +910,9 @@ def _face(mood: str, ink, ow, R) -> VGroup:
 
 
 # ---------------------------------------------------------------- hats -----------------------------------------------
+# hats with a colour of their own (not the clothes'), unless one is said: `hat hijab-navy`
+HAT_OWN = ("dastar", "patka", "hijab", "gele", "keffiyeh", "gamcha", "kufi", "kippah", "beanie", "flatcap", "flower")
+
 
 def _hat(kind: str, ink, ow, R, cloth):
     """A hat in the head's frame: (what goes behind the head, what goes over it)."""
@@ -886,7 +920,10 @@ def _hat(kind: str, ink, ow, R, cloth):
     top = R * 0.72
     if not kind:
         return back, front
-    more = attire.hat(kind, ink, ow, R, cloth)
+    kind, _, hc = kind.partition("-")           # `hat dastar-navy`: the hat's own colour
+    if hc:
+        cloth = col(hc)
+    more = attire.hat(kind, ink, ow, R, cloth if hc else None if kind in HAT_OWN else cloth)
     if more is not None:
         return more
     if kind == "top":
@@ -1045,7 +1082,8 @@ def _tool(kind: str, ink, ow, k):
 FIGURE = os.environ.get("V3_FIGURE", "peg").strip().lower()
 # hats that hide the hair
 COVERED = ("hood", "veil", "headscarf", "turban", "helmet", "greathelm", "kettle", "legion", "viking", "wimple",
-           "coif", "nemes", "pagdi", "pagdi_white", "mughal", "pallu", "wig", "jester", "pith", "topknot")
+           "coif", "nemes", "pagdi", "pagdi_white", "mughal", "pallu", "wig", "jester", "pith", "topknot", "dastar",
+           "patka", "hijab", "gele", "keffiyeh", "gamcha")
 
 
 class Peg(Person):
@@ -1064,11 +1102,10 @@ class Peg(Person):
         ink = col("ink")
         self.ow = ow = 2.2 * k
         old = bool(mods.get("old"))
-        skin = SKIN.get(str(mods.get("skin") or ""), None) or _pick(list(SKIN.values()), seed, "skin")
+        skin = SKIN.get(str(mods.get("skin") or ""), None) or _pick([SKIN[k] for k in ("fair", "light", "tan", "brown", "dark")], seed, "skin")
         hair_s, _, hair_c = str(mods.get("hair") or _pick(["short", "short", "bob", "curly", "long", "bun", "bald"],
                                                             seed, "hair")).partition("-")
-        hair = HAIR.get(hair_c) or (HAIR["grey"] if old else _pick([HAIR["black"], HAIR["brown"], HAIR["brown"],
-                                                                     HAIR["blonde"], HAIR["red"]], seed, "hc"))
+        hair = HAIR.get(hair_c) or (HAIR["grey"] if old else _pick(_hair_colours(skin), seed, "hc"))
         wear = str(mods.get("wear") or "shirt").lower()
         spec = WEAR.get(wear, WEAR["shirt"])
         cloth = col(mods.get("color") or c) if (mods.get("color") or c) else (
@@ -1118,7 +1155,7 @@ class Peg(Person):
                                .move_to([0.03, -0.02, 0]), "foot_" + n) for n in ("b", "f")}
         R = self.R
         hat = str(mods.get("hat") or "").lower()
-        covered = hat in COVERED
+        covered = hat.partition("-")[0] in COVERED
         back, front = _hair(hair_s if not covered else "none", hair, ink, ow, R)
         hb, hf = _hat(hat, ink, ow, HEAD, cloth)
         hf.add(attire.plume(decor, ink, ow, HEAD))

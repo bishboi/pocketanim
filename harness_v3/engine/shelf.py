@@ -100,6 +100,11 @@ SECTIONS = {
         "alluvialsoil blacksoil redsoil lateritesoil desertsoil mountainsoil peatsoil salinesoil soilprofile "
         "soiltexture permeability soilerosion contourfarming shelterbelt strata earthlayers rocktypes weathering "
         "landslide compostpit earthworms waterlogging"),
+    "Icons and words": (
+        "burst badge ribbon stickynote stampmark speechbubble thoughtbubble rosette numberbadge vsbadge tickmark "
+        "crossmark questionmark exclamation warning infosign percent rupee dollar trendup trenddown barchart "
+        "piechart linechart thumbsup thumbsdown target puzzle mappin stopwatch binoculars handshake sparkles "
+        "network exchange cyclearrows quotemarks hashtag calendarpage"),
 }
 
 # The words in a shot's plan or narration that call a section up.
@@ -176,6 +181,12 @@ KEYWORDS = {
         "fertile fertility humus clay sand sandy silt loam loamy rock rocks layer layers sediment sediments "
         "sedimentary igneous metamorphic crust mantle core weathering erosion eroded landslide compost earthworm "
         "earthworms texture permeable permeability profile horizon conservation contour shelter fossil fossils"),
+    "Icons and words": (
+        "icon idea important question questions answer warning danger check correct wrong yes no true false win "
+        "won winner first rank best new sale growth grow grew rise rose fall fell increase decrease percent price "
+        "cost money rupee dollar graph chart data statistics numbers goal target agree agreed deal partnership "
+        "quote said says compare versus network connect connected trade exchange cycle find search look time fast "
+        "deadline date approved rejected secret note remember think thought"),
 }
 
 # A few everyday things every shot is shown (a table, a book, a house, a tree...).
@@ -313,7 +324,22 @@ ALIASES = {"bag": "moneybag", "purse": "moneybag", "money": "moneybag", "gold": 
            "rocklayers": "strata", "sedimentary": "strata", "layers": "strata", "earthstructure": "earthlayers",
            "crust": "earthlayers", "mantle": "earthlayers", "core": "earthlayers", "rocks": "rocktypes",
            "igneous": "rocktypes", "metamorphic": "rocktypes", "weathered": "weathering", "mudslide": "landslide",
-           "vermicompost": "compostpit", "earthworm": "earthworms", "worms": "earthworms", "waterlogged": "waterlogging"}
+           "vermicompost": "compostpit", "earthworm": "earthworms", "worms": "earthworms", "waterlogged": "waterlogging",
+           "pow": "burst", "boom": "burst", "starburst": "burst", "sticker": "badge", "seal3": "badge", "banner2": "ribbon",
+           "postit": "stickynote", "note2": "stickynote", "approved": "stampmark", "rubberstamp": "stampmark",
+           "speech": "speechbubble", "bubble": "speechbubble", "thought": "thoughtbubble",
+           "prize": "rosette", "number": "numberbadge", "versus": "vsbadge", "vs": "vsbadge", "tick": "tickmark",
+           "checkmark": "tickmark", "correct": "tickmark", "cross2": "crossmark", "wrong": "crossmark",
+           "question": "questionmark", "doubt": "questionmark", "alert": "exclamation",
+           "danger": "warning", "caution": "warning", "info": "infosign", "information": "infosign", "rupeesign": "rupee",
+           "inr": "rupee", "usd": "dollar", "growth": "trendup", "increase": "trendup", "profit": "trendup",
+           "decline": "trenddown", "decrease": "trenddown", "bargraph": "barchart",
+           "graph": "barchart", "chart": "barchart", "pie": "piechart", "linegraph": "linechart",
+           "approve": "thumbsup", "dislike": "thumbsdown", "goal": "target", "aim": "target", "bullseye": "target",
+           "jigsaw": "puzzle", "location": "mappin", "pin2": "mappin", "timer2": "stopwatch", "deadline": "stopwatch",
+           "deal": "handshake", "agreement": "handshake", "partnership": "handshake", "sparkle": "sparkles", "shine": "sparkles",
+           "connections": "network", "nodes": "network", "swap": "exchange", "cycle2": "cyclearrows", "loop": "cyclearrows",
+           "quote": "quotemarks", "quotation": "quotemarks", "hash": "hashtag", "datepage": "calendarpage"}
 
 NAMES = tuple(sorted({n for v in SECTIONS.values() for n in v.split()}))
 # The land, drawn to stand behind people (a river, hills, a forest): never moved off what stands on it, always behind.

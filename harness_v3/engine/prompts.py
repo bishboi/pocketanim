@@ -28,7 +28,11 @@ ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wi
            @@SHELF@@
            (THE SHELF HOLDS MORE than is listed here: a plain everyday name not listed may still be drawn, so
            write `prop NAME` with the thing's plain name; a thing not on the shelf at all is made into a picture
-           of itself.)  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
+           of itself.) Icons and stickers that carry WORDS take `label "WORDS"` (and a colour): burst ("WOW!"),
+           badge ("NEW"), ribbon, stickynote, stampmark ("APPROVED"), speechbubble, thoughtbubble, rosette ("1st"),
+           numberbadge ("3"), vsbadge, percent, calendarpage ("15", sub "AUG"), billboard, placard, slate, station,
+           milestone; signs need none: tickmark crossmark questionmark exclamation warning infosign trendup
+           trenddown barchart piechart thumbsup target mappin handshake sparkles.  `open X` / `shut X`: a chest (its gold shows), box, letter, gate. Flames flicker, flags
            wave, windmills, turbines, fans and propellers turn, smoke and steam drift by themselves.
            PEOPLE USE THEM (they walk up to it first): `use P X` does what the thing is for (eat bread, drink tea,
            read a book, sit on a chair, enter a house, wear a crown, ride a bicycle, count coins, vote, ring a bell,

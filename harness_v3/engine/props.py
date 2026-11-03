@@ -6111,6 +6111,277 @@ def _waterlogging(m, w):
     return g, None
 
 
+# -- icons and words: stickers, badges and signs that carry a word (`label "WORDS"`), and simple picture-signs --------
+
+def word(txt, x, y, h, c="#22201E", maxw=None):
+    """Words in the look's headline face, bold, fitted to a height (and a width)."""
+    import look
+    t = Text(str(txt), font=look.L.get("font") or "Oswald", weight="BOLD", color=c)
+    t.scale_to_fit_height(h)
+    if maxw and t.width > maxw:
+        t.scale_to_fit_width(maxw)
+    return t.move_to([x, y, 0])
+
+
+def said_or(m, default):
+    return str(m.get("label") or default)
+
+
+def _burst(m, w):
+    c = col(m["color"]) if m.get("color") else "#F2C14E"
+    pts = []
+    for i in range(24):
+        a = math.radians(i * 15)
+        r = 0.42 if i % 2 == 0 else 0.3
+        r *= 1.0 + 0.08 * math.sin(i * 1.7)
+        pts.append((r * math.cos(a), 0.42 + r * 0.82 * math.sin(a)))
+    inner = [(0.85 * x, 0.42 + 0.85 * (y - 0.42)) for x, y in pts]
+    return VGroup(poly(pts, RED, w), poly(inner, c, 0), word(said_or(m, "WOW!"), 0.0, 0.42, 0.16, "#22201E", 0.5)), None
+
+
+def _badge(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    g = VGroup()
+    pts = [(0.25 * (1 + 0.07 * (i % 2)) * math.cos(math.radians(i * 10)), 0.27 + 0.25 * (1 + 0.07 * (i % 2)) * math.sin(math.radians(i * 10))) for i in range(36)]
+    g.add(poly(pts, c, w), Circle(radius=0.2, stroke_color="#F7F5F0", stroke_width=w * 0.8).move_to([0.0, 0.27, 0]),
+          word(said_or(m, "NEW"), 0.0, 0.27, 0.11, "#F7F5F0", 0.3))
+    return g, None
+
+
+def _ribbon(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(poly([(-0.55, 0.06), (-0.4, 0.06), (-0.4, 0.2), (-0.55, 0.2), (-0.5, 0.13)], tint(c, -0.25), w),
+                  poly([(0.55, 0.06), (0.4, 0.06), (0.4, 0.2), (0.55, 0.2), (0.5, 0.13)], tint(c, -0.25), w),
+                  poly([(-0.42, 0.1), (0.42, 0.1), (0.42, 0.28), (-0.42, 0.28)], c, w),
+                  poly([(-0.42, 0.1), (-0.4, 0.06), (-0.4, 0.1)], tint(c, -0.45), 0), poly([(0.42, 0.1), (0.4, 0.06), (0.4, 0.1)], tint(c, -0.45), 0),
+                  word(said_or(m, "BEST CHOICE"), 0.0, 0.19, 0.09, "#F7F5F0", 0.75)), None
+
+
+def _stickynote(m, w):
+    c = col(m["color"]) if m.get("color") else "#F7E27A"
+    return VGroup(poly([(-0.22, 0.0), (0.22, 0.0), (0.22, 0.36), (-0.22, 0.4)], c, w),
+                  poly([(0.22, 0.0), (0.22, 0.08), (0.14, 0.0)], tint(c, -0.2), w * 0.5),
+                  rect(-0.06, 0.37, 0.06, 0.42, "#DDEEF6", 0).set_opacity(0.7),
+                  letters(said_or(m, "remember!"), 0.0, 0.2, 0.08, "#3A3631")), None
+
+
+def _stampmark(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    g = VGroup(RoundedRectangle(width=0.7, height=0.24, corner_radius=0.03, stroke_color=c, stroke_width=w * 2.2).move_to([0.0, 0.14, 0]),
+               RoundedRectangle(width=0.64, height=0.18, corner_radius=0.02, stroke_color=c, stroke_width=w * 0.8).move_to([0.0, 0.14, 0]),
+               word(said_or(m, "APPROVED"), 0.0, 0.14, 0.1, c, 0.58))
+    g.rotate(0.12, about_point=np.array([0.0, 0.14, 0]))
+    return g, None
+
+
+def _speechbubble(m, w):
+    c = col(m["color"]) if m.get("color") else "#FBF8F1"
+    return VGroup(blob([(-0.42, 0.22), (-0.38, 0.4), (0.0, 0.46), (0.38, 0.4), (0.42, 0.22), (0.3, 0.1), (-0.1, 0.08), (-0.25, 0.0), (-0.22, 0.09), (-0.38, 0.12)], c, w),
+                  word(said_or(m, "HELLO!"), 0.0, 0.27, 0.11, "#22201E", 0.6)), None
+
+
+def _thoughtbubble(m, w):
+    c = col(m["color"]) if m.get("color") else "#FBF8F1"
+    g = VGroup(*(circ(x, y, r, c, w) for x, y, r in ((-0.3, 0.02, 0.025), (-0.24, 0.08, 0.04))))
+    pts = []
+    for i in range(14):
+        a = math.radians(i * 360 / 14)
+        pts += zoo.P._arc(0.38 * math.cos(a) * 1.0, 0.32 + 0.18 * math.sin(a), 0.07, math.degrees(a) - 70, math.degrees(a) + 70, 4)
+    g.add(blob(pts, c, w), word(said_or(m, "HMM..."), 0.0, 0.32, 0.1, "#22201E", 0.55))
+    return g, None
+
+
+def _rosette(m, w):
+    c = col(m["color"]) if m.get("color") else "#2E5E9E"
+    g = VGroup(poly([(-0.1, 0.25), (-0.18, -0.08), (-0.1, -0.02), (-0.04, -0.1), (0.0, 0.2)], RED, w),
+               poly([(0.1, 0.25), (0.18, -0.08), (0.1, -0.02), (0.04, -0.1), (0.0, 0.2)], RED, w))
+    pts = [((0.2 if i % 2 else 0.17) * math.cos(math.radians(i * 12)), 0.3 + (0.2 if i % 2 else 0.17) * math.sin(math.radians(i * 12))) for i in range(30)]
+    g.add(poly(pts, c, w), circ(0.0, 0.3, 0.12, GOLD, w * 0.8), word(said_or(m, "1st"), 0.0, 0.3, 0.08, "#22201E", 0.18))
+    return g, None
+
+
+def _numberbadge(m, w):
+    c = col(m["color"]) if m.get("color") else "#2E7D74"
+    return VGroup(circ(0.0, 0.18, 0.18, c, w), circ(0.0, 0.18, 0.15, tint(c, 0.15), 0), word(said_or(m, "1"), 0.0, 0.18, 0.16, "#F7F5F0", 0.24)), None
+
+
+def _vsbadge(m, w):
+    pts = [(0.0, 0.5), (0.1, 0.32), (0.3, 0.38), (0.18, 0.2), (0.32, 0.02), (0.06, 0.1), (-0.08, -0.02), (-0.1, 0.16), (-0.3, 0.2), (-0.14, 0.32), (-0.24, 0.48), (-0.04, 0.38)]
+    return VGroup(poly(pts, "#F2C14E", w), word(said_or(m, "VS"), -0.02, 0.24, 0.15, RED, 0.3)), None
+
+
+def _tickmark(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, "#4F9A6A", w), stroke([(-0.1, 0.2), (-0.02, 0.11), (0.12, 0.3)], "#F7F5F0", w * 4)), None
+
+
+def _crossmark(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, RED, w), line((-0.08, 0.12), (0.08, 0.28), "#F7F5F0", w * 4), line((-0.08, 0.28), (0.08, 0.12), "#F7F5F0", w * 4)), None
+
+
+def _questionmark(m, w):
+    c = col(m["color"]) if m.get("color") else "#E07B39"
+    return VGroup(circ(0.0, 0.22, 0.22, c, w), word("?", 0.0, 0.22, 0.28, "#F7F5F0")), None
+
+
+def _exclamation(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(circ(0.0, 0.22, 0.22, c, w), word("!", 0.0, 0.22, 0.28, "#F7F5F0")), None
+
+
+def _warning(m, w):
+    return VGroup(poly([(-0.26, 0.0), (0.26, 0.0), (0.0, 0.44)], "#F2C14E", w), poly([(-0.2, 0.03), (0.2, 0.03), (0.0, 0.38)], "#F2C14E", w * 0.6),
+                  word("!", 0.0, 0.16, 0.2, "#22201E")), None
+
+
+def _infosign(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, "#3E7CB1", w), word("i", 0.0, 0.2, 0.22, "#F7F5F0")), None
+
+
+def _percent(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(circ(0.0, 0.22, 0.22, c, w), word(said_or(m, "%"), 0.0, 0.22, 0.2, "#F7F5F0", 0.3)), None
+
+
+def _rupee(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, GOLD, w), circ(0.0, 0.2, 0.16, GOLD_D, w * 0.5), word("₹", 0.0, 0.2, 0.2, "#6B4A2F")), None
+
+
+def _dollar(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, "#7FB05A", w), circ(0.0, 0.2, 0.16, "#5E8A3E", w * 0.5), word("$", 0.0, 0.2, 0.22, "#F7F5F0")), None
+
+
+def _trendup(m, w):
+    return VGroup(stroke([(-0.35, 0.05), (-0.15, 0.15), (0.0, 0.1), (0.3, 0.38)], "#4F9A6A", w * 4),
+                  poly([(0.24, 0.42), (0.38, 0.46), (0.36, 0.3)], "#4F9A6A", w * 0.5)), None
+
+
+def _trenddown(m, w):
+    return VGroup(stroke([(-0.35, 0.42), (-0.15, 0.3), (0.0, 0.34), (0.3, 0.06)], RED, w * 4),
+                  poly([(0.36, 0.14), (0.38, 0.0), (0.24, 0.02)], RED, w * 0.5)), None
+
+
+def _barchart(m, w):
+    g = VGroup(line((-0.35, 0.0), (0.38, 0.0), "#3A3631", w * 1.2), line((-0.35, 0.0), (-0.35, 0.5), "#3A3631", w * 1.2))
+    for i, (h, c) in enumerate(((0.15, "#3E7CB1"), (0.26, "#4F9A6A"), (0.2, "#F2C14E"), (0.4, RED))):
+        x = -0.25 + i * 0.16
+        g.add(rect(x - 0.05, 0.0, x + 0.05, h, c, w))
+    return g, None
+
+
+def _piechart(m, w):
+    g = VGroup()
+    for a0, a1, c in ((0, 140, "#3E7CB1"), (140, 250, "#F2C14E"), (250, 320, "#4F9A6A"), (320, 360, RED)):
+        g.add(poly([(0.0, 0.25), *zoo.P._arc(0.0, 0.25, 0.25, a0, a1, 12)], c, w))
+    return g, None
+
+
+def _linechart(m, w):
+    g = VGroup(rect(-0.38, 0.0, 0.38, 0.5, "#FBF8F1", w), *(line((-0.36, y), (0.36, y), "#E0DCD2", w * 0.4) for y in (0.12, 0.24, 0.36)))
+    pts = [(-0.32, 0.08), (-0.18, 0.2), (-0.05, 0.15), (0.1, 0.3), (0.22, 0.26), (0.33, 0.42)]
+    g.add(stroke(pts, "#3E7CB1", w * 1.8), *(circ(x, y, 0.018, "#3E7CB1", w * 0.4) for x, y in pts))
+    return g, None
+
+
+def _thumbsup(m, w):
+    c = col(m["color"]) if m.get("color") else "#C08A5E"
+    return VGroup(rrect(-0.24, 0.0, -0.12, 0.24, 0.02, "#3E7CB1", w),
+                  blob([(-0.12, 0.02), (-0.12, 0.22), (-0.04, 0.28), (0.0, 0.42), (0.06, 0.42), (0.06, 0.26), (0.18, 0.26), (0.2, 0.2), (0.18, 0.02)], c, w),
+                  *(line((0.04, y), (0.19, y), tint(c, -0.25), w * 0.6) for y in (0.08, 0.14, 0.2))), None
+
+
+def _thumbsdown(m, w):
+    g, _ = _thumbsup(m, w)
+    g.rotate(math.pi, about_point=np.array([0.0, 0.21, 0])).stretch(-1, 0)
+    return g, None
+
+
+def _target(m, w):
+    g = VGroup(*(circ(0.0, 0.25, r, c, w * 0.8) for r, c in ((0.25, RED), (0.19, "#F7F5F0"), (0.13, RED), (0.07, "#F7F5F0"), (0.025, RED))))
+    g.add(line((0.0, 0.25), (0.32, 0.5), WOOD_D, w * 1.4), poly([(0.3, 0.52), (0.36, 0.56), (0.36, 0.48)], "#4F9A6A", w * 0.4),
+          poly([(0.27, 0.5), (0.31, 0.56), (0.33, 0.49)], "#4F9A6A", w * 0.4))
+    return g, None
+
+
+def _puzzle(m, w):
+    c = col(m["color"]) if m.get("color") else "#3E7CB1"
+    pts = [(-0.16, 0.0), (-0.05, 0.0), *zoo.P._arc(0.0, 0.0, 0.05, 180, 360, 6)[::-1], (0.05, 0.0), (0.16, 0.0), (0.16, 0.1),
+           *zoo.P._arc(0.16, 0.15, 0.05, 270, 450, 6), (0.16, 0.2), (0.16, 0.32), (0.05, 0.32), *zoo.P._arc(0.0, 0.32, 0.05, 0, 180, 6), (-0.05, 0.32),
+           (-0.16, 0.32), (-0.16, 0.2), *zoo.P._arc(-0.16, 0.15, 0.05, 90, -90, 6), (-0.16, 0.1)]
+    return VGroup(poly(pts, c, w), stroke([(-0.1, 0.26), (-0.05, 0.28)], tint(c, 0.4), w)), None
+
+
+def _mappin(m, w):
+    c = col(m["color"]) if m.get("color") else RED
+    return VGroup(ell(0.0, 0.0, 0.16, 0.04, "#3A3631", 0), blob([(0.0, 0.0), (-0.1, 0.18), (-0.14, 0.3), (-0.08, 0.4), (0.0, 0.43), (0.08, 0.4), (0.14, 0.3), (0.1, 0.18)], c, w),
+                  circ(0.0, 0.3, 0.05, "#F7F5F0", w * 0.6)), None
+
+
+def _stopwatch(m, w):
+    return VGroup(circ(0.0, 0.2, 0.2, "#F7F5F0", w), circ(0.0, 0.2, 0.17, "#FBF8F1", w * 0.4), rect(-0.03, 0.4, 0.03, 0.46, "#6E747A", w * 0.6),
+                  rect(-0.06, 0.46, 0.06, 0.49, "#6E747A", w * 0.6), line((0.13, 0.36), (0.17, 0.4), "#6E747A", w * 1.6),
+                  *(line((0.15 * math.cos(a), 0.2 + 0.15 * math.sin(a)), (0.17 * math.cos(a), 0.2 + 0.17 * math.sin(a)), "#3A3631", w * 0.6) for a in np.linspace(0, 2 * math.pi, 13)[:-1]),
+                  live(line((0.0, 0.2), (0.0, 0.34), RED, w * 1.2), "tick", (0.0, 0.2)), circ(0.0, 0.2, 0.015, "#3A3631", 0)), None
+
+
+def _binoculars(m, w):
+    return VGroup(*(VGroup(rrect(x - 0.09, 0.0, x + 0.09, 0.26, 0.04, "#3A3631", w), circ(x, 0.06, 0.07, "#6FA8DC", w * 0.6), circ(x - 0.02, 0.08, 0.02, "#DDEEF6", 0))
+                    for x in (-0.12, 0.12)), rect(-0.04, 0.12, 0.04, 0.2, "#6E747A", w * 0.6)), None
+
+
+def _handshake(m, w):
+    return VGroup(rect(-0.5, 0.12, -0.28, 0.24, "#3E7CB1", w), rect(0.28, 0.12, 0.5, 0.24, "#2F3B4C", w),
+                  blob([(-0.28, 0.12), (-0.1, 0.1), (0.08, 0.16), (0.14, 0.22), (0.05, 0.26), (-0.15, 0.26), (-0.28, 0.24)], "#C08A5E", w),
+                  blob([(0.28, 0.12), (0.12, 0.1), (-0.06, 0.14), (-0.12, 0.2), (-0.04, 0.24), (0.1, 0.26), (0.28, 0.24)], "#EFC9A6", w),
+                  *(line((x, 0.14), (x + 0.02, 0.22), "#C9A07A", w * 0.5) for x in (-0.02, 0.03, 0.08))), None
+
+
+def _sparkles(m, w):
+    c = col(m["color"]) if m.get("color") else GOLD
+    return VGroup(*(live(VGroup(poly([(x, y + r), (x + r * 0.25, y + r * 0.25), (x + r, y), (x + r * 0.25, y - r * 0.25), (x, y - r), (x - r * 0.25, y - r * 0.25),
+                                      (x - r, y), (x - r * 0.25, y + r * 0.25)], c, w * 0.5)), "puff")
+                    for x, y, r in ((0.0, 0.25, 0.14), (0.2, 0.42, 0.07), (-0.18, 0.08, 0.06), (0.2, 0.08, 0.05)))), None
+
+
+def _network(m, w):
+    nodes = [(0.0, 0.25), (-0.3, 0.42), (0.3, 0.44), (-0.32, 0.06), (0.3, 0.05), (0.0, 0.5)]
+    g = VGroup(*(line(nodes[0], n, "#6E747A", w) for n in nodes[1:]), line(nodes[1], nodes[5], "#6E747A", w * 0.8), line(nodes[3], nodes[4], "#6E747A", w * 0.8))
+    g.add(*(circ(x, y, 0.06 if i else 0.08, ("#3E7CB1", RED, "#4F9A6A", GOLD, "#7A4C8C", "#E07B39")[i], w * 0.7) for i, (x, y) in enumerate(nodes)))
+    return g, None
+
+
+def _exchange(m, w):
+    return VGroup(stroke(zoo.P._arc(0.0, 0.25, 0.22, 20, 160, 12), "#3E7CB1", w * 3), poly([(-0.27, 0.27), (-0.13, 0.27), (-0.2, 0.17)], "#3E7CB1", w * 0.4),
+                  stroke(zoo.P._arc(0.0, 0.25, 0.22, 200, 340, 12), "#E07B39", w * 3), poly([(0.27, 0.23), (0.13, 0.23), (0.2, 0.33)], "#E07B39", w * 0.4)), None
+
+
+def _cyclearrows(m, w):
+    g = VGroup()
+    for k, c in enumerate(("#3E7CB1", "#4F9A6A", "#E07B39", RED)):
+        a0 = k * 90 + 10
+        g.add(stroke(zoo.P._arc(0.0, 0.25, 0.22, a0, a0 + 65, 10), c, w * 3))
+        r = math.radians(a0 + 72)
+        t = np.array([-math.sin(r), math.cos(r)])
+        cc = np.array([0.22 * math.cos(r), 0.25 + 0.22 * math.sin(r)])
+        nrm = np.array([math.cos(r), math.sin(r)])
+        g.add(poly([tuple(cc + t * 0.06), tuple(cc + nrm * 0.05), tuple(cc - nrm * 0.05)], c, w * 0.4))
+    return g, None
+
+
+def _quotemarks(m, w):
+    c = col(m["color"]) if m.get("color") else "#3E7CB1"
+    return VGroup(*(VGroup(circ(x, 0.2, 0.07, c, 0), tube([(x + 0.05, 0.22), (x + 0.02, 0.32), (x - 0.06, 0.38)], [0.06, 0.04, 0.015], c, 0)) for x in (-0.1, 0.1))), None
+
+
+def _hashtag(m, w):
+    c = col(m["color"]) if m.get("color") else "#3E7CB1"
+    return VGroup(*(line((x, 0.0), (x + 0.06, 0.42), c, w * 3) for x in (-0.12, 0.06)), *(line((-0.2, y), (0.22, y), c, w * 3) for y in (0.13, 0.29))), None
+
+
+def _calendarpage(m, w):
+    return VGroup(rect(-0.2, 0.0, 0.2, 0.42, "#FBF8F1", w), rect(-0.2, 0.32, 0.2, 0.42, RED, w), *(circ(x, 0.42, 0.02, "#3A3631", 0) for x in (-0.1, 0.1)),
+                  word(said_or(m, "15"), 0.0, 0.15, 0.18, "#22201E", 0.3), word(str(m.get("sub") or "AUG"), 0.0, 0.37, 0.05, "#F7F5F0", 0.3)), None
+
+
 SHELF = {name[1:]: fn for name, fn in globals().items() if name.startswith("_") and callable(fn) and name[1:].isalpha()
          and name not in ("_annotations",)}
 import shelf as _index  # noqa: E402

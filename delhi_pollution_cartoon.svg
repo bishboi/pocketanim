@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" font-family="Arial, Helvetica, sans-serif">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6e6350"/><stop offset=".6" stop-color="#a8916a"/><stop offset="1" stop-color="#c2a77c"/></linearGradient>
+<linearGradient id="clean" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9f7ff"/><stop offset="1" stop-color="#bfe6fb"/></linearGradient>
+<radialGradient id="glow"><stop offset="0" stop-color="#7fd4ff" stop-opacity=".9"/><stop offset="1" stop-color="#7fd4ff" stop-opacity="0"/></radialGradient>
+<filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+<filter id="blur2"><feGaussianBlur stdDeviation="6"/></filter>
+</defs>
+<rect width="1600" height="1000" fill="url(#sky)"/>
+<circle cx="1180" cy="150" r="48" fill="#e8c98a" opacity=".45"/>
+<g fill="#7d6f58" opacity=".8">
+<rect x="780" y="560" width="60" height="220"/>
+<rect x="850" y="620" width="90" height="160"/>
+<rect x="950" y="520" width="50" height="260"/>
+<rect x="1010" y="590" width="80" height="190"/>
+<rect x="1100" y="540" width="70" height="240"/>
+<rect x="1520" y="570" width="80" height="210"/>
+<rect x="1560" y="520" width="60" height="260"/>
+</g>
+<g fill="#6f624d" opacity=".85"><rect x="1230" y="470" width="200" height="40"/><rect x="1240" y="510" width="55" height="270"/><rect x="1365" y="510" width="55" height="270"/><path d="M1295 510 h70 v40 a35 35 0 0 0 -70 0z"/><rect x="1250" y="450" width="160" height="22"/><rect x="1280" y="432" width="100" height="20"/></g>
+<text x="1330" y="800" text-anchor="middle" font-size="16" fill="#5a4f3e" opacity=".8">India Gate (barely visible)</text>
+<rect x="1470" y="380" width="22" height="400" fill="#5b5042"/>
+<rect x="1500" y="380" width="22" height="400" fill="#5b5042"/>
+<g filter="url(#blur)" fill="#4a4235" opacity=".7">
+<circle cx="1490" cy="350" r="50"/>
+<circle cx="1440" cy="290" r="70"/>
+<circle cx="1380" cy="230" r="90"/>
+<circle cx="1290" cy="180" r="110"/>
+<circle cx="1180" cy="150" r="120"/>
+<circle cx="1050" cy="140" r="130"/>
+</g>
+<g filter="url(#blur)" fill="#3e372c" opacity=".5"><ellipse cx="900" cy="300" rx="300" ry="80"/><ellipse cx="1300" cy="420" rx="320" ry="70"/></g>
+<rect x="0" y="780" width="1600" height="220" fill="#6a5f4f"/>
+<rect x="760" y="880" width="840" height="10" fill="#8c8170"/>
+<rect x="800" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="920" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="1040" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="1160" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="1280" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="1400" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<rect x="1520" y="935" width="60" height="8" fill="#c9b98f" opacity=".6"/>
+<g display="none"><rect x="1440" y="850" width="140" height="45" rx="10" fill="#7a2f2f"/><rect x="1465" y="822" width="85" height="35" rx="10" fill="#7a2f2f"/><circle cx="1470" cy="897" r="14" fill="#222"/><circle cx="1555" cy="897" r="14" fill="#222"/></g>
+<g filter="url(#blur2)" fill="#2e2a24" opacity=".7"></g>
+<g><rect x="885" y="440" width="10" height="340" fill="#444"/><rect x="780" y="310" width="230" height="140" rx="10" fill="#1b1b1b" stroke="#888" stroke-width="4"/><text x="890" y="350" text-anchor="middle" font-size="22" fill="#ddd" font-weight="bold">DELHI AQI</text><text x="890" y="408" text-anchor="middle" font-size="58" fill="#ff2d2d" font-weight="bold">498</text><text x="890" y="438" text-anchor="middle" font-size="20" fill="#ff7b7b" font-weight="bold">SEVERE+ ☠</text></g>
+<g filter="url(#blur)" fill="#9c8762" opacity=".45"><rect x="700" y="200" width="900" height="650"/></g>
+<g>
+<rect x="60" y="300" width="660" height="490" fill="#e4d6b8" stroke="#8a7a5c" stroke-width="4"/>
+<path d="M30 310 L390 140 L750 310 Z" fill="#9b4a2c" stroke="#6b2f1a" stroke-width="4"/>
+<rect x="330" y="200" width="120" height="70" rx="6" fill="#fff6e0" stroke="#6b2f1a" stroke-width="3"/>
+<text x="390" y="230" text-anchor="middle" font-size="15" font-weight="bold" fill="#6b2f1a">MINISTER'S</text><text x="390" y="252" text-anchor="middle" font-size="15" font-weight="bold" fill="#6b2f1a">BUNGALOW</text>
+<rect x="110" y="360" width="560" height="380" fill="url(#clean)" stroke="#5a4a32" stroke-width="10"/>
+<path d="M170 390 L173 397 L180 400 L173 403 L170 410 L167 403 L160 400 L167 397Z" fill="#fff" opacity=".9"/>
+<path d="M300 410 L303 417 L310 420 L303 423 L300 430 L297 423 L290 420 L297 417Z" fill="#fff" opacity=".9"/>
+<path d="M520 390 L523 397 L530 400 L523 403 L520 410 L517 403 L510 400 L517 397Z" fill="#fff" opacity=".9"/>
+<path d="M620 450 L623 457 L630 460 L623 463 L620 470 L617 463 L610 460 L617 457Z" fill="#fff" opacity=".9"/>
+<path d="M250 510 L253 517 L260 520 L253 523 L250 530 L247 523 L240 520 L247 517Z" fill="#fff" opacity=".9"/>
+<path d="M450 460 L453 467 L460 470 L453 473 L450 480 L447 473 L440 470 L447 467Z" fill="#fff" opacity=".9"/>
+<path d="M600 550 L603 557 L610 560 L603 563 L600 570 L597 563 L590 560 L597 557Z" fill="#fff" opacity=".9"/>
+<rect x="140" y="385" width="170" height="70" rx="8" fill="#0d3b2e"/><text x="225" y="412" text-anchor="middle" font-size="16" fill="#bfffe0">INDOOR AQI</text><text x="225" y="444" text-anchor="middle" font-size="28" font-weight="bold" fill="#3dff9a">12 ✓ GOOD</text>
+<rect x="470" y="385" width="110" height="70" fill="#fff" stroke="#b08a3a" stroke-width="5"/><path d="M478 448 l30 -35 l20 20 l15 -12 l30 27z" fill="#5fae5f"/><circle cx="560" cy="402" r="9" fill="#f5c542"/>
+<rect x="115" y="660" width="550" height="75" fill="#c89f6a"/><ellipse cx="380" cy="705" rx="200" ry="22" fill="#9e2b2b" opacity=".7"/>
+<rect x="230" y="560" width="250" height="110" rx="20" fill="#7b3f8a"/><rect x="215" y="600" width="40" height="80" rx="14" fill="#6a3378"/><rect x="455" y="600" width="40" height="80" rx="14" fill="#6a3378"/><rect x="250" y="610" width="210" height="45" rx="10" fill="#8f50a0"/>
+<g><rect x="320" y="545" width="80" height="95" rx="25" fill="#ffffff" stroke="#ddd" stroke-width="2"/><path d="M330 550 L360 600 L390 550" stroke="#f08a1c" stroke-width="12" fill="none" stroke-linecap="round"/><rect x="300" y="625" width="40" height="22" rx="10" fill="#f2f2f2"/><rect x="380" y="625" width="70" height="22" rx="10" fill="#f2f2f2"/><ellipse cx="458" cy="640" rx="16" ry="8" fill="#5a3a22"/><circle cx="360" cy="515" r="34" fill="#c98b5e"/><path d="M328 505 q32 -40 64 0" fill="#e8e8e8"/><path d="M342 508 q6 -5 12 0 M366 508 q6 -5 12 0" stroke="#222" stroke-width="3" fill="none"/><path d="M346 530 q14 12 28 0" stroke="#5a2a1a" stroke-width="3" fill="none"/><path d="M340 527 q20 6 40 0" stroke="#ddd" stroke-width="5" fill="none"/><rect x="395" y="565" width="40" height="14" rx="7" fill="#c98b5e"/><rect x="428" y="550" width="20" height="24" rx="3" fill="#fff" stroke="#999"/><path d="M448 556 q8 6 0 12" stroke="#999" fill="none" stroke-width="2"/><path d="M432 545 q4 -10 0 -18 M442 545 q4 -10 0 -18" stroke="#bbb" stroke-width="2" fill="none"/></g>
+<g><rect x="135" y="475" width="175" height="62" rx="18" fill="#fff" stroke="#333" stroke-width="2"/><path d="M290 535 L325 520 L300 530z" fill="#fff" stroke="#333" stroke-width="2"/><text x="222" y="500" text-anchor="middle" font-size="15" font-style="italic" fill="#222">"Pollution? What</text><text x="222" y="522" text-anchor="middle" font-size="15" font-style="italic" fill="#222">pollution?"</text></g>
+<circle cx="580" cy="590" r="90" fill="url(#glow)"/>
+<rect x="545" y="500" width="75" height="165" rx="14" fill="#fafafa" stroke="#aaa" stroke-width="3"/>
+<rect x="555" y="515" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="525" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="535" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="545" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="555" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="565" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<rect x="555" y="575" width="55" height="4" rx="2" fill="#c7d3dc"/>
+<circle cx="582" cy="610" r="8" fill="#2bb8ff"/><text x="582" y="645" text-anchor="middle" font-size="10" font-weight="bold" fill="#246">AIR</text><text x="582" y="657" text-anchor="middle" font-size="10" font-weight="bold" fill="#246">PURIFIER</text>
+<path d="M545 525 q-20 -8 -40 0 t-40 0" stroke="#5cc8ff" stroke-width="3" fill="none" opacity=".8"/>
+<path d="M545 543 q-20 -8 -40 0 t-40 0" stroke="#5cc8ff" stroke-width="3" fill="none" opacity=".8"/>
+<path d="M545 561 q-20 -8 -40 0 t-40 0" stroke="#5cc8ff" stroke-width="3" fill="none" opacity=".8"/>
+<text x="583" y="492" text-anchor="middle" font-size="13" fill="#246" font-weight="bold">HEPA MAX ×3</text>
+<rect x="385" y="360" width="8" height="380" fill="#5a4a32" opacity=".0"/>
+<rect x="40" y="760" width="700" height="30" fill="#bfae8c"/>
+<g><rect x="80" y="800" width="10" height="90" fill="#555"/><rect x="250" y="800" width="10" height="90" fill="#555"/><rect x="60" y="770" width="220" height="50" rx="6" fill="#fff8e6" stroke="#6b2f1a" stroke-width="3"/><text x="170" y="792" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Hon. Minister (BJP)</text><text x="170" y="810" text-anchor="middle" font-size="12" fill="#a33">NO ENTRY • VIP ZONE</text></g>
+<rect x="20" y="840" width="740" height="40" fill="#b8a37d" stroke="#7a6a4c" stroke-width="3"/>
+<rect x="300" y="800" width="5" height="45" fill="#444"/>
+<rect x="325" y="800" width="5" height="45" fill="#444"/>
+<rect x="350" y="800" width="5" height="45" fill="#444"/>
+<rect x="375" y="800" width="5" height="45" fill="#444"/>
+<rect x="400" y="800" width="5" height="45" fill="#444"/>
+<rect x="425" y="800" width="5" height="45" fill="#444"/>
+<rect x="450" y="800" width="5" height="45" fill="#444"/>
+<rect x="475" y="800" width="5" height="45" fill="#444"/>
+<rect x="500" y="800" width="5" height="45" fill="#444"/>
+<rect x="525" y="800" width="5" height="45" fill="#444"/>
+<rect x="550" y="800" width="5" height="45" fill="#444"/>
+<rect x="575" y="800" width="5" height="45" fill="#444"/>
+<rect x="600" y="800" width="5" height="45" fill="#444"/>
+<rect x="625" y="800" width="5" height="45" fill="#444"/>
+<rect x="650" y="800" width="5" height="45" fill="#444"/>
+<rect x="675" y="800" width="5" height="45" fill="#444"/>
+<rect x="700" y="800" width="5" height="45" fill="#444"/>
+<rect x="725" y="800" width="5" height="45" fill="#444"/>
+<rect x="750" y="800" width="5" height="45" fill="#444"/>
+<rect x="300" y="800" width="460" height="5" fill="#444"/>
+</g>
+<g transform="translate(830,900) scale(1.0)"><rect x="-22" y="-95" width="18" height="95" fill="#2d3550"/><rect x="4" y="-95" width="18" height="95" fill="#2d3550"/><rect x="-26" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="2" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="-34" y="-205" width="68" height="115" rx="14" fill="#1f5fc4"/><text x="0" y="-150" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">NSUI</text><rect x="-20" y="-140" width="40" height="3" fill="#fff" opacity=".8"/><path d="M-30 -195 L-48 -255" stroke="#c48a5c" stroke-width="13" stroke-linecap="round"/><path d="M30 -195 L48 -255" stroke="#c48a5c" stroke-width="13" stroke-linecap="round"/><path d="M-30 -195 L-40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><path d="M30 -195 L40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><g transform="translate(0,0)"><rect x="-3" y="-330" width="6" height="80" fill="#8a6a3a"/><rect x="-64" y="-395" width="128" height="80" rx="4" fill="#fffbe8" stroke="#333" stroke-width="3"/><text x="0" y="-367" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">WE CAN'T</text><text x="0" y="-343" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">BREATHE!</text></g><circle cx="0" cy="-232" r="27" fill="#c48a5c"/><path d="M-28 -238 q28 -38 56 0 q-28 -14 -56 0z" fill="#1a1a1a"/><circle cx="-10" cy="-238" r="3" fill="#222"/><circle cx="10" cy="-238" r="3" fill="#222"/><path d="M-16 -246 l10 3 M16 -246 l-10 3" stroke="#222" stroke-width="2.5"/><path d="M-22 -230 h44 v16 q-22 14 -44 0z" fill="#f4f4f4" stroke="#bbb"/><path d="M-22 -226 l-6 -6 M22 -226 l6 -6" stroke="#ddd" stroke-width="2"/></g>
+<g transform="translate(945,880) scale(0.95)"><rect x="-22" y="-95" width="18" height="95" fill="#2d3550"/><rect x="4" y="-95" width="18" height="95" fill="#2d3550"/><rect x="-26" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="2" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="-34" y="-205" width="68" height="115" rx="14" fill="#1f5fc4"/><text x="0" y="-150" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">NSUI</text><rect x="-20" y="-140" width="40" height="3" fill="#fff" opacity=".8"/><path d="M-30 -195 L-48 -255" stroke="#a8714a" stroke-width="13" stroke-linecap="round"/><path d="M30 -195 L48 -255" stroke="#a8714a" stroke-width="13" stroke-linecap="round"/><path d="M-30 -195 L-40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><path d="M30 -195 L40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><g transform="translate(0,-60)"><rect x="-3" y="-330" width="6" height="140" fill="#8a6a3a"/><rect x="-64" y="-395" width="128" height="80" rx="4" fill="#fffbe8" stroke="#333" stroke-width="3"/><text x="0" y="-367" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">CLEAN AIR</text><text x="0" y="-343" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">IS OUR RIGHT</text></g><path d="M-30 -230 q30 -70 60 0 v40 h-60z" fill="#2a1a10"/><circle cx="0" cy="-232" r="27" fill="#a8714a"/><path d="M-28 -238 q28 -38 56 0 q-28 -14 -56 0z" fill="#2a1a10"/><circle cx="-10" cy="-238" r="3" fill="#222"/><circle cx="10" cy="-238" r="3" fill="#222"/><path d="M-16 -246 l10 3 M16 -246 l-10 3" stroke="#222" stroke-width="2.5"/><path d="M-22 -230 h44 v16 q-22 14 -44 0z" fill="#f4f4f4" stroke="#bbb"/><path d="M-22 -226 l-6 -6 M22 -226 l6 -6" stroke="#ddd" stroke-width="2"/></g>
+<g transform="translate(1060,905) scale(1.02)"><rect x="-22" y="-95" width="18" height="95" fill="#2d3550"/><rect x="4" y="-95" width="18" height="95" fill="#2d3550"/><rect x="-26" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="2" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="-34" y="-205" width="68" height="115" rx="14" fill="#1f5fc4"/><text x="0" y="-150" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">NSUI</text><rect x="-20" y="-140" width="40" height="3" fill="#fff" opacity=".8"/><path d="M-30 -195 L-48 -255" stroke="#b97d52" stroke-width="13" stroke-linecap="round"/><path d="M30 -195 L48 -255" stroke="#b97d52" stroke-width="13" stroke-linecap="round"/><path d="M-30 -195 L-40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><path d="M30 -195 L40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><g transform="translate(0,0)"><rect x="-3" y="-330" width="6" height="80" fill="#8a6a3a"/><rect x="-64" y="-395" width="128" height="80" rx="4" fill="#fffbe8" stroke="#333" stroke-width="3"/><text x="0" y="-367" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">ACT NOW,</text><text x="0" y="-343" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">NOT LATER</text></g><circle cx="0" cy="-232" r="27" fill="#b97d52"/><path d="M-28 -238 q28 -38 56 0 q-28 -14 -56 0z" fill="#111"/><circle cx="-10" cy="-238" r="3" fill="#222"/><circle cx="10" cy="-238" r="3" fill="#222"/><path d="M-16 -246 l10 3 M16 -246 l-10 3" stroke="#222" stroke-width="2.5"/><path d="M-22 -230 h44 v16 q-22 14 -44 0z" fill="#f4f4f4" stroke="#bbb"/><path d="M-22 -226 l-6 -6 M22 -226 l6 -6" stroke="#ddd" stroke-width="2"/></g>
+<g transform="translate(1175,885) scale(0.93)"><rect x="-22" y="-95" width="18" height="95" fill="#2d3550"/><rect x="4" y="-95" width="18" height="95" fill="#2d3550"/><rect x="-26" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="2" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="-34" y="-205" width="68" height="115" rx="14" fill="#1f5fc4"/><text x="0" y="-150" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">NSUI</text><rect x="-20" y="-140" width="40" height="3" fill="#fff" opacity=".8"/><path d="M-30 -195 L-48 -255" stroke="#d09a6a" stroke-width="13" stroke-linecap="round"/><path d="M30 -195 L48 -255" stroke="#d09a6a" stroke-width="13" stroke-linecap="round"/><path d="M-30 -195 L-40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><path d="M30 -195 L40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><g transform="translate(0,-60)"><rect x="-3" y="-330" width="6" height="140" fill="#8a6a3a"/><rect x="-64" y="-395" width="128" height="80" rx="4" fill="#fffbe8" stroke="#333" stroke-width="3"/><text x="0" y="-367" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">PURIFIERS FOR</text><text x="0" y="-343" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">MINISTERS,</text></g><path d="M-30 -230 q30 -70 60 0 v40 h-60z" fill="#3a2416"/><circle cx="0" cy="-232" r="27" fill="#d09a6a"/><path d="M-28 -238 q28 -38 56 0 q-28 -14 -56 0z" fill="#3a2416"/><circle cx="-10" cy="-238" r="3" fill="#222"/><circle cx="10" cy="-238" r="3" fill="#222"/><path d="M-16 -246 l10 3 M16 -246 l-10 3" stroke="#222" stroke-width="2.5"/><path d="M-22 -230 h44 v16 q-22 14 -44 0z" fill="#f4f4f4" stroke="#bbb"/><path d="M-22 -226 l-6 -6 M22 -226 l6 -6" stroke="#ddd" stroke-width="2"/></g>
+<g transform="translate(1290,900) scale(1.0)"><rect x="-22" y="-95" width="18" height="95" fill="#2d3550"/><rect x="4" y="-95" width="18" height="95" fill="#2d3550"/><rect x="-26" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="2" y="-6" width="24" height="10" rx="4" fill="#222"/><rect x="-34" y="-205" width="68" height="115" rx="14" fill="#1f5fc4"/><text x="0" y="-150" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">NSUI</text><rect x="-20" y="-140" width="40" height="3" fill="#fff" opacity=".8"/><path d="M-30 -195 L-48 -255" stroke="#9e6a44" stroke-width="13" stroke-linecap="round"/><path d="M30 -195 L48 -255" stroke="#9e6a44" stroke-width="13" stroke-linecap="round"/><path d="M-30 -195 L-40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><path d="M30 -195 L40 -222" stroke="#1f5fc4" stroke-width="16" stroke-linecap="round"/><g transform="translate(0,0)"><rect x="-3" y="-330" width="6" height="80" fill="#8a6a3a"/><rect x="-64" y="-395" width="128" height="80" rx="4" fill="#fffbe8" stroke="#333" stroke-width="3"/><text x="0" y="-367" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">SMOG FOR</text><text x="0" y="-343" text-anchor="middle" font-size="16" font-weight="bold" fill="#b51c1c">STUDENTS?</text></g><circle cx="0" cy="-232" r="27" fill="#9e6a44"/><path d="M-28 -238 q28 -38 56 0 q-28 -14 -56 0z" fill="#111"/><circle cx="-10" cy="-238" r="3" fill="#222"/><circle cx="10" cy="-238" r="3" fill="#222"/><path d="M-16 -246 l10 3 M16 -246 l-10 3" stroke="#222" stroke-width="2.5"/><path d="M-22 -230 h44 v16 q-22 14 -44 0z" fill="#f4f4f4" stroke="#bbb"/><path d="M-22 -226 l-6 -6 M22 -226 l6 -6" stroke="#ddd" stroke-width="2"/></g>
+<g><rect x="850" y="905" width="420" height="44" rx="4" fill="#1f5fc4" stroke="#fff" stroke-width="3"/><text x="1060" y="935" text-anchor="middle" font-size="22" font-weight="bold" fill="#fff">NSUI • SAVE DELHI&apos;S LUNGS</text></g>
+<g transform="translate(1440,905)"><rect x="-14" y="-80" width="12" height="80" fill="#e8e0cc" transform="rotate(8)"/><rect x="2" y="-80" width="12" height="80" fill="#e8e0cc"/><path d="M-30 -190 q25 -15 55 0 l5 115 h-65z" fill="#8b7d6b" transform="rotate(12 0 -80)"/><circle cx="18" cy="-195" r="24" fill="#b07a52"/><path d="M-2 -205 q20 -25 42 0" fill="#eee"/><path d="M8 -185 q10 -6 22 0" stroke="#ddd" stroke-width="5" fill="none"/><path d="M6 -200 l8 3 M24 -200 l8 -2" stroke="#222" stroke-width="2.5"/><rect x="44" y="-120" width="5" height="122" fill="#5a3a20"/><path d="M30 -125 q20 -12 22 5" stroke="#5a3a20" stroke-width="6" fill="none"/><path d="M38 -150 L45 -122" stroke="#b07a52" stroke-width="10" stroke-linecap="round"/><path d="M0 -165 q-15 10 -2 20" stroke="#b07a52" stroke-width="10" stroke-linecap="round" fill="none"/></g>
+<text x="1480" y="690" font-size="20" font-weight="bold" fill="#3a2a1a" font-style="italic" transform="rotate(-10 1480 690)">*cough*</text>
+<text x="1475" y="725" font-size="16" font-weight="bold" fill="#3a2a1a" font-style="italic" transform="rotate(8 1475 725)">*cough*</text>
+<g transform="translate(1548,960)"><rect x="-60" y="-55" width="110" height="10" fill="#6b4a2a"/><rect x="-55" y="-45" width="8" height="45" fill="#6b4a2a"/><rect x="38" y="-45" width="8" height="45" fill="#6b4a2a"/><path d="M-30 -150 q20 -10 45 0 l10 95 h-65z" fill="#d9d9f0"/><path d="M-30 -150 q-5 50 -10 95" stroke="#c94d7a" stroke-width="10" fill="none"/><circle cx="-5" cy="-165" r="22" fill="#a56e47"/><path d="M-27 -168 q22 -32 44 0" fill="#ccc"/><circle cx="-5" cy="-188" r="9" fill="#ccc"/><circle cx="-12" cy="-168" r="7" fill="none" stroke="#333" stroke-width="2"/><circle cx="4" cy="-168" r="7" fill="none" stroke="#333" stroke-width="2"/><rect x="-20" y="-158" width="14" height="10" rx="2" fill="#3a7bd5"/><path d="M-25 -120 q5 -25 10 -35" stroke="#a56e47" stroke-width="9" stroke-linecap="round" fill="none"/></g>
+<text x="1515" y="760" font-size="15" font-weight="bold" fill="#3a2a1a" font-style="italic">wheeze...</text>
+<g transform="translate(1420,995)"><ellipse cx="0" cy="-35" rx="48" ry="22" fill="#c98a4b"/><rect x="-38" y="-25" width="10" height="28" fill="#c98a4b"/><rect x="-18" y="-25" width="10" height="28" fill="#c98a4b"/><rect x="18" y="-25" width="10" height="28" fill="#c98a4b"/><rect x="34" y="-25" width="10" height="28" fill="#c98a4b"/><path d="M44 -40 q20 -5 18 -25" stroke="#c98a4b" stroke-width="8" fill="none" stroke-linecap="round"/><ellipse cx="-50" cy="-42" rx="22" ry="18" fill="#c98a4b"/><ellipse cx="-70" cy="-36" rx="11" ry="9" fill="#b07436"/><path d="M-48 -58 q-8 18 6 22" fill="#8a5424"/><circle cx="-80" cy="-38" r="3" fill="#222"/><path d="M-58 -48 l6 2 M-50 -50 l-6 4" stroke="#222" stroke-width="2"/><path d="M-72 -28 q-4 10 4 12" fill="#e66" /></g>
+<text x="1215" y="985" font-size="17" font-weight="bold" fill="#3a2a1a" font-style="italic" transform="rotate(-6 1215 985)">*hack hack*</text>
+<rect x="760" y="300" width="840" height="700" fill="#a8916a" opacity=".12"/>
+<rect x="0" y="0" width="1600" height="70" fill="#111" opacity=".85"/>
+<text x="800" y="46" text-anchor="middle" font-size="32" font-weight="bold" fill="#fff">INSIDE: AQI 12  •  OUTSIDE: AQI 498</text>
+<rect x="0" y="1000" width="1600" height="0"/>
+</svg>

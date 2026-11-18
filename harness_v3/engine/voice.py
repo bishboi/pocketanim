@@ -142,9 +142,12 @@ def speak_gemini(lines: list[dict], out: Path, voice: str, pause: float, languag
 
 def _syllables(w: str) -> float:
     """How long a word takes, roughly: its vowel groups (Roman letters or Devanagari), a pause after punctuation."""
+    import unicodedata
     plain = _plain(w)
-    n = (len(plain) * 1.4 if plain.isdigit() else len(re.findall(r"[aeiouy]+", plain))
-         or len(re.findall(r"[\u0900-\u097F]", plain)) / 2 or 1)
+    # Roman letters: vowel groups; an Indian script (or Ol Chiki, Perso-Arabic): its base letters, each about a
+    # syllable's beat less a little (a vowel sign or a virama joins its letter, it adds no beat)
+    letters = sum(1 for ch in plain if ord(ch) > 0x2FF and unicodedata.category(ch) == "Lo")
+    n = (len(plain) * 1.4 if plain.isdigit() else len(re.findall(r"[aeiouy]+", plain)) or letters * 0.8 or 1)
     return max(1.0, n) + (0.8 if re.search(r"[,;:]$", w) else 1.4 if re.search(r"[.?!]$", w) else 0.0)
 
 
@@ -266,7 +269,7 @@ def main() -> None:
     ap.add_argument("--voice", default="en_US-ryan-high")
     ap.add_argument("--pause", type=float, default=0.45)
     ap.add_argument("--speed", type=float, default=1.05, help="Piper's length scale: above 1 is slower")
-    ap.add_argument("--language", default="en", help="en | hinglish | hi: how it is spoken and how its words are timed")
+    ap.add_argument("--language", default="en", help="en | hinglish | hi | bn | ta ... (langs.py): how it is spoken and how its words are timed")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

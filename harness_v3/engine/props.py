@@ -6186,7 +6186,7 @@ def _waterlogging(m, w):
 def word(txt, x, y, h, c="#22201E", maxw=None):
     """Words in the look's headline face, bold, fitted to a height (and a width)."""
     import look
-    t = Text(str(txt), font=look.L.get("font") or "Oswald", weight="BOLD", color=c)
+    t = Text(str(txt), font=look.for_script(txt, look.L.get("font") or "Oswald"), weight="BOLD", color=c)
     t.scale_to_fit_height(h)
     if maxw and t.width > maxw:
         t.scale_to_fit_width(maxw)

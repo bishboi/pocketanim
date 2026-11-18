@@ -309,13 +309,13 @@ function langOptions(v, extra) {
     all.map(([k, name]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(name)}</option>`).join("");
 }
 const langName = (k) => (config.languages || {})[k || "en"] || k || "English";
-const LANG_HINT = "Hinglish: everyday Hindi in Roman letters with English words, as Indian explainers speak; the script, the voice and the words on the screen all follow it";
+const LANG_HINT = "The script, the voice and the words on the screen all follow it. Hinglish: everyday Hindi in Roman letters with English words. Every Indian language is written in its own script and spoken by Gemini TTS";
 
-// Hinglish wants a voice that speaks Hindi (Gemini TTS; the offline Piper voices are English): one picked, and the
-// narration's example in Hinglish.
+// Any language but English wants a voice that speaks it (Gemini TTS; the offline Piper voices are English): one picked,
+// and the narration's example in Hinglish when that is the language.
 function langPicked(f) {
   const lang = $(`#${f}-lang`).value, voice = $(`#${f}-voice`), text = $("#n-text");
-  if (lang === "hinglish" && voice && !voice.value.startsWith("gemini:")) voice.value = "gemini:Kore";
+  if (lang && lang !== "en" && voice && !voice.value.startsWith("gemini:")) voice.value = "gemini:Kore";
   if (f === "n" && text) text.placeholder = lang === "hinglish"
     ? "Socho, 1440 mein ek kitaab banane mein mahine lagte the.\nEk monk, ek candle, aur ek quill, bas itna hi."
     : "In 1853, four American warships sailed into Tokyo Bay.";

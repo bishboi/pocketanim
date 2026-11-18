@@ -404,6 +404,12 @@ bahut, kyunki, lekin, aur); numbers as digits; friendly and direct ("dekho", "so
 }
 
 
+import langs as _langs  # noqa: E402
+for _k in _langs.INDIAN:            # each Indian language: how its script is written, and what the screen shows
+    SCRIPT_LANG.setdefault(_k, _langs.script_rules(_k))
+    LANG.setdefault(_k, _langs.score_rules(_k))
+
+
 def with_language(system: str, language: str | None) -> str:
     return system + LANG.get(language or "en", "")
 

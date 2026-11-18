@@ -108,11 +108,10 @@ DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 
 
 def for_script(words: str, font: str, headline: bool = True) -> str:
-    """The face words are set in: Hindi (Devanagari letters) in Teko for headlines, Hind for the rest (setup.sh
-    fetches them; the kit's own faces have no Devanagari)."""
-    if DEVANAGARI.search(str(words)):
-        return "Teko" if headline else "Hind"
-    return font
+    """The face words are set in: the kit's own faces have Latin letters only, so words in an Indian script (or Ol
+    Chiki, Perso-Arabic) are set in a face that has them (langs.SCRIPTS; setup.sh fetches them)."""
+    import langs
+    return langs.face(words, font, headline)
 
 
 def text(words: str, size: float = 0.6, bold: bool = False, serif: bool = False, color=None, width: float | None = None,

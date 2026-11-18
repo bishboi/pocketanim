@@ -38,6 +38,9 @@ STYLES = {
     "hi": "a warm, clear Hindi documentary narrator, unhurried",
     "character": "in character, as a person in the story speaking their own line, vivid and natural",
 }
+import langs  # noqa: E402
+for _k in langs.INDIAN:             # each Indian language: a native narrator of it
+    STYLES.setdefault(_k, langs.tts_style(_k))
 
 
 def voices_for(who: list[str], narrator: str, given: dict) -> dict:

@@ -23,8 +23,9 @@ w58-w62     morph fields works stagger .14
 
 | File | |
 |---|---|
+| `engine/langs.py` | The languages: English, Hinglish and the 21 Indian languages Gemini TTS speaks, each with its name, its own script, how it is written, the voice's style and the faces its letters are set in; the script writer, the storyboard and score calls, the voice and the UI all read it. |
 | `engine/voice.py` | The narration spoken (Gemini TTS with `gemini:VOICE`, or Piper offline; a line at a time, a pause between) and every written word timed (English: Whisper, matched to the script's words; Hinglish: by syllables, held at the pauses heard). |
-| `engine/tts_gemini.py` | Google's Gemini TTS (`gemini-3.8-flash-lite-tts`): a line a call, several at once, its silence trimmed; the voices; each language's speaking style (English, Hinglish). |
+| `engine/tts_gemini.py` | Google's Gemini TTS (`gemini-3.8-flash-lite-tts`): a line a call, several at once, its silence trimmed; the voices; each language's speaking style (English, Hinglish, and a native narrator for each Indian language in `langs.py`). |
 | `engine/score.py` | The score's grammar and its parser (times: `w12`, `w12-w19`, `w12+0.4`, `t3.5`, `end`). |
 | `engine/look.py` | The look (palette, fonts) and the primitives. |
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
@@ -75,6 +76,20 @@ w58-w62     morph fields works stagger .14
   after them. Without the key, Piper is the default.
 - **Style:** `V3_TTS_STYLE` says how it is spoken. Left blank, each language has its own: a warm documentary
   narrator in English; a friendly Indian explainer in Hinglish.
+
+**The Indian languages.** Besides English and Hinglish, a video can be made in every Indian language Gemini TTS
+(`gemini-3.8-flash-lite-tts`) speaks: Hindi, Bengali (Bangla), Gujarati, Marathi, Punjabi, Tamil, Telugu, Kannada,
+Malayalam, Odia, Assamese, Bhojpuri, Awadhi, Chhattisgarhi, Maithili, Magahi, Nepali, Kashmiri, Manipuri (Meitei),
+Santali and Mizo (`engine/langs.py`, the one table everything reads). Pick it on a new run or a book's script; then:
+- **Writing:** the script is written in that language, in its own script (Devanagari, Bengali-Assamese, Gurmukhi,
+  Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam, Perso-Arabic for Kashmiri, Meetei Mayek for Manipuri, Ol Chiki
+  for Santali, Roman for Mizo), as a teacher speaks it today; Bhojpuri, Awadhi, Chhattisgarhi, Maithili and Magahi
+  as they are spoken, not as Hindi. Titles are in the language too.
+- **On screen:** tags, labels, cards and titles are in the language and its script, set in a face that has its
+  letters (Noto Sans for each script, Teko and Hind for Devanagari; `setup.sh` fetches them). Plans, thing names and
+  picture prompts stay in English.
+- **Voice:** Gemini TTS as a native narrator of the language (an English-only Piper voice is swapped for Gemini);
+  each word timed by its letters and the pauses heard, as for Hinglish.
 
 **Hinglish.** Pick **Language: Hinglish** on a new run, or on a book's script; a script's videos are built in its
 language. Then:

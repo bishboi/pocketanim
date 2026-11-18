@@ -205,7 +205,9 @@ def listing() -> list[dict]:
     return out
 
 
-LANGUAGES = {"en": "English", "hinglish": "Hinglish"}     # hinglish: everyday Hindi in Roman letters, English words in it
+import langs  # noqa: E402
+# English, Hinglish (everyday Hindi in Roman letters, English words in it) and the Indian languages Gemini TTS speaks
+LANGUAGES = dict(langs.NAMES)
 
 
 def default_voice() -> str:
@@ -213,6 +215,12 @@ def default_voice() -> str:
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         return "gemini:" + (os.environ.get("V3_TTS_VOICE") or "Kore")
     return "en_US-ryan-high"
+
+
+def _voice_for_language(st: dict) -> None:
+    """Any language but English is spoken by Gemini TTS (the offline Piper voices speak English only)."""
+    if st.get("language", "en") != "en" and not str(st.get("voice") or "").startswith("gemini"):
+        st["voice"] = "gemini:" + (os.environ.get("V3_TTS_VOICE") or "Kore")
 
 
 def create(title: str, narration: str, settings: dict) -> dict:
@@ -227,6 +235,7 @@ def create(title: str, narration: str, settings: dict) -> dict:
                         "look": settings.get("look") or os.environ.get("V3_LOOK") or "editorial",
                         "mp4": bool(settings["mp4"]) if settings.get("mp4") is not None else RENDER_MP4},
            "steps": {s: {"status": "waiting"} for s in STEPS}, "calls": [], "cost": 0.0, "tokens": 0}
+    _voice_for_language(run["settings"])
     d = run_dir(rid)
     d.mkdir(parents=True, exist_ok=True)
     (d / "narration.txt").write_text(narration.strip() + "\n")
@@ -1516,6 +1525,7 @@ def set_settings(rid: str, changes: dict) -> dict:
             run["settings"]["language"] = changes["language"]
         if changes.get("voice"):
             run["settings"]["voice"] = str(changes["voice"])
+        _voice_for_language(run["settings"])
         save(run)
     return run["settings"]
 

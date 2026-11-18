@@ -67,13 +67,24 @@ cp requirements.txt ../.venv3/requirements.installed   # start.sh sets up again 
 step "icons and voices"
 mkdir -p .cache/voices
 [ -d .cache/package ] || (cd .cache && npm pack --silent lucide-static@0.454.0 >/dev/null 2>&1 && tar xzf lucide-static-0.454.0.tgz)
-# The kit: its fonts (headlines, labels, body) and the world's flags (exact, never made by a model).
+# The kit: its fonts (headlines, labels, body; the Indian scripts' faces) and the world's flags (exact, never made by a model).
 mkdir -p .cache/fonts
 GF=https://raw.githubusercontent.com/google/fonts/main/ofl
 for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono-Medium.ttf:IBMPlexMono-Medium.ttf" \
          "ibmplexmono/IBMPlexMono-Regular.ttf:IBMPlexMono-Regular.ttf" "inter/Inter%5Bopsz,wght%5D.ttf:Inter.ttf" \
          "caveat/Caveat%5Bwght%5D.ttf:Caveat[wght].ttf" "teko/Teko%5Bwght%5D.ttf:Teko[wght].ttf" \
-         "hind/Hind-Medium.ttf:Hind-Medium.ttf" "hind/Hind-SemiBold.ttf:Hind-SemiBold.ttf"; do
+         "hind/Hind-Medium.ttf:Hind-Medium.ttf" "hind/Hind-SemiBold.ttf:Hind-SemiBold.ttf" \
+         "notosansbengali/NotoSansBengali%5Bwdth,wght%5D.ttf:NotoSansBengali.ttf" \
+         "notosansgurmukhi/NotoSansGurmukhi%5Bwdth,wght%5D.ttf:NotoSansGurmukhi.ttf" \
+         "notosansgujarati/NotoSansGujarati%5Bwdth,wght%5D.ttf:NotoSansGujarati.ttf" \
+         "notosansoriya/NotoSansOriya%5Bwdth,wght%5D.ttf:NotoSansOriya.ttf" \
+         "notosanstamil/NotoSansTamil%5Bwdth,wght%5D.ttf:NotoSansTamil.ttf" \
+         "notosanstelugu/NotoSansTelugu%5Bwdth,wght%5D.ttf:NotoSansTelugu.ttf" \
+         "notosanskannada/NotoSansKannada%5Bwdth,wght%5D.ttf:NotoSansKannada.ttf" \
+         "notosansmalayalam/NotoSansMalayalam%5Bwdth,wght%5D.ttf:NotoSansMalayalam.ttf" \
+         "notosansmeeteimayek/NotoSansMeeteiMayek%5Bwght%5D.ttf:NotoSansMeeteiMayek.ttf" \
+         "notosansolchiki/NotoSansOlChiki%5Bwght%5D.ttf:NotoSansOlChiki.ttf" \
+         "notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf:NotoNaskhArabic.ttf"; do
   [ -f ".cache/fonts/${f#*:}" ] || curl -sfL -o ".cache/fonts/${f#*:}" "$GF/${f%%:*}" || echo "could not fetch the font ${f#*:}"
 done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \

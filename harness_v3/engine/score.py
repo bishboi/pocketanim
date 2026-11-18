@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import textwrap
 from dataclasses import dataclass, field
 
 SCREEN_W, SCREEN_H = 14.22, 8.0
@@ -272,7 +273,7 @@ def _is_time(tok: str) -> bool:
 KNOWN_VERBS = {"in", "out", "move", "along", "morph", "color", "dim", "lift", "scale", "spin", "pulse", "shake", "count",
                "grow", "cam", "flow", "float", "bracket", "spotlight", "chapter", "bring", "ring", "circle", "mark",
                "underline", "highlight", "strike", "box", "tick", "cross", "stamp", "callout", "pan", "type", "fill",
-               "connect", "follow", "tip", "era", "glow", "walk", "run", "point", "wave", "talk", "carry", "sit",
+               "connect", "follow", "tip", "era", "glow", "play", "walk", "run", "point", "wave", "talk", "carry", "sit",
                "stand", "turn", "cheer", "shrug", "think", "bow", "jump", "nod", "emote", "dance", "clap",
                "facepalm", "laugh", "cry", "shiver", "kick", "look", "faint", "hug", "react", "annex", "travel",
                "give", "throw", "push", "tug", "argue", "whisper", "ride", "dismount", "graze", "rear", "fly",
@@ -287,7 +288,8 @@ KINDS = {"funnel", "iceberg", "ranking", "mindmap", "checklist", "proscons", "kp
          "stat", "calendar", "meter", "balance", "venn", "formula", "bubble", "weather", "tree", "numberline", "plot",
          "triangle", "molecule", "equation", "circuit", "race", "parliament", "market", "climate", "quiz", "lens",
          "split", "clock", "odometer", "clipping", "shade", "march", "inset", "layers", "globe", "who", "polaroids",
-         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note", "eyes", "animal", "prop"}
+         "backdrop", "portrait", "person", "phrase", "nation", "country", "isotype", "note", "eyes", "animal", "prop",
+         "manim"}
 ARG_WORDS = {"stagger", "to", "by", "n", "arc", "zoom", "via", "into", "at", "dim"}
 
 
@@ -367,6 +369,21 @@ def _join_xy(toks: list[str]) -> list[str]:
     return out
 
 
+def _code_blocks(text: str) -> tuple[list[str], dict[int, str]]:
+    """The score's lines with each `ent NAME manim` thing's code lines (those starting with `|` under it) taken out
+    (left blank, so line numbers hold), and that code by its `ent` line's number."""
+    lines, codes, owner = text.splitlines(), {}, None
+    for i, ln in enumerate(lines, 1):
+        s = ln.lstrip()
+        if s.startswith("|") and owner:
+            body = s[1:]
+            codes.setdefault(owner, []).append(body[1:] if body.startswith(" ") else body)
+            lines[i - 1] = ""
+        elif s.strip():
+            owner = i if re.match(r"^\s*ent\s+\S+\s+manim\b", ln) else None
+    return lines, {k: textwrap.dedent("\n".join(v)) for k, v in codes.items()}
+
+
 def parse(text: str, words: list[dict], seconds: float) -> Score:
     """A score's text read against the narration's words. A line that cannot be read is left out, with a note
     (the rest plays). Two mends, each said in the notes (the shots are written one call at a time, and a small
@@ -375,7 +392,8 @@ def parse(text: str, words: list[dict], seconds: float) -> Score:
     sc = Score(end=seconds)
     state: dict = {"shot": None}
     alias: dict[str, str] = {}
-    for n, raw in enumerate(text.splitlines(), 1):
+    lines, state["codes"] = _code_blocks(text)
+    for n, raw in enumerate(lines, 1):
         try:
             toks = shlex.split(raw, comments=True)      # a `#` outside quotes starts a comment
         except ValueError as e:
@@ -495,6 +513,11 @@ def _one_line(sc: Score, toks: list[str], n: int, words, seconds, alias: dict, s
             keep = 4 if toks[2] in ("prop", "animal") else 3
             toks = toks[:keep] + [_renamed(t, alias) for t in toks[keep:]]
             args, mods = parse_mods(toks[3:])
+            if toks[2] == "manim":
+                mods["_code"] = state.get("codes", {}).get(n, "")
+                mods["_name"] = toks[1]
+                if not mods["_code"].strip():
+                    sc.notes.append(f"line {n}: {toks[1]} (manim) has no code under it (`| def build(t): ...`)")
             if cast is not None:
                 args, mods = list(cast[1]) + args, {**cast[2], **mods}
             nd = mods.get("nudge")

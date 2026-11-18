@@ -40,6 +40,8 @@ from manim import (BOLD, DOWN, LEFT, ORIGIN, RIGHT, UP, Arc, Circle, CubicBezier
                    Line, Rectangle, RoundedRectangle, SVGMobject, Text, VGroup, VMobject, CurvedArrow, Arrow,
                    ParametricFunction, NORMAL, ITALIC, ImageMobject, MarkupText, LineJointType)
 
+import sys
+
 import assets
 
 ICONS = Path(__file__).resolve().parent.parent / ".cache" / "package" / "icons"
@@ -527,6 +529,13 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = arrow(a, b, float(mods.get("curve", 0)), c, bool(mods.get("dashed")))
     elif kind in KIT2:
         m = _kit2(kind, args, mods, size, c, locate, find)
+    elif kind == "manim":                      # the score's own manim code (codekit.py)
+        import codekit
+        m = codekit.CodeThing(str(mods.get("_code") or ""), None, str(mods.get("_name") or "drawing"))
+        if m.error:
+            print(f"manim code: {m.error[:300]}", file=sys.stderr)
+        if size:
+            m.scale(float(size) / max(m.drawing.width, m.drawing.height, 0.01))
     elif kind in KIT3:
         import kit3
         m = kit3.BUILD[kind](args, mods, c)

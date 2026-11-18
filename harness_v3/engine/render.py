@@ -79,7 +79,7 @@ BESIDE_KINDS = {"pic", "photo", "icon", "tag", "card", "label", "text", "num", "
 HUD_Z = 970             # what stays on the screen (captions, the chapter bar) over everything but the grain
 
 DEFAULT_RUN = {"in": 0.7, "out": 0.5, "move": 0.9, "along": 1.6, "morph": 0.9, "color": 0.6, "dim": 0.5, "lift": 0.5,
-               "scale": 0.7, "spin": 0.8, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
+               "scale": 0.7, "spin": 0.8, "play": 2.0, "pulse": 0.55, "shake": 0.5, "count": 1.2, "grow": 1.0, "ring": 0.6,
                "mark": 0.5, "flow": 2.0, "cam": 1.4, "circle": 0.6, "underline": 0.5, "highlight": 0.6, "strike": 0.4,
                "box": 0.6, "tick": 0.4, "cross": 0.4, "stamp": 0.3, "callout": 0.8, "bracket": 0.6, "spotlight": 0.6,
                "pan": 6.0, "type": 1.2, "fill": 1.0, "connect": 0.8, "follow": 2.0, "tip": 1.0, "era": 1.6, "glow": 0.8,
@@ -998,6 +998,16 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
             to = float(re.sub(r"[^\d.\-]", "", act.args[0]) or 0)
             for m in self._valued(act.target, v):
                 (self._count if v == "count" else self._grow)(m, to, t0, t1)
+        elif v == "play":
+            # The score's own manim drawing played: build(t) redrawn every frame, t from where it is to 1 (or `to K`).
+            import codekit
+            to = float(self._opt(act, "to", 1.0))
+            for _, m in self._targets(act.target):
+                if isinstance(m, codekit.CodeThing):
+                    st = {}
+                    self.tweens.append(Call(t0, t1, lambda m=m, st=st: st.update(t=m.t),
+                                            lambda a, m=m, st=st: m.set_t(st["t"] + (to - st["t"]) * a), None,
+                                            rate_functions.linear))
         elif v == "pan":
             # Slowly into a picture (a camera over a still): `pan T [zoom K] [by DX,DY]`.
             k = float(self._opt(act, "zoom", 1.12))

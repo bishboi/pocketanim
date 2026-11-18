@@ -153,6 +153,23 @@ KIT = {
   event YEAR "WORDS" on TL   an event at its year, drawn the timeline's way (kept clear of the others)
   span Y0 Y1 "WORDS" on TL   a stretch of years: a band along the axis (on a ribbon, an era of the band itself)
              (`in` each on the word that names it)""",
+    "code": """  manim [size S] [at X,Y]   YOUR OWN MANIM CODE, for what no prop or piece above draws: a curve or wave that moves,
+             a mechanism (gears, a crank, a lever, a pulley), a geometric construction, a field of arrows, an orbit,
+             a growing pattern. Its code lines follow it, each starting with `|`, defining build(t) that returns one
+             Mobject (a VGroup of parts) drawn about the origin, about 6 wide:
+               ent crank manim size 4 at 3,0
+               | def build(t):
+               |     a = 2 * PI * t
+               |     wheel = Circle(radius=1, color=C["ink"], stroke_width=5).set_fill(C["sand"], 1)
+               |     pin = rotate_vector(RIGHT * 0.8, a)
+               |     return VGroup(wheel, Line(pin, pin + RIGHT * 2, color=C["coral"], stroke_width=8))
+             `wA-wB play NAME` redraws it every frame with t going 0 -> 1 across those words (`play NAME to 0.5`
+             stops half way); build(0) is how it first looks. Use manim's shapes (Circle, Line, Arrow, Polygon,
+             Rectangle, Dot, Axes, NumberPlane, ParametricFunction, VGroup, Text for 1-3 words), constants (UP, LEFT,
+             PI...), np and math, and the look's colours C["ink"], C["accent"], C["coral"], C["teal"], C["navy"],
+             C["sand"], C["card"]. No imports, no files, no names starting with _, no while loops, no MathTex/Tex,
+             no pictures; under 40 lines; keep the parts the same in number for every t (it then moves smoothly).
+             Use it where it shows the idea better than a prop or a piece, not for what they already draw.""",
     "shapes": """  funnel "VISITORS:1000" "SIGNUPS:300" "BUYERS:40"   bands narrowing, each with its number (fewer at each step)
   iceberg "WHAT IS SEEN" "BELOW" "BELOW" ...   the tip above the water, the hidden causes named below it
   ranking "China:1400" "India:1380" "USA:330"   places in order: medals for the top three, bars to scale
@@ -274,6 +291,9 @@ KIT_WORDS = {
            r"annex|conquer|seiz|sail|voyage|front line|province|territor|rival|tension|north|south|"
            r"state[s]?\b|glar|angry|feud",
     "timeline": r"timeline|\byears?\b|centur|date|\bera\b",
+    "code": r"wave|oscillat|vibrat|orbit|spiral|fractal|pendulum|gear|crank|piston|lever|pulley|mechanism|"
+            r"engine works|vector|field|force|magnet|construct|geometry|sine|parabola|curve|trajectory|projectile|"
+            r"rotate|rotation of|spin|pattern|symmetr|tessellat|reflection|refraction|ray|lens|light travels",
     "shapes": r"funnel|iceberg|hidden|beneath the surface|rank|top (three|five|ten)|largest|mind ?map|branches|"
               r"checklist|to-do|pros|cons|advantages|disadvantages|for and against|kpi|growth rate|gdp|revenue|"
               r"donut|share of|before and after|progress|literacy|quadrant|two by two|matrix",
@@ -304,7 +324,7 @@ def kit_for(plan: str, cast: list[str] | None = None) -> list[str]:
     named = {w.strip().lower() for w in re.split(r"[,;/ ]+", m.group(1))} if m else set()
     alias = {"flow": "diagram", "pyramid": "diagram", "cycle": "diagram", "tree": "diagram", "venn": "diagram",
              "quote": "paper", "doc": "paper", "title": "paper", "formula": "paper", "bars": "chart", "line": "chart",
-             "donut": "chart", "stack": "chart", "waffle": "chart", "stat": "chart", "label": "labels",
+             "donut": "chart", "stack": "chart", "manim": "code", "waffle": "chart", "stat": "chart", "label": "labels",
              "compare": "lists", "table": "lists", "list": "lists", "steps": "lists", "calendar": "measure",
              "meter": "measure", "balance": "measure", "backdrop": "scene", "weather": "scene", "portrait": "scene",
              "bubble": "scene", "numberline": "science", "plot": "science", "triangle": "science",
@@ -343,7 +363,9 @@ map coloured by value), march (an army or migration arrow), inset, globe, layers
 eyes (a region of a map with a face: rivals glaring), people on a map (small figures at their places),
 travel (a ship, cart or train along a route), isotype (a picture row: "1 in 4"), people (stick figures who walk,
 point, talk, carry things, give, argue, shake hands: acting out what is said; countries as characters; a thing come
-alive with a face and legs).
+alive with a face and legs), manim (a drawing made in code for what nothing above draws: a wave or curve that
+moves, a mechanism such as gears or a crank, a geometric construction, a field of arrows, an orbit; played in step
+with the words).
 The shots cover every word, in order, without gaps.
 Prefer real things (a picture of an object, a person, a building; a flag; a paper card) and things that move,
 transform or count (dots for people, a bar for a gap, a map) over text. Keep continuity: a thing may carry on into the next shot.

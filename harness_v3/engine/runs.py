@@ -13,7 +13,7 @@ words.json, storyboard.json, video.score, video.mp4, and the critic's frames. Th
     critic      frames judged by a vision model (optional)
 
 A long narration (more than about 4 minutes) is made in parts (parts.py): one voice, one cast call, a storyboard
-call a part, then its layout, timeline and render a part at a time (V3_PART_JOBS at once), joined by the player
+call a part, then its layout, timeline and render, all its parts at once (V3_PART_JOBS caps it), joined by the player
 (player/parts.json) and by the MP4.
 
 Each call is recorded: its step, label, model, prompt (system and user), answer, tokens, cost (OpenRouter's own
@@ -81,8 +81,10 @@ ROOM = int(os.environ.get("V3_ROOM", "8000"))
 REASONING = os.environ.get("V3_REASONING", "low").strip().lower()
 _locks: dict[str, threading.Lock] = {}
 _busy: set[str] = set()
-# How many runs make their video at once (the rest wait, "queued"): voice and render are heavy.
-_slots = threading.Semaphore(int(os.environ.get("V3_PARALLEL", "1")))
+# How many runs make their video at once: all of them, unless V3_PARALLEL caps it (the rest then wait, "queued").
+# Most of a run is waiting on models; its renders share the machine's cores (render.py's chunks, see _render_jobs).
+PARALLEL = int(os.environ.get("V3_PARALLEL", "0") or 0)
+_slots = threading.Semaphore(PARALLEL if PARALLEL > 0 else 10 ** 6)
 _stop: set[str] = set()                      # runs asked to stop (they stop at the next check)
 _procs: dict[str, set] = {}     # a run's voice, renders or bakes (a long video's parts at once), killed when stopped
 
@@ -1031,7 +1033,16 @@ def _tail(p: subprocess.CompletedProcess) -> str:
     return "\n".join(lines)[-1500:]
 
 
-PART_JOBS = max(1, int(os.environ.get("V3_PART_JOBS", "3")))   # a long video's parts baked at once
+# A long video's parts laid out, baked and rendered at once: all of them, as many as the machine's memory holds
+# (each takes about 2 GB), unless V3_PART_JOBS says how many.
+def _part_room() -> int:
+    try:
+        return max(1, int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2 ** 30 // 2))
+    except (ValueError, OSError, AttributeError):
+        return 4
+
+
+PART_JOBS = int(os.environ.get("V3_PART_JOBS", "0") or 0) or _part_room()
 
 
 def _part_dirs(run: dict) -> list[Path]:
@@ -1190,16 +1201,26 @@ def _render_long(run: dict, started: float) -> None:
     whole video's one soundtrack laid under them."""
     d = run_dir(run["id"])
     dirs, envs = _part_dirs(run), _part_env(run)
-    notes = []
-    for k, (pd, env) in enumerate(zip(dirs, envs)):
-        run["steps"]["render"]["log"] = [f"part {k + 1} of {len(dirs)}"]
+    notes: list[str] = []
+    at_once = min(PART_JOBS, len(dirs))
+    # the machine's cores shared out among the parts rendering at once (each renders in its own chunks)
+    jobs = str(max(1, (os.cpu_count() or 2) // max(1, at_once)))
+    done_parts: list[int] = []
+
+    def one(k: int) -> list[str]:
+        pd, env = dirs[k], envs[k]
         p = _proc(run["id"], [sys.executable, str(HERE / "render.py"), str(pd / "video.score"), str(pd),
-                              str(pd / "video.mp4"), "--quality", run["settings"]["quality"]],
-                  env={**env, "V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL},
-                  on_line=follow(run, run["steps"]["render"]))
+                              str(pd / "video.mp4"), "--quality", run["settings"]["quality"], "--jobs", jobs],
+                  env={**env, "V3_IMAGE_MODEL": (run["settings"].get("models") or {}).get("image") or assets.DEFAULT_MODEL})
         if p.returncode != 0:
             raise RuntimeError(f"part {k + 1}: " + _tail(p))
-        notes += [f"part {k + 1}: {l}" for l in p.stderr.splitlines() if l.startswith("score line")]
+        done_parts.append(k)
+        run["steps"]["render"]["log"] = [f"{len(done_parts)} of {len(dirs)} parts rendered ({at_once} at once)"]
+        return [f"part {k + 1}: {l}" for l in p.stderr.splitlines() if l.startswith("score line")]
+    run["steps"]["render"]["log"] = [f"rendering {len(dirs)} parts, {at_once} at once"]
+    with ThreadPoolExecutor(max_workers=at_once) as pool:
+        for got in pool.map(one, range(len(dirs))):
+            notes += got
     audio = _whole_soundtrack(run, d / "soundtrack.wav")
     lst = d / "parts" / "join.txt"
     lst.write_text("".join(f"file '{pd / 'video.mp4'}'\n" for pd in dirs))

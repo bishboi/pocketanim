@@ -56,7 +56,7 @@ w58-w62     morph fields works stagger .14
 | `engine/runs.py` | A run: its settings, its steps (voice, storyboard, score, render, critic) with status, time and cost, every model call with its prompt, answer, tokens and cost (`runs/<id>/run.json`). |
 | `engine/datalab.py` | A PDF read by Datalab's convert API (JSON blocks, as v2 reads it; `DATALAB_API_KEY`), cached by the PDF's hash: each page's text and the headings. |
 | `engine/books.py` | A book: a PDF uploaded and read by Datalab (its pages' text, and sections from its headings), scripts of chosen pages (one call each, written as short videos), and each video built as a run; the script calls' cost and its videos' runs added up (`books/<id>/book.json`). A script can carry a **message** ("say no to drugs", "save water"; the UI's message field, `message` in the script request): the writer weaves it in softly where the lesson itself touches it (in a lesson on China and Japan, the opium trade and what it did to the country), with true facts, no preaching, at most one quiet line of reflection near the end, about a tenth of the narration; a long video's plan marks which chapters carry it (prompts.MESSAGE). |
-| `engine/server.py`, `engine/ui.html` | The web app over runs (standard library only). |
+| `engine/server.py`, `engine/ui.html` | The web app over runs (standard library only). Every video can be downloaded as an MP4 (**Download MP4** on the Video tab and on each book video; `/download/<id>.mp4`, named after its title): the render's MP4, else the one exported from the player; when there is neither, the button makes one from the player first. Runs all go at once (`V3_PARALLEL` caps it). |
 | `engine/pipeline.py` | Narration to video, end to end (`--score` to render a given score; the calls need `OPENROUTER_API_KEY`). |
 | `demo/` | The 40-second demo: its narration and its score. |
 
@@ -218,7 +218,7 @@ a book with `V3_LONG_VIDEOS=1` (each script one video of about 20 minutes). Noth
   last words before it, and the cast. A part that opens a new topic starts with `chapter: TITLE`, so the chapter
   bar along the bottom names 5-10 chapters over the whole video.
 - **Score**: a call a shot, as always (`V3_SCORE_JOBS` at once; a 20-minute video is about 150-200 shots).
-- **Layout, timeline and render, a part at a time, `V3_PART_JOBS` (3) at once.** Each part gets its own score
+- **Layout, timeline and render, all the parts at once** (as many as the memory holds, about 2 GB each; `V3_PART_JOBS` sets how many). Each part gets its own score
   (`parts/pK/video.score`: the head of the score, its shots, and the `ent` lines of anything it uses from an
   earlier part), its words timed from its own start, and its slice of the voice. Its timeline goes to
   `player/pK/`; `player/parts.json` lists the parts in order. The chapter bar runs over the whole video, and only
@@ -245,7 +245,7 @@ at once, told its length in words and what the chapters either side tell. By han
 - Calls: about 200 (cast, about 8 storyboard parts, about 180 shots, plus layout fixes); the score model is most
   of the cost.
 - Pictures: about 100-200.
-- Baking: about 1-1.5 hours with 3 parts at once (more cores: raise `V3_PART_JOBS`).
+- Baking: all the parts at once by default (as many as the memory holds; `V3_PART_JOBS` to cap it).
 - Timelines: about 15-40 MB a part.
 
 Settings:
@@ -253,7 +253,7 @@ Settings:
 | Setting | Default | What it does |
 |---|---|---|
 | `V3_PART_SECONDS` | 150 | Part length; shorter parts bake faster and load sooner. |
-| `V3_PART_JOBS` | 3 | Parts laid out or baked at once; each takes a core and 1-2 GB. |
+| `V3_PART_JOBS` | all (memory / 2 GB) | Parts laid out, baked or rendered at once; each takes 1-2 GB, and the cores are shared among those rendering. |
 | `V3_SCORE_JOBS` | 6 | Model calls at once. |
 | `V3_LAYOUT_SHOTS` | 40 | The most shots sent back for layout fixes per round; raise it for long videos. |
 
@@ -275,7 +275,7 @@ one call writes those pages as a few short videos (how many and how long, notes 
 are yours to set): the quick way to try things. With `V3_LONG_VIDEOS=1` those pages become one video of about 20
 minutes (`V3_VIDEO_MINUTES`) instead: its chapters planned in one call, then each chapter written by its own call, all
 at once (if the pages hold less, the video is shorter rather than padded). Each video's title and narration can be edited; **Build this video** (or **Build all not built**) makes each
-one a run, one at a time (`V3_PARALLEL=2` for more). The book shows read, script and videos with their time and
+one a run, all at once (`V3_PARALLEL=N` makes the rest wait their turn). The book shows read, script and videos with their time and
 cost (Datalab's own cost for the read, when its result gives one), the script calls with their prompts, tokens and cost, and each video's run status, cost and player. The book's
 figures are not used yet (its blocks are kept in `books/<id>/datalab.json`; the full result, pictures included, in `.cache/datalab/`).
 

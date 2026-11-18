@@ -14,6 +14,7 @@ The API (JSON):
     POST /api/runs/<id>/step               {step, shot?}: run again from that step (one shot's score with `shot`)
     PUT  /api/runs/<id>/score              {text}: the score changed by hand, rendered again
     GET  /files/<id>/<name>                a run's file (the video in byte ranges, so it seeks)
+    GET  /download/<id>.mp4                the video as an MP4 file to keep (the render's, else the player's export)
     GET  /api/config                       the models, voices and whether a key is set
 
     GET  /api/books                        every book (newest first): id, title, pages, videos, cost with its videos'
@@ -131,6 +132,14 @@ class Handler(BaseHTTPRequestHandler):
                             "words": words, "storyboard": json.loads(read("storyboard.json") or "null"),
                             "score": read("video.score"), "video": (d / "video.mp4").exists(), "chapters": read("chapters.txt"),
                             "player": (d / "player" / "timeline.json").exists() or (d / "player" / "parts.json").exists(), "player_mp4": (d / "player.mp4").exists()})
+            elif m := re.fullmatch(r"/download/([\w-]+)\.mp4", path):
+                # the video as an MP4 to keep: the render's, else the one made from the player; named after its title
+                d = runs.run_dir(m.group(1))
+                f = next((p for p in (d / "video.mp4", d / "player.mp4") if p.exists()), None)
+                if f is None:
+                    return self._json({"error": "no MP4 yet: make one first"}, 404)
+                title = runs.load(m.group(1)).get("title") or m.group(1)
+                self._file(f, download=re.sub(r"[^\w\- ]+", "", title).strip()[:80].replace(" ", "-") or m.group(1))
             elif m := re.fullmatch(r"/play/([\w-]+)", path):
                 body = (HERE / "player.html").read_bytes()
                 self.send_response(200)
@@ -153,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json({"error": str(e)}, 500)
 
-    def _file(self, p: Path) -> None:
+    def _file(self, p: Path, download: str | None = None) -> None:
         if p.suffix == ".json" and "gzip" in (self.headers.get("Accept-Encoding") or "") and p.stat().st_size > 200_000:
             gz = p.with_name(p.name + ".gz")      # a timeline is large and compresses well: sent compressed
             if not gz.exists() or gz.stat().st_mtime < p.stat().st_mtime:
@@ -174,6 +183,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(206 if rng else 200)
         self.send_header("Content-Type", kind)
         self.send_header("Accept-Ranges", "bytes")
+        if download:
+            self.send_header("Content-Disposition", f'attachment; filename="{download}.mp4"')
         self.send_header("Content-Length", str(end - start + 1))
         if rng:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")

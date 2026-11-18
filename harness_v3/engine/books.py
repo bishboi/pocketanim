@@ -314,7 +314,7 @@ def delete_script(bid: str, sid: str) -> None:
 
 def build(bid: str, sid: str, which: int | None, settings: dict) -> list[str]:
     """Video `which` of the script (every video not yet built, when None) made as runs; their ids. Runs wait their
-    turn (runs.V3_PARALLEL at once)."""
+    turn only when V3_PARALLEL caps how many run at once)."""
     with _lock:
         book = load(bid)
         sc = next(s for s in book["scripts"] if s["id"] == sid)
@@ -345,6 +345,7 @@ def view(bid: str) -> dict:
                     v["run_info"] = {"status": r.get("status"), "cost": r.get("cost"), "tokens": r.get("tokens"),
                                      "seconds": (r.get("words") or {}).get("seconds"),
                                      "video": (runs.run_dir(r["id"]) / "video.mp4").exists(),
+                                     "mp4": any((runs.run_dir(r["id"]) / n).exists() for n in ("video.mp4", "player.mp4")),
                                      "steps": {k: s.get("status") for k, s in r["steps"].items()}}
                 except FileNotFoundError:
                     v["run_info"] = None

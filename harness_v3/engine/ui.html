@@ -17,6 +17,9 @@
   button { background:#1d2229; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:5px 10px;
            font:inherit; cursor:pointer; } button:hover { border-color:#3a414c; } button:disabled { opacity:.4; cursor:default; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#1b0f08; font-weight:600; }
+  a.btn { display:inline-block; background:#1d2229; color:var(--ink); border:1px solid var(--line); border-radius:6px;
+          padding:5px 10px; text-decoration:none; font-size:13px; }
+  a.btn.primary { background:var(--accent); border-color:var(--accent); color:#1b0f08; font-weight:600; }
   input, select, textarea { background:#0f1216; color:var(--ink); border:1px solid var(--line); border-radius:6px;
            padding:6px 8px; font:inherit; width:100%; }
   textarea.mono, pre { font:12px/1.4 "JetBrains Mono", ui-monospace, monospace; }
@@ -215,6 +218,7 @@ function pane() {
     p.innerHTML = `<div class="two">
       <div>${data.player ? `<iframe class="player" src="/play/${sel}?v=${data.run.steps.timeline?.ended || 0}"></iframe>`
           : data.video ? `<video controls src="/files/${sel}/video.mp4?v=${data.run.steps.render?.ended || 0}"></video>` : `<p class="soft">No video yet.</p>`}
+        <div class="row" style="margin-top:8px">${downloadButton()}</div>
         <p class="soft">The score on the right is what the video plays. Change it and save: its pictures and timeline are made
           again (seconds), and the MP4 only if this run makes one.</p></div>
       <div><textarea id="score" class="mono" style="height:62vh" oninput="dirty=true">${esc(data.score || "")}</textarea>
@@ -286,6 +290,18 @@ async function stopRun() {
 async function stopAll() {
   if (!confirm("Stop every run that is making or waiting? Model calls already made keep their cost.")) return;
   try { await api("/api/stop", {method: "POST", body: "{}"}); if (sel) refresh(true); if (bsel) refreshBook(true); loadRuns(); } catch (e) { alert(e.message); }
+}
+
+// The video as an MP4 to keep: the render's, or the one made from the player; when there is neither, one is made
+// from the player (headless Chromium, a minute or a few) and the download offered when it is done.
+function downloadButton() {
+  const ex = data.run.export || {};
+  if (data.video || data.player_mp4)
+    return `<a class="btn primary" href="/download/${sel}.mp4" download>Download MP4</a>
+      <span class="soft">${data.video ? "the render" : "made from the player"}</span>`;
+  if (["queued", "running"].includes(ex.status)) return `<span class="soft">Making the MP4…</span>${progress(ex)}`;
+  return `<button onclick="exportPlayer()" ${data.busy || !data.player ? "disabled" : ""}>Make an MP4 to download</button>
+    <span class="soft">${data.player ? "from the player (a minute or a few)" : "the timeline is made first, by the run"}</span>`;
 }
 
 function exportLive() {
@@ -480,7 +496,7 @@ function renderBook() {
           <div class="full"><label>A message to carry, softly (optional): woven in where the lesson touches it, never preached</label><input id="s-message" maxlength="300" placeholder="say no to drugs; save water; girls belong in school"></div>
         </div>
         <p><button class="primary" onclick="writeScript()" ${d.busy ? "disabled" : ""}>${d.busy ? "Writing…" : `Write the script of pages ${range.from}–${range.to}`}</button></p></div>
-      <div class="card"><b>3. Build the videos</b> <span class="soft">(each video a run; they are made one at a time)</span>
+      <div class="card"><b>3. Build the videos</b> <span class="soft">(each video a run; they are all made at once)</span>
         <div class="form" style="margin-top:6px">
           <div><label>Model (storyboard, score, critic)</label><input id="v-model" list="models" value="${esc(config.default_model)}" placeholder="provider/model" onfocus="this.select()"></div>
           <div><label>Voice</label><select id="v-voice">${opt(config.voices, config.default_voice || "en_US-ryan-high")}</select></div>
@@ -512,7 +528,8 @@ function scriptCard(s) {
           ${ri ? `<a href="#" onclick="pick('${v.run}');return false" style="color:var(--accent)">open run →</a>
             <span class="chip ${ri.status}">${ri.status}</span><span class="money">${usd(ri.cost)}</span><span class="soft">${ri.tokens || 0} tok${ri.seconds ? ` · ${ri.seconds.toFixed(0)} s` : ""}</span>
             <span class="soft">${Object.entries(ri.steps).map(([n, st]) => `<span class="chip ${st}" title="${n}">${n[0]}</span>`).join(" ")}</span>` : ""}</div>
-        ${ri && ri.video ? `<video controls preload="none" style="margin-top:6px;max-width:420px" src="/files/${v.run}/video.mp4?v=${ri.cost}-${ri.status}"></video>` : ""}</div>`;
+        ${ri && ri.video ? `<video controls preload="none" style="margin-top:6px;max-width:420px" src="/files/${v.run}/video.mp4?v=${ri.cost}-${ri.status}"></video>` : ""}
+        ${ri && ri.mp4 ? `<div class="row" style="margin-top:4px"><a class="btn" href="/download/${v.run}.mp4" download>Download MP4</a></div>` : ""}</div>`;
     }).join("")}</div>`;
 }
 

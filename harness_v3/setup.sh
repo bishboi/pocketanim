@@ -84,7 +84,8 @@ for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono
          "notosansmalayalam/NotoSansMalayalam%5Bwdth,wght%5D.ttf:NotoSansMalayalam.ttf" \
          "notosansmeeteimayek/NotoSansMeeteiMayek%5Bwght%5D.ttf:NotoSansMeeteiMayek.ttf" \
          "notosansolchiki/NotoSansOlChiki%5Bwght%5D.ttf:NotoSansOlChiki.ttf" \
-         "notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf:NotoNaskhArabic.ttf"; do
+         "notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf:NotoNaskhArabic.ttf" \
+         "notosanscuneiform/NotoSansCuneiform-Regular.ttf:NotoSansCuneiform.ttf"; do
   [ -f ".cache/fonts/${f#*:}" ] || curl -sfL -o ".cache/fonts/${f#*:}" "$GF/${f%%:*}" || echo "could not fetch the font ${f#*:}"
 done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \

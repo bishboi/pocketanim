@@ -9,7 +9,9 @@ mechanism, a geometric construction, a field of arrows, a wave.
 The code lines follow their `ent` line, each starting with `|`. `build(t)` is called with t = 0 when the thing is
 made (its first look) and again on every frame of a `wA-wB play NAME` action, t going from 0 to 1 across those
 words (`play NAME to 0.5` stops half way), so what it draws can grow, turn, morph or flow in step with the voice. Like
-any other thing it comes `in`, goes `out`, moves, scales and is marked; `size S` makes its longest side S.
+any other thing it comes `in`, goes `out`, moves, scales and is marked. The code draws in the screen's own units
+(the screen is 14.2 wide and 8 tall); `size K` scales the whole drawing (default 1), so a mechanism drawn in one
+block keeps its parts fitting together.
 
 What the code may use: manim's shapes, groups, graphs and constants (Circle, Line, Arrow, VGroup, Axes,
 ParametricFunction, Text, Polygon, UP, LEFT, PI...), `np` (its array maths only), `math`, and the look's colours (`C["ink"]`, `C["accent"]`,

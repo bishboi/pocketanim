@@ -657,14 +657,18 @@ def _periods(sc: Score, words: list[dict]) -> None:
     prev = whole
     for k, name in enumerate(order):
         shot = sc.shots[name]
-        if shot.period:
+        t0 = times[k] if times[k] < 1e9 else 0.0
+        t1 = times[k + 1] if k + 1 < len(times) and times[k + 1] < 1e9 else 1e9
+        heard = guess_period(said(t0, t1))
+        if shot.period and not (shot.period == "modern" and (heard or prev) not in (None, "modern")):
             era = shot.period
         elif sc.period not in (None, "auto"):
             era = sc.period
         else:
-            t0 = times[k] if times[k] < 1e9 else 0.0
-            t1 = times[k + 1] if k + 1 < len(times) and times[k + 1] < 1e9 else 1e9
-            era = guess_period(said(t0, t1)) or prev
+            # (a shot said to be `modern` in a story its words or the shot before set in the past is not believed)
+            era = heard or prev
+            if shot.period == "modern":
+                sc.notes.append(f"shot {name}: `period modern` in a story set in the past: drawn as {era}")
         sc.periods[name] = era
         prev = era
     for e in sc.ents.values():

@@ -323,7 +323,8 @@ def build(bid: str, sid: str, which: int | None, settings: dict) -> list[str]:
         for k in ks:
             v = sc["videos"][k]
             run = runs.create(f"{book['title']} · {v['title']}", v["narration"],
-                              {"language": sc["settings"].get("language") or "en"} | settings | {"book": {"id": bid, "title": book["title"], "script": sid, "video": k,
+                              {"language": sc["settings"].get("language") or "en",
+                               "message": sc["settings"].get("message") or ""} | settings | {"book": {"id": bid, "title": book["title"], "script": sid, "video": k,
                                                    "pages": f"{sc['from']}-{sc['to']}"}})
             v["run"] = run["id"]
             v.setdefault("runs", []).append(run["id"])

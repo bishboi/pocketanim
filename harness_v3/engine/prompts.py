@@ -107,6 +107,16 @@ RULES
   it); a new thing gets a new name.
 - Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
   to put one on another on purpose (a label on its card, a pin on its map).
+- FILL THE SCREEN: what is up in a shot covers at least half of it (a main thing 5-8 wide, or 3-4 things across
+  it); never a lone small thing in a big empty screen, never a frame with nothing new for more than 3 seconds.
+- A MAP CARRIES WHAT IS SAID: every place, river, route and region the narration names in that shot is on the map
+  (a `pin`, a `river`, a `region`, a path between places), each labelled, not as tags beside it.
+- THE SAFE AREA: every label, tag, card and title sits wholly inside x -6.2..6.2, y -3.4..3.2; a timeline's first and
+  last events, a map's pins near its edge and a callout are kept inside too.
+- MARKS BELONG TO THEIR SHOT: a ring, box, underline or highlight is drawn on a word of the shot it is in and lasts
+  only to that shot's last word; it ends as the camera moves on, even when the thing it marks is carried along.
+- One background at a time: never a photo or backdrop behind a map or a chart, and never a drawn prop of the same
+  thing over a picture of it (a drawn ziggurat on a photo of a ziggurat): one or the other.
 - Show real things: a pic, a photo, a flag or a card. No icons. One big picture per idea; few small pics.
 - Keep to the age the narration is in: nothing a shot's age did not have (no towers, cars, phones or tarmac before
   their time), and a pic's words say the age ("a Sumerian mud-brick city, 3000 BC", "a medieval market town").
@@ -153,11 +163,14 @@ KIT = {
   event YEAR "WORDS" on TL   an event at its year, drawn the timeline's way (kept clear of the others)
   span Y0 Y1 "WORDS" on TL   a stretch of years: a band along the axis (on a ribbon, an era of the band itself)
              (`in` each on the word that names it)""",
-    "code": """  manim [size S] [at X,Y]   YOUR OWN MANIM CODE, for what no prop or piece above draws: a curve or wave that moves,
+    "code": """  manim [size K] [at X,Y]   YOUR OWN MANIM CODE, for what no prop or piece above draws: a curve or wave that moves,
              a mechanism (gears, a crank, a lever, a pulley), a geometric construction, a field of arrows, an orbit,
              a growing pattern. Its code lines follow it, each starting with `|`, defining build(t) that returns one
-             Mobject (a VGroup of parts) drawn about the origin, about 6 wide:
-               ent crank manim size 4 at 3,0
+             Mobject (a VGroup of parts) drawn about the origin IN SCREEN UNITS (the screen is 14.2 wide, 8 tall: a
+             wheel of radius 1.5 is drawn that big); `size K` scales the whole drawing (leave it out: 1). ONE
+             MECHANISM IS ONE BLOCK: a crank, its rod and its piston, or gears in mesh, are drawn together in one
+             build(t), never as separate manim things (they would not line up). For example:
+               ent crank manim at 3,0
                | def build(t):
                |     a = 2 * PI * t
                |     wheel = Circle(radius=1, color=C["ink"], stroke_width=5).set_fill(C["sand"], 1)
@@ -429,12 +442,18 @@ def said(words: list[dict], timed: bool = False) -> str:
 
 
 def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[str] | None = None,
-                      before: str = "", language: str | None = None) -> tuple[str, str]:
+                      before: str = "", language: str | None = None, message: str = "") -> tuple[str, str]:
     """The storyboard call: the whole narration, or (a long video) one part of it, told where it stands, what came
-    just before, and the cast already made for the whole video."""
+    just before, and the cast already made for the whole video. A script written to carry a message: its moments
+    are given a strong picture."""
     said_ = said(words)
+    note = (f"\nTHIS SCRIPT CARRIES A MESSAGE, softly: {message}. Where the narration tells its moment (a human cost, a "
+            "consequence, the closing reflection), give that shot a strong, concrete picture of it: the people it touched "
+            "and what changed for them (a family at a bare table, a worker, a town), with real things on screen and "
+            "something that moves; never a sticker, an empty box or a slogan. Its plan begins `message:`.\n"
+            if (message or "").strip() else "")
     if not part:
-        return with_language(STORYBOARD, language), f"NARRATION: {said_}\n\nWrite the shots, one line each, then the cast lines (if any)."
+        return with_language(STORYBOARD, language), f"{note}NARRATION: {said_}\n\nWrite the shots, one line each, then the cast lines (if any)."
     user = (f"This is PART {part['k'] + 1} of {part['n']} of a long video (about {part['minutes']:.0f} minutes in all; "
             f"this part about {part['seconds'] / 60:.1f} minutes). Storyboard only this part's words, w{words[0]['i']} "
             f"to w{words[-1]['i']}, every one of them.\n"
@@ -442,7 +461,7 @@ def storyboard_prompt(words: list[dict], part: dict | None = None, cast: list[st
             + ("THE CAST (made once for the whole video: use these characters by name in the plans; write no cast "
                "lines):\n" + "\n".join(cast) + "\n" if cast else "")
             + "When this part opens a new chapter of the story, its first shot's plan says `chapter: TITLE`.\n"
-            + f"NARRATION: {said_}\n\nWrite this part's shots, one line each.")
+            + note + f"NARRATION: {said_}\n\nWrite this part's shots, one line each.")
     return with_language(STORYBOARD, language), user
 
 
@@ -596,7 +615,9 @@ REPAIR = """You fix one SHOT of an animated explainer's score. The engine built 
 - nothing covers another unless on purpose (a label on its card, a pin on its map);
 - everything stays on the screen (x from -6.6 to 6.6, y from -3.6 to 3.6), a heading clear of what is under it;
 - nothing is empty (a tag with words, a timeline with its dates on it), or it is left out.
-Keep the same things, the same words and the same timing; change where things are and how big. Use the REAL SIZES
+Keep the same things, the same words and the same timing; change where things are and how big. Keep every pic's,
+photo's and backdrop's words EXACTLY as they are, letter for letter (their pictures are already made): move or
+resize them, never re-describe them. Use the REAL SIZES
 to place them, or put one against another: `below X`, `above X`, `left X`, `right X` (X a thing or a part of a piece,
 like `below fl.economic`; `gap G`). Answer with only the shot's lines, its `shot` line first.
 Things set wholly on a bigger thing on purpose (pins and pictures on a map, letters in a tray, a coin in a hand, words
@@ -675,9 +696,13 @@ as THE MESSAGE). The lesson stays the lesson: the message rides inside it, the w
   Give such a moment the same care as the rest: a scene, a number made tangible, what it meant for one person.
 - Where the subject only brushes it, a single true, interesting fact or a short everyday comparison is enough. Never
   bend the history, invent an episode, or force a link the subject does not have.
+- Make it human: the moment shows at least ONE concrete human consequence, true to the history or science: what it
+  did to a family, a worker, a farmer, a child, a town (a labourer spending his wage on the pipe while his family went
+  hungry; a port where whole streets of smoking houses stood) said plainly and kindly, as a fact, not a horror.
 - Show, do not preach: no slogans, no "kids, remember...", no lecturing, no "you should". Let the story and its
-  consequences say it. At most ONE quiet line of reflection in the whole script, near the end, said as a thought
-  ("Some of the costs of that trade were paid for generations."), never as an order.
+  consequences say it. End with ONE quiet line of reflection (required, exactly one, near the very end of the script,
+  or of its last video), said as a thought ("Some of the costs of that trade were paid for generations."), never as
+  an order.
 - Keep it in proportion: about one tenth of the narration, in 1-3 moments (more in a long video, spread across its
   chapters), never the main thread, never at the very start.
 - Facts for these moments: from the pages, or plain, well-established history or science an encyclopaedia would

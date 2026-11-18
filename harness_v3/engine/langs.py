@@ -26,6 +26,7 @@ SCRIPTS = {
     "Malayalam": ("Noto Sans Malayalam", "Noto Sans Malayalam", "ഀ-ൿ"),
     "Meetei Mayek": ("Noto Sans Meetei Mayek", "Noto Sans Meetei Mayek", "ꯀ-꯿ꫠ-꫿"),
     "Ol Chiki": ("Noto Sans Ol Chiki", "Noto Sans Ol Chiki", "᱐-᱿"),
+    "Cuneiform": ("Noto Sans Cuneiform", "Noto Sans Cuneiform", "\U00012000-\U0001254F"),
     "Perso-Arabic": ("Noto Naskh Arabic", "Noto Naskh Arabic", "؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿"),
 }
 

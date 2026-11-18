@@ -6911,6 +6911,95 @@ def _gurdwara(m, w):
                   line((0.75, 0.0), (0.75, 1.1), "#9AA3A9", w * 1.4), live(poly([(0.75, 1.1), (0.95, 1.05), (0.75, 0.98)], "#E8822E", w * 0.6), "flag")), None
 
 
+# -- steam and fire: steam, smoke and a flame; a boiler, an engine's cylinder and piston, a valve; the old granary --
+
+def puffs(cx, y0, s, c, w, n=4, drift=0.06):
+    """A rising column of soft round puffs, bigger as they rise."""
+    g = VGroup()
+    for k in range(n):
+        r = s * (0.07 + 0.035 * k)
+        x = cx + drift * math.sin(k * 1.7) * s * 3
+        g.add(circ(x, y0 + s * (0.08 + 0.17 * k + 0.02 * k * k), r, tint(c, 0.06 * k), w * 0.6))
+    return g
+
+
+def _steam(m, w):
+    """A cloud of white steam rising (it billows as it plays)."""
+    c = col(m["color"]) if m.get("color") else "#F4F6F8"
+    g = VGroup(live(puffs(0.0, 0.0, 1.4, c, w, 4, 0.05), "steam"))
+    g.add(live(VGroup(blob([(-0.28, 0.55), (-0.3, 0.68), (-0.16, 0.8), (0.02, 0.84), (0.2, 0.8), (0.3, 0.68), (0.26, 0.55),
+                            (0.1, 0.5), (-0.1, 0.5)], c, w * 0.6)), "puff"))
+    return g, None
+
+
+def _smoke(m, w):
+    """Dark smoke curling up (from a chimney, a fire, a battle)."""
+    c = col(m["color"]) if m.get("color") else "#6E6A66"
+    return VGroup(live(puffs(0.0, 0.0, 1.3, c, w, 5, 0.09), "puff")), None
+
+
+def _flame(m, w):
+    """A flame: an outer red-orange tongue, a yellow heart (it flickers)."""
+    return VGroup(live(blob([(-0.16, 0.02), (-0.18, 0.18), (-0.08, 0.3), (-0.04, 0.24), (0.0, 0.5), (0.06, 0.3), (0.12, 0.36),
+                             (0.18, 0.18), (0.15, 0.02)], "#E4572E", w), "flame"),
+                  live(blob([(-0.08, 0.03), (-0.09, 0.14), (-0.02, 0.24), (0.02, 0.33), (0.06, 0.2), (0.09, 0.12), (0.08, 0.03)],
+                            "#F2A93B", w * 0.6), "flame"),
+                  live(blob([(-0.035, 0.03), (-0.04, 0.1), (0.0, 0.17), (0.04, 0.1), (0.035, 0.03)], "#FBE7A1", 0), "flame")), None
+
+
+def _boiler(m, w):
+    """A riveted steam boiler on its firebox: a pressure gauge, a safety valve, the fire glowing below."""
+    c = col(m["color"]) if m.get("color") else "#4F5B66"
+    g = VGroup(shadow_under(-0.55, 0.55, 0.0, w), rect(-0.45, 0.0, 0.45, 0.2, "#3A3631", w),
+               rrect(-0.3, 0.03, 0.3, 0.16, 0.03, "#2B2826", w * 0.6),
+               live(blob([(-0.2, 0.04), (-0.16, 0.12), (-0.08, 0.09), (0.0, 0.15), (0.08, 0.1), (0.16, 0.13), (0.2, 0.04)],
+                         "#E4572E", w * 0.5), "flame"),
+               rrect(-0.55, 0.2, 0.55, 0.62, 0.2, c, w))
+    g.add(*(circ(x, y, 0.012, tint(c, 0.35), 0) for x in np.linspace(-0.45, 0.45, 10) for y in (0.26, 0.56)),
+          *(line((x, 0.21), (x, 0.61), tint(c, -0.25), w * 0.6) for x in (-0.2, 0.2)),
+          rect(0.25, 0.62, 0.31, 0.72, tint(c, -0.15), w * 0.8), circ(0.28, 0.75, 0.035, GOLD, w * 0.6),
+          circ(-0.25, 0.72, 0.07, "#F7F5F0", w), line((-0.25, 0.72), (-0.21, 0.76), RED, w * 0.8),
+          rect(-0.27, 0.62, -0.23, 0.66, tint(c, -0.15), w * 0.6))
+    return g, None
+
+
+def _cylinder(m, w):
+    """An engine's cylinder seen cut open: its thick walls and end caps, the steam ports top left and right, empty
+    inside (a `piston` set in it slides)."""
+    c = col(m["color"]) if m.get("color") else "#8E969C"
+    return VGroup(rect(-0.6, 0.0, 0.6, 0.06, c, w), rect(-0.6, 0.34, 0.6, 0.4, c, w),
+                  rect(-0.66, 0.0, -0.6, 0.4, tint(c, -0.15), w), rect(0.6, 0.0, 0.66, 0.4, tint(c, -0.15), w),
+                  rect(-0.58, 0.06, 0.58, 0.34, "#EDE7DA", 0),
+                  rect(-0.52, 0.4, -0.42, 0.5, tint(c, -0.1), w * 0.8), rect(0.42, 0.4, 0.52, 0.5, tint(c, -0.1), w * 0.8)), None
+
+
+def _piston(m, w):
+    """A piston: its head (with rings) and the rod coming out of it to the right."""
+    c = col(m["color"]) if m.get("color") else "#5E8C9A"
+    return VGroup(rect(0.06, 0.16, 0.7, 0.24, "#9AA3A9", w),
+                  rrect(-0.08, 0.04, 0.08, 0.36, 0.02, c, w),
+                  *(line((-0.08, y), (0.08, y), tint(c, -0.3), w * 0.6) for y in (0.1, 0.3)),
+                  circ(0.72, 0.2, 0.04, "#6E747A", w * 0.7)), None
+
+
+def _valve(m, w):
+    """A valve: a brass body in a pipe, its stem and red handwheel on top."""
+    return VGroup(rect(-0.4, 0.06, -0.14, 0.18, "#8E969C", w), rect(0.14, 0.06, 0.4, 0.18, "#8E969C", w),
+                  rect(-0.44, 0.03, -0.38, 0.21, "#6E747A", w * 0.7), rect(0.38, 0.03, 0.44, 0.21, "#6E747A", w * 0.7),
+                  blob([(-0.16, 0.02), (-0.16, 0.22), (-0.08, 0.28), (0.08, 0.28), (0.16, 0.22), (0.16, 0.02)], GOLD, w),
+                  rect(-0.025, 0.28, 0.025, 0.42, "#9AA3A9", w * 0.7),
+                  live(VGroup(Circle(radius=0.13, stroke_color=RED, stroke_width=w * 2.4).move_to([0, 0.44, 0]).stretch(0.35, 1),
+                              line((-0.13, 0.44), (0.13, 0.44), RED, w * 1.4)), "spin", (0.0, 0.44)),
+                  circ(0.0, 0.44, 0.025, "#6E747A", 0)), None
+
+
+def _granary(m, w):
+    """An old granary: beehive stores of mud, grain heaped at the door (a store of the first cities and farms)."""
+    g, _ = old_store({}, w, "ancient")
+    g.add(*(ell(x, 0.03, 0.09, 0.035, "#E2C56B", w * 0.4) for x in (-0.3, 0.12)))
+    return g, None
+
+
 # -- the past: the same things as they were in an earlier age (`period ancient|medieval|early`) ----------------------
 # A shot set in the past draws its towns, houses, roads, shops and ports as they were then; what that age did not
 # have is drawn as what stood in its place (a car is a cart, a laptop a clay tablet or a book).
@@ -7163,7 +7252,7 @@ def old_mill(m, w, era):
 # What the past drew in place of what it did not have.
 PERIOD_DRAW = {"skyline": old_city, "skyscraper": old_house, "village": old_village, "port": old_port, "house": old_house,
                "apartment": old_house, "hotel": old_house, "road": old_road, "shop": old_shop, "school": old_hall,
-               "hospital": old_hall, "warehouse": old_store, "factory": old_mill, "powerplant": old_mill}
+               "hospital": old_hall, "warehouse": old_store, "silo": old_store, "factory": old_mill, "powerplant": old_mill}
 _MOTOR = ("car", "bus", "truck", "jeep", "ambulance", "policecar", "firetruck", "tractor", "autorickshaw", "motorcycle",
           "scooter", "tram", "metro", "train", "bulldozer")
 PERIOD_SUB = {

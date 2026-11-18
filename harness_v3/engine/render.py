@@ -1407,7 +1407,10 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
         self.tweens.append(Call(t0, t1, start, step, None, rate_functions.ease_in_out_sine))
 
     def _morph(self, na, ma, nb, mb, t0, t1) -> None:
-        if has_picture(ma) or has_picture(mb):
+        import props as _props
+        # a picture has no points to blend, and two drawn things of different make (a river, a flooded field) do not
+        # blend shape for shape: each goes over into the other instead
+        if has_picture(ma) or has_picture(mb) or isinstance(ma, _props.Prop) or isinstance(mb, _props.Prop):
             return self._swap(na, ma, nb, mb, t0, t1)
         state = {}
 
@@ -1809,6 +1812,25 @@ class ScoreScene(acts.MoreActs, handle.UseActs, MovingCameraScene):
                 self.remove(state["nib"])
         rate = {"stamp": rate_functions.ease_in_cubic}.get(kind, feel.pen if self.texture else rate_functions.ease_in_out_sine)
         self.tweens.append(Call(t0, t1, start, step, stop, rate))
+        # A mark belongs to its shot: it fades as the camera leaves for the next one, even when what it marks is
+        # carried along (a ring round a piston is not drawn again in three shots).
+        leave = min((a.t0 for a in self.SCORE.acts if a.verb == "cam" and a.t0 > (t1 or t0) + 0.05), default=None)
+        if leave is not None:
+            gone = {}
+
+            def fade_start():
+                if "mk" in state:
+                    gone["al"] = Alpha(state["mk"])
+
+            def fade(a):
+                if "al" in gone:
+                    gone["al"].set(1.0 - a)
+
+            def fade_stop():
+                if "mk" in state and state["mk"] in self.mobjects:
+                    self.remove(state["mk"])
+                    self.follows = [r for r in self.follows if r[0] is not state["mk"]]
+            self.tweens.append(Call(leave, leave + 0.35, fade_start, fade, fade_stop, rate_functions.smooth))
 
     def _pan(self, m, k, d, t0, t1) -> None:
         state = {"k": 1.0, "d": np.zeros(3)}

@@ -165,7 +165,12 @@ def _cached(name: str, query: str, fetch) -> list[dict]:
             return json.loads(f.read_text())
         except ValueError:
             pass
+    import assets
+    if name.startswith("commons") and assets.commons_cool() > 0:
+        return []                               # Commons is cooling down: nothing from it this time (not kept)
     with _ask:
+        if name.startswith("commons") and assets.commons_cool() > 0:
+            return []
         wait = 1.05 - (time.time() - _last["t"])
         if wait > 0:
             time.sleep(wait)

@@ -533,8 +533,11 @@ def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
         m = codekit.CodeThing(str(mods.get("_code") or ""), None, str(mods.get("_name") or "drawing"))
         if m.error:
             print(f"manim code: {m.error[:300]}", file=sys.stderr)
+        # Its code draws in the screen's own units (14.2 wide, 8 tall); `size K` scales the whole of it (one
+        # mechanism's parts keep fitting together). A big K (more than 4) is an old score's longest side.
         if size:
-            m.scale(float(size) / max(m.drawing.width, m.drawing.height, 0.01))
+            k = float(size)
+            m.scale(k / max(m.drawing.width, m.drawing.height, 0.01) if k > 4 else k)
     elif kind in KIT3:
         import kit3
         m = kit3.BUILD[kind](args, mods, c)

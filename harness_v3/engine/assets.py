@@ -274,20 +274,40 @@ COMMONS = "https://commons.wikimedia.org/w/api.php"
 UA = "pocketanim-harness/3.0 (https://github.com/bishboi/pocketanim; explainer videos)"
 
 
-def _get(url: str, params: dict | None = None, tries: int = 4) -> bytes:
-    """A GET to Wikimedia with its User-Agent, waiting as it asks when it is busy (429, 503)."""
+# Wikimedia Commons, shared by every run in this process: when it says it is busy (429, 503), nothing waits on it
+# while it cools down (V3_COMMONS_COOL, at most 120 s): a library look-up just skips it (the picture is made
+# instead), and only an archive photo asked for by name waits, a little.
+_COOL = {"until": 0.0}
+COMMONS_TIMEOUT = float(os.environ.get("V3_COMMONS_TIMEOUT", "12"))
+
+
+def commons_cool() -> float:
+    """Seconds Commons still cools down for (0: it can be asked)."""
+    import time
+    return max(0.0, _COOL["until"] - time.time())
+
+
+def _get(url: str, params: dict | None = None, tries: int = 2, patient: bool = False) -> bytes:
+    """A GET to Wikimedia with its User-Agent. Busy (429, 503): the whole process leaves it alone for a while; a
+    patient caller (an archive photo asked for by name) waits once, briefly, the rest give up at once."""
     import time
     import urllib.parse
     full = url + ("?" + urllib.parse.urlencode(params) if params else "")
-    for n in range(tries):
+    wiki = "wikimedia.org" in full or "wikipedia.org" in full
+    for n in range(tries if patient else 1):
+        if wiki and not patient and commons_cool() > 0:
+            raise RuntimeError("Wikimedia Commons is cooling down: skipped")
         try:
             req = urllib.request.Request(full, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=40) as r:
+            with urllib.request.urlopen(req, timeout=COMMONS_TIMEOUT if not patient else 40) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            if e.code in (429, 503) and n < tries - 1:
-                time.sleep(min(60, int(e.headers.get("retry-after") or 5 * (n + 1))))
-                continue
+            if e.code in (429, 503) and wiki:
+                after = min(120.0, float(e.headers.get("retry-after") or 20))
+                _COOL["until"] = max(_COOL["until"], time.time() + after)
+                if patient and n < tries - 1:
+                    time.sleep(min(15.0, after))
+                    continue
             raise RuntimeError(f"Wikimedia Commons said {e.code}") from e
     raise RuntimeError("Wikimedia Commons is busy: try again in a minute")
 
@@ -298,7 +318,7 @@ def _plain(html: str) -> str:
 
 def commons_candidates(query: str, n: int = 8) -> list[dict]:
     """Pictures on Commons for the words, in its order of relevance: freely licensed bitmaps big enough to show."""
-    d = json.loads(_get(COMMONS, {"action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
+    d = json.loads(_get(COMMONS, patient=True, params={"action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
                                   "gsrsearch": f"{query} filetype:bitmap", "gsrlimit": n * 2, "prop": "imageinfo",
                                   "iiprop": "url|size|mime|extmetadata"}))
     out = []
@@ -342,7 +362,7 @@ def small(url: str, width: int = 330) -> str:
 def from_commons(kind: str, prompt: str, chosen: dict) -> Path:
     """The chosen archive picture, kept as a print (a `photo`) or, on a plain light ground, cut out (a `pic`), with
     its credit beside it."""
-    img = _open(_get(chosen["url"]))
+    img = _open(_get(chosen["url"], patient=True))
     path = path_for(kind, prompt, "", "")
     path.parent.mkdir(parents=True, exist_ok=True)
     if kind == "pic" and _plain_ground(img):
@@ -491,11 +511,15 @@ def generate(kind: str, prompt: str, look: str, model: str | None = None, said: 
     its path and the call's usage (cost, tokens)."""
     model = model or DEFAULT_MODEL
     ref = style_ref(kind, look, model)
-    img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", kind == "pic",
+    # a cut-out is asked for on a plain flat background and cut out here (a model's own transparency often leaves a
+    # pale panel or a halo); its raw picture is kept beside it, so it can be cut again without being made again
+    img, usage = _image(model, prompt_for(kind, said or prompt, look), "1:1" if kind == "pic" else "4:3", False,
                         refs=[ref] if ref else None)
     done = cutout(img) if kind == "pic" else framed(img)
     p = path_for(kind, prompt, look)
     CACHE.mkdir(parents=True, exist_ok=True)
+    if kind == "pic":
+        img.convert("RGB").save(raw_path(p))
     done.save(p)
     keep_said(p, said)
     keep_model(p, model)
@@ -564,7 +588,10 @@ def split_sheet(img, cols: int, rows: int, n: int) -> list:
         if xs.min() <= m or ys.min() <= m or xs.max() >= w - 1 - m or ys.max() >= h - 1 - m:
             out.append(None)                            # cut by the cell's edge: not kept to the grid
             continue
-        out.append(cutout(cell, strict=True))
+        cut = cutout(cell, strict=True)
+        if cut is not None:
+            cut.raw = cell                      # (kept beside it, to cut again)
+        out.append(cut)
     return out
 
 
@@ -583,6 +610,9 @@ def generate_sheet(items: list[tuple[str, str]], look: str, model: str | None = 
             continue
         p = path_for("pic", words, look)
         cut.save(p)
+        raw = getattr(cut, "raw", None)
+        if raw is not None:
+            raw.convert("RGB").save(raw_path(p))
         keep_said(p, said if said != words else None)
         keep_model(p, model)
         made[words] = p
@@ -647,6 +677,45 @@ def _open(b: bytes):
 
 
 # ---------------------------------------------------------------- finishing ------------------------------------------
+
+def raw_path(p: Path) -> Path:
+    """Where a cut-out's raw picture (on its flat background) is kept, to cut it again."""
+    return p.with_name(p.stem + ".raw.jpg")
+
+
+def cut_clean(p: Path) -> str | None:
+    """What is wrong with a cut-out's cut, by its pixels (None: clean): a background panel left behind (its shape a
+    full rectangle, or its outer ring solid)."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(Image.open(p).convert("RGBA"))[..., 3] > 40
+    if not a.any():
+        return "nothing left"
+    ys, xs = np.nonzero(a)
+    box = a[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    if box.size and box.mean() > 0.97:
+        return "a solid rectangle: the background panel was not cut away"
+    ring = np.concatenate([box[0], box[-1], box[:, 0], box[:, -1]])
+    if ring.mean() > 0.85:
+        return "a solid edge all round: a panel behind it"
+    return None
+
+
+def recut(p: Path) -> bool:
+    """A cut-out cut again from its raw picture, more tightly (a pale panel taken away too); True when it is clean."""
+    from PIL import Image
+    raw = raw_path(p)
+    if not raw.exists():
+        return False
+    for tol in (40, 56):
+        cut = cutout(Image.open(raw), tol=tol)
+        if cut is None:
+            continue
+        cut.save(p)
+        if cut_clean(p) is None:
+            return True
+    return False
+
 
 def cutout(img, tol: int = 26, strict: bool = False):
     """The object alone: its own transparency when the model gave one, else the plain background taken away from

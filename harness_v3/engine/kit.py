@@ -258,6 +258,19 @@ def _free_row(tl: Timeline, lo: float, hi: float, order) -> int:
 
 
 def event(tl: Timeline, year: str, words: str, mods: dict, c=None) -> VGroup:
+    """An event (see _event), its card kept within the timeline's own width: one at either end does not hang off
+    the screen (its stem still meets it)."""
+    g = _event(tl, year, words, mods, c)
+    if tl.style != "vertical" and len(g.submobjects) >= 2:
+        card = g.submobjects[-1]
+        lo, hi = tl.axis.get_left()[0] - 0.25, tl.axis.get_right()[0] + 0.25
+        dx = max(0.0, lo - card.get_left()[0]) - max(0.0, card.get_right()[0] - hi)
+        if dx:
+            card.shift([dx, 0, 0])
+    return g
+
+
+def _event(tl: Timeline, year: str, words: str, mods: dict, c=None) -> VGroup:
     """An event at its year, drawn as its timeline's style draws one: a card on a stem (track), a flag on a pole
     (ribbon), a card hung on a string from a pin (cards), a card beside a big year (vertical), a sign on a post (road).
     Above where there is room, else below, else a row further out."""

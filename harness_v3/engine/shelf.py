@@ -32,7 +32,7 @@ SECTIONS = {
         "printingpress dna deskglobe compass windturbine pylon oilbarrel fuelpump container crane atom molecule "
         "virus cell brain skull bone tooth prism planet earth comet bunsen sundial magnifier rover spacestation "
         "galaxy circuit oilrig coal furnace steamengine telegraph pendulum pulley weathervane anemometer "
-        "seismograph fossil solarsystem"),
+        "seismograph fossil solarsystem steam smoke flame boiler cylinder piston valve"),
     "Home": (
         "table desk chair stool throne bench bookshelf lectern bed charpai rug vase broom umbrella ladder rope "
         "chain padlock key bell goblet hourglass gift balloon kite ball cricketbat trophy medal lattu rangoli "
@@ -89,7 +89,7 @@ SECTIONS = {
         "kernel handaxe flintknife polishedaxe cavepainting leanto quern barley millet riceplant lentils peapod "
         "cotton flax yarn spindle clothbolt storagejar copperore ingot obsidian seashell lapis claytablet stylus "
         "claylump ziggurat mudbricks citywall stele cylinderseal claycones potterswheel lyre dates barge shaduf "
-        "canal cheese hide oillamp sealing beacon tabletshelf eclipse mudhouse field yoke fishingnet"),
+        "canal cheese hide oillamp sealing beacon tabletshelf eclipse mudhouse field yoke fishingnet granary"),
     "Ancient and medieval worlds": (
         "papyrus hieroglyphs sphinx sarcophagus aqueduct longship astrolabe guillotine yurt torii dhow junkship "
         "porcelainvase"),
@@ -193,7 +193,9 @@ KEYWORDS = {
 CORE = "table chair book scroll document letter coins moneybag crown house hut tree mountain river cloud sun flagpole road village sack basket".split()
 
 # Other names things go by (what a model or a person may write): the drawn thing each is.
-ALIASES = {"flats": "apartment", "apartments": "apartment", "inn": "hotel", "foodcart": "streetcart",
+ALIASES = {"vapour": "steam", "vapor": "steam", "steamcloud": "steam", "fumes": "smoke", "flames": "flame", "blaze": "flame",
+           "grainstore": "granary", "storehouse": "granary", "pistonrod": "piston", "enginecylinder": "cylinder",
+           "stopvalve": "valve", "steamboiler": "boiler", "flats": "apartment", "apartments": "apartment", "inn": "hotel", "foodcart": "streetcart",
            "thela": "streetcart", "subway": "metro", "underground": "metro", "hydrant": "firehydrant",
            "telephonebooth": "phonebooth", "kiosk": "newsstand", "crosswalk": "zebracrossing", "overpass": "flyover",
            "stockmarket": "stockboard", "sensex": "stockboard", "shares": "stockboard", "bale": "cottonbale",
@@ -245,7 +247,7 @@ ALIASES = {"flats": "apartment", "apartments": "apartment", "inn": "hotel", "foo
            "barrow": "wheelbarrow", "tools": "toolbox", "brush": "paintbrush", "canvas": "easel", "painting": "easel",
            "birthday": "cake", "chilli": "chili", "mirchi": "chili", "pepper": "chili", "ladoo": "laddoo",
            "sweets": "laddoo", "mithai": "laddoo", "ganna": "sugarcane", "chapati": "roti", "cooker": "pressurecooker",
-           "pestle": "mortar", "lpg": "gascylinder", "cylinder": "gascylinder", "keyboard": "piano",
+           "pestle": "mortar", "lpg": "gascylinder", "keyboard": "piano",
            "tabletennis": "racket", "badminton": "racket", "tennis": "racket", "gym": "dumbbell", "hockey": "hockeystick",
            "chess": "chessboard", "cards": "playingcards", "joystick": "gamecontroller", "videogame": "gamecontroller",
            "wifi": "router", "internet": "router", "satdish": "satellitedish", "dth": "satellitedish", "surveillance": "cctv", "microchip": "chip",
@@ -257,14 +259,14 @@ ALIASES = {"flats": "apartment", "apartments": "apartment", "inn": "hotel", "foo
            "kayak": "canoe", "firebrigade": "firetruck", "fireengine": "firetruck", "police": "policecar",
            "army": "jeep", "jcb": "bulldozer", "fighterjet": "jet", "airforce": "jet", "streetcar": "tram",
            "sansad": "parliament", "assembly": "parliament", "courthouse": "court", "judiciary": "court",
-           "jail": "prison", "reservoir": "dam", "granary": "silo", "godown": "warehouse",
+           "jail": "prison", "reservoir": "dam", "godown": "warehouse",
            "taj": "tajmahal", "eiffel": "eiffeltower", "rome": "colosseum", "chinawall": "greatwall",
            "nuclear": "powerplant", "coolingtower": "powerplant", "date": "calendar", "pass": "ticket",
            "visa": "passport", "aadhaar": "idcard", "identity": "idcard", "check": "cheque", "package": "parcel",
            "delivery": "parcel", "sceptre": "scepter", "glasses": "spectacles", "specs": "spectacles",
            "jewellery": "necklace", "jewelry": "necklace", "haar": "necklace", "votingmachine": "evm",
            "extinguisher": "fireextinguisher", "cyclone": "tornado",
-           "storm": "tornado", "twister": "tornado", "flame": "torch", "mashaal": "torch", "judge": "gavel",
+           "storm": "tornado", "twister": "tornado", "mashaal": "torch", "judge": "gavel",
            "arrest": "handcuffs",
            "grainofwheat": "kernel", "wheatgrain": "kernel", "stoneaxe": "handaxe", "stonetool": "handaxe",
            "stonetools": "handaxe", "flint": "flintknife", "blade": "flintknife", "rockart": "cavepainting",
@@ -292,7 +294,7 @@ ALIASES = {"flats": "apartment", "apartments": "apartment", "inn": "hotel", "foo
            "trashcan": "dustbin", "recycling": "recycle", "faucet": "tap", "pipeline": "pipe", "upi": "qrcode",
            "payment": "qrcode", "assemblyline": "conveyor", "automation": "robotarm", "monitor": "ecg",
            "heartmonitor": "ecg", "patient": "hospitalbed", "scan": "xray", "waste": "garbage", "trash": "garbage",
-           "pollution": "smog", "smoke": "smog", "evcharger": "chargingstation", "cone": "trafficcone", "rails": "railtrack",
+           "pollution": "smog", "evcharger": "chargingstation", "cone": "trafficcone", "rails": "railtrack",
            "railway": "railtrack", "railwaystation": "station", "platform": "station", "lectern2": "podium",
            "protest": "placard", "election": "inkedfinger", "vote2": "inkedfinger", "samvidhan": "constitution",
            "kathputli": "puppet", "marsrover": "rover", "iss": "spacestation", "milkyway": "galaxy",
@@ -363,14 +365,41 @@ SECTION_OF = {n: k for k, v in SECTIONS.items() for n in v.split()}
 
 def known(name: str) -> str | None:
     n = str(name or "").lower().replace("-", "").replace("_", "")
+    if n in SECTION_OF:                         # a thing on the shelf is itself, whatever another name means
+        return n
     n = ALIASES.get(n, n)
     return n if n in SECTION_OF else None
 
 
+# Words that name a stuff, not a thing (no "a"): drawn as a heap, a sack, a bolt or a cloud of it.
+MASS = {"opium", "steam", "smoke", "silk", "water", "sand", "salt", "sugar", "rice", "wheat", "gold", "silver", "oil",
+        "coal", "grain", "cotton", "tea", "fire", "ash", "ashes", "clay", "iron", "steel", "copper", "bronze", "paper",
+        "ink", "flour", "spice", "spices", "money", "wool", "cloth", "dust", "mud", "ice", "snow", "rain", "food",
+        "bread", "meat", "milk", "honey", "wood", "timber", "stone", "rubber", "plastic", "glass", "garbage", "waste",
+        "smog", "fog", "pollution", "medicine", "poison", "powder", "fuel", "petrol", "gas", "electricity"}
+HOW_MASS = {"steam": "a billowing cloud of white steam", "smoke": "a curl of dark grey smoke", "fire": "a bright fire's flames",
+            "water": "a splash of clear blue water", "silk": "a folded bolt of shiny silk cloth",
+            "opium": "a dark ball of raw opium on a small brass dish", "cotton": "a fluffy heap of raw white cotton",
+            "tea": "a small heap of dried tea leaves", "coal": "a heap of black coal lumps",
+            "electricity": "a crackling bolt of electricity", "money": "a pile of coins and notes"}
+
+
 def stand_in(name: str, of: str | None = None) -> str:
-    """The picture a thing not on the shelf is drawn from: its plain words."""
+    """The picture a thing not on the shelf is drawn from, said so the image model draws one clear thing: a stuff as
+    a heap, cloud or bolt of it ("a folded bolt of shiny silk cloth"), a plural as a small group, else "a"/"an" it."""
     words = re.sub(r"[_\-]+", " ", str(name or "thing")).strip()
-    return f"a {words}" + (f" of {of}" if of else "")
+    low = words.lower()
+    if low in HOW_MASS:
+        out = HOW_MASS[low]
+    elif low in MASS or low.split()[-1] in MASS:
+        out = f"{words}, shown as one small heap, pile, bundle or cloud of it, as it naturally comes"
+    elif low in ("hands", "shoes", "feet", "eyes", "scissors", "glasses", "spectacles", "gloves", "boots", "sandals", "oars"):
+        out = f"a pair of {words}"
+    elif re.search(r"[^s]s$", low) and not low.endswith(("us", "is", "ss")):
+        out = f"a small group of {words}"
+    else:
+        out = ("an " if low[:1] in "aeiou" else "a ") + words
+    return out + (f" of {of}" if of else "")
 
 
 def _words(text: str) -> set[str]:

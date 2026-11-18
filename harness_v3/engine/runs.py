@@ -243,6 +243,8 @@ def create(title: str, narration: str, settings: dict) -> dict:
     (d / "narration.txt").write_text(narration.strip() + "\n")
     if settings.get("book"):
         run["settings"]["book"] = settings["book"]
+    if str(settings.get("message") or "").strip():      # the message its script carries (books.py)
+        run["settings"]["message"] = str(settings["message"]).strip()[:300]
     if settings.get("score"):
         (d / "given.score").write_text(settings["score"])
         run["settings"]["given_score"] = True
@@ -365,7 +367,8 @@ def _storyboard(run: dict) -> None:
         text = last["output"]
         run["steps"]["storyboard"]["notes"] = ["the last answer read again (no new call)"]
     else:
-        system, user = prompts.storyboard_prompt(words, language=_lang(run))
+        system, user = prompts.storyboard_prompt(words, language=_lang(run),
+                                                 message=run["settings"].get("message") or "")
         text = chat(run, "storyboard", "Storyboard", system, user, max_tokens=1300)
     shots = prompts.parse_storyboard(text, len(words))
     if not shots:
@@ -396,7 +399,8 @@ def _storyboard_long(run: dict) -> None:
         mine = [w for w in words if p["a"] <= w["i"] <= p["b"]]
         before = " ".join(w["w"] for w in words[max(0, p["a"] - 40):p["a"]])
         info = {"k": p["k"], "n": len(ps), "minutes": minutes, "seconds": p["t1"] - p["t0"]}
-        system, user = prompts.storyboard_prompt(mine, info, cast, before, _lang(run))
+        system, user = prompts.storyboard_prompt(mine, info, cast, before, _lang(run),
+                                                 run["settings"].get("message") or "")
         out = chat(run, "storyboard", f"Storyboard: part {p['k'] + 1} of {len(ps)}", system, user,
                    max_tokens=400 + int(14 * (p["t1"] - p["t0"])))
         shots = prompts.parse_storyboard(out, len(words))
@@ -661,9 +665,11 @@ def _director(run: dict) -> None:
                     f"{len(order) - len(taken) - kept} not given back)"]
 
 
-def _assets(run: dict) -> None:
+def _assets(run: dict, quick: bool = False) -> None:
     """The pictures the score asks for (assets.py), made at once (V3_IMAGE_JOBS) and kept; each call recorded with
-    its cost. One that cannot be made is drawn as a placeholder and said here; the render goes on."""
+    its cost. One that cannot be made is drawn as a placeholder and said here; the render goes on. `quick` (the
+    layout step, after it moved things): only what is still missing is made, straight from its words (no library
+    search, no rewording)."""
     import look
     d = run_dir(run["id"])
     text = (d / "video.score").read_text()
@@ -684,7 +690,7 @@ def _assets(run: dict) -> None:
     if not assets.SEARCH and any(assets.is_archive(w[1]) for w in todo):
         notes.append("image search is off (V3_IMAGE_SEARCH=0): pictures asked for from the archive are made")
 
-    if library.ON and todo:                     # the illustration library first: only what it lacks is made
+    if library.ON and todo and not quick:       # the illustration library first: only what it lacks is made
         took = library.take_inbox()
         if took:
             notes.append(f"{len(took)} picture(s) taken into the library from its inbox")
@@ -693,7 +699,7 @@ def _assets(run: dict) -> None:
         todo = [w for w in todo if w not in found]
         notes += lib_notes
 
-    said = _better_words(run, text, todo) if todo else {}
+    said = _better_words(run, text, todo) if todo and not quick else {}
 
     def record(label: str, user: str, model: str = model) -> dict:
         call = {"id": uuid.uuid4().hex[:8], "step": "assets", "label": label, "model": model, "system": "(image)",
@@ -784,9 +790,10 @@ def _assets(run: dict) -> None:
 
 
 CHECK = """You check the pictures of an educational video before it is made. You see one picture, a cut-out drawing,
-and the words it was made from. Answer `yes` if it shows that thing plainly as ONE whole object or person, cleanly cut
-out, with no words, letters or numbers in it; else `no: WHAT IS WRONG` in a few words (the wrong thing, several things,
-cut off, text in it, a panel or background behind it, unreadable)."""
+and the words it was made from. Judge only WHAT it shows (its cut and background are the program's, not yours: ignore
+any pale edge, panel or background). Answer `yes` if it shows that thing plainly as ONE whole object or person, with
+no words, letters or numbers in it; else `no: WHAT IS WRONG` in a few words (the wrong thing, several things, cut off,
+text in it, unreadable)."""
 
 
 def _check_pictures(run: dict, items: list, said: dict, model_for) -> list[str]:
@@ -799,6 +806,10 @@ def _check_pictures(run: dict, items: list, said: dict, model_for) -> list[str]:
     def one(item):
         kind, prompt, lk = item
         p = assets.path_for(kind, prompt, lk)
+        fixed = ""
+        bad = assets.cut_clean(p) if kind == "pic" and p.exists() else None
+        if bad:                                 # a bad cut: cut again from its raw picture, not made again
+            fixed = f"re-cut {kind} \"{prompt[:40]}\" ({bad})" if assets.recut(p) else ""
         try:
             from PIL import Image
             import io as _io
@@ -814,7 +825,7 @@ def _check_pictures(run: dict, items: list, said: dict, model_for) -> list[str]:
         except Exception:  # noqa: BLE001 -- not checked: kept as it is
             return None
         if not verdict.lower().startswith("no"):
-            return None
+            return fixed or None
         wrong = verdict.split(":", 1)[1].strip() if ":" in verdict else verdict[2:].strip()
         words = (said.get((kind, prompt)) or prompt) + f" (the last try was wrong: {wrong[:120]}; draw it right)"
         try:
@@ -1186,7 +1197,7 @@ def _layout(run: dict) -> None:
         made = [k for k in fixed if fixed[k]]
         # pictures a fixed shot asks for anew are made (the rest are kept)
         before = run["steps"]["assets"].get("notes", [])
-        _assets(run)
+        _assets(run, quick=True)
         run["steps"]["assets"]["notes"] = before
         rep = _check_layout(run)
         notes.append(f"round {rnd + 1}: {len(made)} shot(s) rewritten ({', '.join(made)}); "

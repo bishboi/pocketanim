@@ -21,7 +21,7 @@ The API (JSON):
     GET  /api/books/<id>                   the book (sections, scripts, calls), each video's run beside it, the totals
     GET  /api/books/<id>/pages?from=&to=   the pages' text
     POST /api/books/<id>/read              the PDF read again (after a failed read)
-    POST /api/books/<id>/script            {from, to, model, videos, seconds, notes}: a script of those pages, started
+    POST /api/books/<id>/script            {from, to, model, videos, seconds, notes, message}: a script of those pages, started
     PUT  /api/books/<id>/scripts/<s>/<k>   {title, narration}: a video's narration changed by hand
     DELETE /api/books/<id>/scripts/<s>     a script dropped (its runs stay)
     POST /api/books/<id>/build             {script, video?, model, voice, quality, critic, speed, pause}: one video

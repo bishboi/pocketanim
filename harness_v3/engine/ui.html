@@ -477,6 +477,7 @@ function renderBook() {
           <div><label>Seconds each</label><input id="s-seconds" type="number" min="15" max="300" value="40"></div>`}
           <div><label>Language (the script is written in it)</label><select id="s-lang" title="${LANG_HINT}">${langOptions("en")}</select></div>
           <div class="full"><label>Notes for the writer (optional)</label><input id="s-notes" placeholder="for class 8; start from the monsoon; skip the dates"></div>
+          <div class="full"><label>A message to carry, softly (optional): woven in where the lesson touches it, never preached</label><input id="s-message" maxlength="300" placeholder="say no to drugs; save water; girls belong in school"></div>
         </div>
         <p><button class="primary" onclick="writeScript()" ${d.busy ? "disabled" : ""}>${d.busy ? "Writing…" : `Write the script of pages ${range.from}–${range.to}`}</button></p></div>
       <div class="card"><b>3. Build the videos</b> <span class="soft">(each video a run; they are made one at a time)</span>
@@ -496,6 +497,7 @@ function scriptCard(s) {
   const head = `<div class="row"><b>${esc(s.title)}</b><span class="soft">pages ${s.from}–${s.to}</span>
     <span class="chip ${s.status}">${s.status}</span>${s.seconds != null ? `<span class="soft">${secs(s.seconds)}</span>` : ""}
     ${s.cost ? `<span class="money">${usd(s.cost)}</span>` : ""}<span class="soft">${esc(s.settings.model)} · ${s.settings.long ? `one video of about ${Math.round(s.settings.seconds / 60)} min${s.chapters ? ` in ${s.chapters.length} chapters` : ""}` : `${s.settings.videos} × ${s.settings.seconds} s`} · ${esc(langName(s.settings.language))}</span>
+    ${s.settings.message ? `<span class="chip" title="the message this script carries, softly">message: ${esc(s.settings.message)}</span>` : ""}
     <span style="flex:1"></span>
     ${s.videos.some((v) => !v.run) ? `<button class="primary" onclick="buildVideos('${s.id}')">Build all not built</button>` : ""}
     <button onclick="dropScript('${s.id}')">Drop</button></div>`;
@@ -521,6 +523,7 @@ async function reread() {
 
 async function writeScript() {
   const body = {from: range.from, to: range.to, model: $("#s-model").value, notes: $("#s-notes").value,
+    message: $("#s-message").value,
     ...(config.long_videos ? {} : {videos: +$("#s-videos").value, seconds: +$("#s-seconds").value}),
     language: $("#s-lang").value};
   try { await api(`/api/books/${bsel}/script`, {method: "POST", body: JSON.stringify(body)}); refreshBook(true); loadRuns(); }

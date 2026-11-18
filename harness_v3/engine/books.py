@@ -210,6 +210,8 @@ def script(bid: str, a: int, b: int, settings: dict) -> str:
                                              else max(15, min(300, int(settings.get("seconds") or 40))),
                                              "long": LONG,
                                              "notes": str(settings.get("notes") or ""),
+                                             # a thought the lesson should leave, carried softly (prompts.MESSAGE)
+                                             "message": str(settings.get("message") or "").strip()[:300],
                                              "language": settings.get("language") if settings.get("language") in runs.LANGUAGES else "en"},
                                 "status": "running", "started": time.time(), "videos": []})
         save(book)
@@ -235,7 +237,7 @@ def _script(bid: str, sid: str) -> None:
     try:
         if not st.get("long"):                  # a few short videos, one call (the quick way to try things)
             system, user = prompts.script_prompt(pages_text(bid, sc["from"], sc["to"]), st["videos"], st["seconds"],
-                                                 st["notes"], st.get("language"))
+                                                 st["notes"], st.get("language"), st.get("message", ""))
             rec = {"settings": {"model": st["model"]}, "calls": calls}
             text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}", system, user,
                              max_tokens=min(32000, max(4000, int(st["videos"] * st["seconds"] * 4.2) + 600)),
@@ -255,7 +257,8 @@ def _script(bid: str, sid: str) -> None:
         def keep(_):
             with lock:
                 _keep(bid, sc, calls)
-        system, user = prompts.outline_prompt(pages_, st["notes"], st.get("language"), st["seconds"] / 60)
+        system, user = prompts.outline_prompt(pages_, st["notes"], st.get("language"), st["seconds"] / 60,
+                                              st.get("message", ""))
         text = runs.chat(rec, "script", f"pages {sc['from']}-{sc['to']}: the chapters", system, user, max_tokens=2500,
                          saver=keep)
         title, chapters = prompts.parse_outline(text)
@@ -263,7 +266,8 @@ def _script(bid: str, sid: str) -> None:
             raise RuntimeError("the plan had no `CHAPTER:` lines: " + text[:300])
 
         def write(k):
-            system, user = prompts.chapter_prompt(pages_, title, chapters, k, st["notes"], st.get("language"))
+            system, user = prompts.chapter_prompt(pages_, title, chapters, k, st["notes"], st.get("language"),
+                                                  st.get("message", ""))
             words = int(chapters[k]["minutes"] * prompts.WORDS_A_MINUTE)
             out = runs.chat(rec, "script", f"chapter {k + 1}: {chapters[k]['title']}", system, user,
                             max_tokens=int(words * 2.6) + 400, saver=keep)

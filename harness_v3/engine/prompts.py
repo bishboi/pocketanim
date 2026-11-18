@@ -638,14 +638,45 @@ A LONG VIDEO (this one runs MINUTES minutes): tell it as a documentary in CHAPTE
 - End on the answer to the opening question and one line that looks forward."""
 
 
-def script_prompt(pages: str, videos: int, seconds: int, notes: str = "", language: str | None = None) -> tuple[str, str]:
+MESSAGE = """
+A MESSAGE TO CARRY, SOFTLY: the people making this lesson want it to leave the viewer with one thought (given below,
+as THE MESSAGE). The lesson stays the lesson: the message rides inside it, the way a good teacher's aside does.
+- Find where the subject itself touches the message, and tell THAT part well: a real episode, person, cause or
+  consequence in the story (for "say no to drugs" in a lesson on China and Japan: the opium trade, how widely it
+  was smoked, what it did to families, the economy and the country's strength, and why the Qing tried to ban it).
+  Give such a moment the same care as the rest: a scene, a number made tangible, what it meant for one person.
+- Where the subject only brushes it, a single true, interesting fact or a short everyday comparison is enough. Never
+  bend the history, invent an episode, or force a link the subject does not have.
+- Show, do not preach: no slogans, no "kids, remember...", no lecturing, no "you should". Let the story and its
+  consequences say it. At most ONE quiet line of reflection in the whole script, near the end, said as a thought
+  ("Some of the costs of that trade were paid for generations."), never as an order.
+- Keep it in proportion: about one tenth of the narration, in 1-3 moments (more in a long video, spread across its
+  chapters), never the main thread, never at the very start.
+- Facts for these moments: from the pages, or plain, well-established history or science an encyclopaedia would
+  state (for these moments only, this widens the pages-only rule); no invented numbers, quotes or studies (leave a
+  number out rather than guess it).
+- Kind and fair: no graphic detail, no shaming of people who were harmed or who used something, no blaming of a
+  people or a country as a whole; suitable for school students."""
+
+
+def message_part(message: str) -> tuple[str, str]:
+    """(rules for the system prompt, the message for the user prompt) when a message is given; else nothing."""
+    m = (message or "").strip()
+    if not m:
+        return "", ""
+    return MESSAGE, f"THE MESSAGE (carry it softly, as told): {m}\n"
+
+
+def script_prompt(pages: str, videos: int, seconds: int, notes: str = "", language: str | None = None,
+                  message: str = "") -> tuple[str, str]:
     words = f"{int(seconds * 2.2)}-{int(seconds * 2.7)}"
     system = SCRIPT.replace("SECONDS", str(seconds)).replace("WORDS", words)
     if seconds >= 300:                          # minutes, not seconds: a long video has chapters (runs.py parts)
         system += LONG.replace("MINUTES", f"{seconds / 60:.0f}")
-    system += SCRIPT_LANG.get(language or "en", "")
+    rules, said = message_part(message)
+    system += rules + SCRIPT_LANG.get(language or "en", "")
     user = (f"Write {videos} video{'s' if videos != 1 else ''} at most (fewer when the pages hold less).\n"
-            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
+            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "") + said
             + f"\nTHE PAGES:\n{pages}")
     return system, user
 
@@ -684,10 +715,15 @@ no headings, no notes.
 
 
 def outline_prompt(pages: str, notes: str = "", language: str | None = None,
-                   minutes: float | None = None) -> tuple[str, str]:
+                   minutes: float | None = None, message: str = "") -> tuple[str, str]:
     m = minutes or VIDEO_MINUTES
-    system = OUTLINE.replace("MINUTES", f"{m:g}") + SCRIPT_LANG.get(language or "en", "")
-    user = ((f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "") + f"THE PAGES:\n{pages}")
+    rules, said = message_part(message)
+    if rules:
+        rules += """
+- In the plan, say where it lands: in each chapter that carries a moment of it, end its plan with
+  `(message: the moment, in a few words)`; most chapters carry none."""
+    system = OUTLINE.replace("MINUTES", f"{m:g}") + rules + SCRIPT_LANG.get(language or "en", "")
+    user = ((f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "") + said + f"THE PAGES:\n{pages}")
     return system, user
 
 
@@ -714,14 +750,20 @@ def parse_outline(text: str) -> tuple[str, list[dict]]:
 
 
 def chapter_prompt(pages: str, title: str, chapters: list[dict], k: int, notes: str = "",
-                   language: str | None = None) -> tuple[str, str]:
+                   language: str | None = None, message: str = "") -> tuple[str, str]:
     c = chapters[k]
     words = int(c["minutes"] * WORDS_A_MINUTE)
-    system = CHAPTER.replace("WORDS", str(words)).replace("MIN", f"{c['minutes']:g}") + SCRIPT_LANG.get(language or "en", "")
+    rules, said = message_part(message)
+    if rules:
+        rules += """
+- This is one chapter of many: carry the message here only if this chapter's plan marks a `(message: ...)` moment
+  (then tell that moment, as planned); otherwise do not touch it. The one line of reflection belongs to the last
+  chapter only."""
+    system = CHAPTER.replace("WORDS", str(words)).replace("MIN", f"{c['minutes']:g}") + rules + SCRIPT_LANG.get(language or "en", "")
     plan = "\n".join(f"{'>> ' if i == k else '   '}{i + 1}. {x['title']}: {x['plan']} ({x['minutes']:g} min)"
                      for i, x in enumerate(chapters))
     user = (f"THE VIDEO: {title}\nITS CHAPTERS (>> is the one you write):\n{plan}\n"
-            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "")
+            + (f"THE TEACHER'S NOTES: {notes}\n" if notes.strip() else "") + said
             + f"\nWrite chapter {k + 1}, \"{c['title']}\": about {words} words, one sentence a line."
             + f"\n\nTHE PAGES:\n{pages}")
     return system, user
